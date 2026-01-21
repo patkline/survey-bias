@@ -1,5 +1,7 @@
 # ------------------------------------------------------------------------------
-# Purpose: Define R globals for survey bias project
+# Purpose: Define R globals, installs and loads required packages 
+# for R, initialize Python virtual environment, and install 
+# required packages for Python
 #
 # Created: Nico Rotundo 2026-01-06
 # ------------------------------------------------------------------------------
@@ -20,7 +22,7 @@ create_tables_figures <- file.path(code, "create_tables_figures")
 # Github data paths
 data <- file.path(git_survey_bias_root, "data")
 raw <- file.path(data, "raw")
-cleaned_survey_data <- file.path(data, "cleaned_survey_data")
+processed <- file.path(data, "processed")
 external <- file.path(data, "external")
 dump <- file.path(data, "dump")
 
@@ -45,7 +47,7 @@ python_venv_installation <- file.path(python_venv_directory, "bin", "python")
 # Install and load required packages for R 
 #
 # Note. All packages are locally installed within the virtual 
-# environments in the project directory are are only installs 
+# environments in the project directory and are only installed 
 # when needed
 # ------------------------------------------------------------------------------
 

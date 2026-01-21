@@ -39,7 +39,7 @@ create_tables_figures = code / "create_tables_figures"
 # GitHub data paths
 data = git_survey_bias_root / "data"
 raw = data / "raw"
-cleaned_survey_data = data / "cleaned_survey_data"
+processed = data / "processed"
 external = data / "external"
 dump = data / "dump"
 
