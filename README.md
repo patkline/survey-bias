@@ -7,10 +7,25 @@
 Repository for the code used to version-control the data build, analysis, and results for the survey bias project.
 
 # Todo
-1. I went through `clean_raw_qualtrics_data.py` (i.e., `code/Evan/1_clean_data.py` in the Dropbox) and noted various questions i had with `XX` comments --- need to cntrl-f for `XX` and address those questions at some point 
-   1. For all intermediate datasets (i.e., not raw data), should probably check against the dropbox versions to ensure they match exactly
-2. Need to figure out the best approach to porting the Dropbox codebase here efficiently --- ideally would go file-by-file, adding necessary data to the Github data folder as we go, but this might be too time-consuming
-   1. Alternatively, could just upload the entire codebase and clean up as we go, but hesitate to do this, as then we'll be at square one re organizing the codebase 
+1. Build out structure of survey bias project directory (i.e., code, data, etc... folders) and get basic infrastructure working (i.e., automated setup of background things, such that anyone should be able to just clone the directory and just run any given file; package management for R and Python; globals for filepaths; metafiles for project execution that run the project from top-to-bottom and organize code order)
+   1. I think all that is left here is to make sure that the pakage management is functioning properly --- so it preserves package versions across time 
+   2. perhaps worthwhile to use Github LFS instead of dropbox for data
+      1. from my understanding it stores the data on some server and just saves a small version of the data file with binary pointers to these data (so like a filepath to the data stored on the server)
+         1.  when using EML, this seems like it would be useful to avoid having to download the entire data folder locally and managing the dropbox-eml sync in addition to the github-eml sync
+       2.  also, it'll be a good excuse to refine how we manage and store data, while keeping the dropbox archive as a backup  
+
+2.  for the metafiles, need to figure out if `source` can submit bash scripts, or if it is running things interactively 
+
+3. I went through `clean_raw_qualtrics_data.py` (i.e., `code/Evan/1_clean_data.py` in the Dropbox) and noted various questions i had with `XX` comments --- need to cntrl-f for `XX` and address those questions at some point 
+
+4. Now I think we just need to move over the remaining project code from the Dropbox to here, and change filepaths 
+   1. Need to figure out the best approach to porting the Dropbox codebase here efficiently --- ideally would go file-by-file, adding necessary data to the Github data folder as we go, but this might be too time-consuming
+      1. Alternatively, could just upload the entire codebase and clean up as we go, but hesitate to do this, as then we'll be at square one re organizing the codebase
+      2. Perhaps just upload the necessary files for what is currently in the draft, but nothing else? and then worst case if we need something else later we can add it then 
+
+5. For all intermediate datasets (i.e., not raw data), should probably check against the dropbox versions to ensure they match exactly
+
+6. Separately, need to figure out the EML integration and adjust the codebase accordingly
 
 # Temporary notes on codebase (will finalize)
 
