@@ -53,7 +53,8 @@ python_venv_installation <- file.path(python_venv_directory, "bin", "python")
 
 # Define list of required R packages
 required_r_packages <- c(
-  "ggplot2"
+  "ggplot2", 
+  "readxl"
 )
 
 # Identify missing R packages

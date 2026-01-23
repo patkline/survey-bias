@@ -7,9 +7,9 @@ source("~/Documents/consolidated_code_server/code/1_preprocessing_v3.R")
 library(readxl)
 
 # Prepare Sample
-dir <- "~/Documents/consolidated_code_server/processed/"
+processed <- "~/Documents/consolidated_code_server/processed/"
 excel_dir <- "~/Documents/consolidated_code_server/excel/"
-file_path <- file.path(dir, "long_survey.csv")
+file_path <- file.path(processed, "long_survey.csv")
 #source("~/Documents/consolidated_code_server/code/analysis_pipeline_v2.R") # why is this running the analysis pipeline --- isn't the current script an upstream data file?
 
 # Create Necessary Variables
@@ -131,7 +131,7 @@ for (outcome in survey_vars) {
 restricted_sample <- data %>% dplyr::filter(resp_id %in% resp_ids_union)
 
 # --- export to the same folder as the import, new name ---
-write.csv(restricted_sample, file.path(dir, "long_survey_final.csv"), row.names = FALSE)
+write.csv(restricted_sample, file.path(processed, "long_survey_final.csv"), row.names = FALSE)
 
 
 
