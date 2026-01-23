@@ -1,7 +1,18 @@
+# ------------------------------------------------------------------------------
+# Purpose: Prepare sample for analysis
+#
+# Created: Jordan cammarota
+# Edited: Nico Rotundo 2026-01-23
+# ------------------------------------------------------------------------------
+
 # Run globals
 source("code/globals.R")
 
-# Source
+# ------------------------------------------------------------------------------
+# Source necessary functions
+# ------------------------------------------------------------------------------
+
+# Source necessary functions
 source("~/Documents/consolidated_code_server/code/leave_in_connected.R")
 source("~/Documents/consolidated_code_server/code/1_preprocessing_v3.R")
 library(readxl)

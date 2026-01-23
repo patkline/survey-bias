@@ -18,6 +18,7 @@ code <- file.path(git_survey_bias_root, "code")
 build <- file.path(code, "data_build")
 analysis <- file.path(code, "analysis")
 create_tables_figures <- file.path(code, "create_tables_figures")
+helper_functions <- file.path(code, "helper_functions")
 
 # Github data paths
 data <- file.path(git_survey_bias_root, "data")
