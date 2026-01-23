@@ -23,4 +23,5 @@ if (basename(getwd()) != "survey-bias") {
   stop("Error: Working directory is not set to the 'survey-bias' folder. Current directory: ", getwd())
 }
 
-# NR: could auto-load globals here and then do not need to put it at the top of every script, but then lose the ability to edit the globals without restarting R (could do both)
+# Source globals.R to set up project paths and load packages
+source("code/globals.R")
