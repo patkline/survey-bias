@@ -26,6 +26,9 @@ processed <- file.path(data, "processed")
 external <- file.path(data, "external")
 dump <- file.path(data, "dump")
 
+# Github output paths
+excel <- file.path(git_survey_bias_root,"output/excel")
+
 # Dropbox data paths
 #db_survey_bias <- file.path(dropbox, "Survey Bias")
 #data <- file.path(db_survey_bias, "data")
@@ -54,8 +57,25 @@ python_venv_installation <- file.path(python_venv_directory, "bin", "python")
 # Define list of required R packages
 required_r_packages <- c(
   "ggplot2", 
-  "readxl"
+  "readxl",
+  # project infrastructure
+  "here",
+  "renv",
+  
+  # core packages (added)
+  "dplyr",
+  "igraph",
+  "openxlsx",
+  "parallel",
+  "PlackettLuce",
+  "prefmod",
+  "readxl",
+  "sandwich",
+  "tibble",
+  "tidyr",
+  "writexl"
 )
+
 
 # Identify missing R packages
 missing_r_packages <- required_r_packages[!sapply(required_r_packages, requireNamespace, quietly = TRUE)]

@@ -1,15 +1,4 @@
 # -----------------------------------------------
-# Load Necessary Libraries
-# -----------------------------------------------
-library(prefmod)
-library(dplyr)
-library(tidyr)
-library(writexl)
-library(openxlsx)
-library(PlackettLuce)
-library(tibble)
-
-# -----------------------------------------------
 # Define Function to Run Plackett-Luce and Extract Coefficients
 # -----------------------------------------------
 clean_experimental <- function(data, outcomes) {

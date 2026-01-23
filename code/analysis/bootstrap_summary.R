@@ -1,6 +1,3 @@
-library(readxl)
-library(dplyr)
-
 bs_summary <- function(path, sheet, lhs, rhs, na_tol = 0.02) {
   ## 1) read the sheet
   dat <- read_excel(path, sheet = sheet)

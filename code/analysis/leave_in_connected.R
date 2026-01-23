@@ -1,6 +1,3 @@
-library(dplyr)
-library(igraph)
-
 # -------------------------------
 # 1) Leave-in connected set (LCC with everyone included)
 # -------------------------------

@@ -16,7 +16,6 @@ pairwise_borda_process <- function(B_indiv1, B_indiv2,
                                    unique_firms = NULL,
                                    id_var = "resp_id") {
 
-  source("~/Documents/consolidated_code_server/code/pm_calc.R")
   
   # -- Basic column checks --------------------------------------------------------
   need_cols <- c(id_var, "firm_id", "firm", "B")

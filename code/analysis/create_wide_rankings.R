@@ -1,7 +1,4 @@
 prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
-  library(dplyr)
-  library(tidyr)
-  
 
   # Step 1: Ensure input data has necessary columns
   required_cols <- c(rank_col)

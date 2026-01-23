@@ -1,5 +1,3 @@
-library(dplyr)
-
 # ------------------------------------------------------------
 # Individual-level Borda scores from WIDE rankings (with id_map)
 # - data_wide: columns "resp_id", "firm1"..."firmN"; values 0 (not ranked) or 1..K

@@ -1,5 +1,3 @@
-source("~/Documents/consolidated_code_server/code/eivtools/R/eivreg.R") 
-
 bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
                        borda = FALSE,
                        n_cores = min(32, max(1, parallel::detectCores(logical = TRUE) - 1)),

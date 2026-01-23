@@ -1,14 +1,3 @@
-library(parallel)
-library(dplyr)
-library(tidyr)
-library(PlackettLuce)
-library(sandwich)
-library(prefmod)
-library(tibble)
-
-source("~/Documents/consolidated_code_server/code/score_function.R")
-source("~/Documents/consolidated_code_server/code/katz_correct.R")
-
 bootstrap_manual <- function(wide_mat,
                              id_map,
                              firms97,          # <-- NEW: 97-firm subset
