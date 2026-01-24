@@ -7,6 +7,9 @@
 # Activate renv, which manages package versions for reproducibility
 source("renv/activate.R")
 
+# Use Posit Package Manager for pre-compiled binaries (avoids compilation issues)
+options(repos = c(CRAN = "https://packagemanager.posit.co/cran/latest"))
+
 # Ensure essential packages are installed
 for (package in c("here", "jsonlite", "rlang")) {
   if (!requireNamespace(package, quietly = TRUE)) renv::install(package)

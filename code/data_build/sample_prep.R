@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # Purpose: Prepare sample for analysis
 #
-# Created: Jordan cammarota
+# Created: Jordan Cammarota
 # Edited: Nico Rotundo 2026-01-23
 # ------------------------------------------------------------------------------
 
@@ -13,15 +13,16 @@ source("code/globals.R")
 # ------------------------------------------------------------------------------
 
 # Source necessary functions
-source("~/Documents/consolidated_code_server/code/leave_in_connected.R")
-source("~/Documents/consolidated_code_server/code/1_preprocessing_v3.R")
-library(readxl)
+source(file.path(helper_functions, "leave_in_connected.R"))
+source(file.path(helper_functions, "1_preprocessing_v3.R"))
+#source(file.path(analysis, "analysis_pipeline_v2.R"))
 
+# ------------------------------------------------------------------------------
 # Prepare Sample
-processed <- "~/Documents/consolidated_code_server/processed/"
-excel_dir <- "~/Documents/consolidated_code_server/excel/"
+# ------------------------------------------------------------------------------
+
+# Define file path for long survey data
 file_path <- file.path(processed, "long_survey.csv")
-#source("~/Documents/consolidated_code_server/code/analysis_pipeline_v2.R") # why is this running the analysis pipeline --- isn't the current script an upstream data file?
 
 # Create Necessary Variables
 data <- read.csv(file_path, stringsAsFactors = FALSE) %>%
@@ -69,7 +70,7 @@ data <- data %>%
                                   na_if(conduct_favor_male,   -1))
   )
 
-industry_map <- read_excel("~/Documents/consolidated_code_server/processed/industry_map.xlsx") %>% 
+industry_map <- read_excel(file.path(processed, "industry_map.xlsx")) %>% 
   select(firm_id, aer_naics2)
 
 data <- left_join(data, industry_map, by="firm_id")
@@ -143,6 +144,3 @@ restricted_sample <- data %>% dplyr::filter(resp_id %in% resp_ids_union)
 
 # --- export to the same folder as the import, new name ---
 write.csv(restricted_sample, file.path(processed, "long_survey_final.csv"), row.names = FALSE)
-
-
-

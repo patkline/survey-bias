@@ -9,13 +9,9 @@ Repository for the code used to version-control the data build, analysis, and re
 # Getting started 
 
 ## Prerequisites
-- **R** (version 4.0 or higher)
-- **Python 3** (version 3.7 or higher)
-- **Git LFS** (for handling large data files)
-- **gfortran** (Fortran compiler, required for some R packages like igraph)
-  - macOS: `brew install gcc`
-  - Windows: Typically included with Rtools
-  - Linux: `sudo apt-get install gfortran` or equivalent
+- R 
+- Python 3
+- Git LFS
 
 ## Setup instructions
 
@@ -30,12 +26,14 @@ Repository for the code used to version-control the data build, analysis, and re
 2. Download the actual data files by running `git lfs pull` in the `/survey-bias directory` 
 
 ### Final setup (all users):
-4. Open R in the project directory and the `.Rprofile` will automatically,
+1. Open R in the project directory and the `.Rprofile` will automatically,
    - Activate `renv` for package management
    - Set the working directory
    - Install essential R packages
 
-### For any issues, reach out to me `nrotundo@berkeley.edu`
+2. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
+
+## For any issues, reach out to me at `nrotundo@berkeley.edu`
 
 # Todo
 1. Build out structure of survey bias project directory (i.e., code, data, etc... folders) and get basic infrastructure working (i.e., automated setup of background things, such that anyone should be able to just clone the directory and just run any given file; package management for R and Python; globals for filepaths; metafiles for project execution that run the project from top-to-bottom and organize code order)

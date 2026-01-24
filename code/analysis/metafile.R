@@ -5,14 +5,11 @@
 # ------------------------------------------------------------------------------
 
 # Run globals
-source("../globals.R")
+source("code/globals.R")
 
 # Load Necessary Functions
-source(file.path(analysis,"load_all.R"))
-source(file.path(analysis,"analysis_pipeline.R"))
-
-
-message("Starting analysis...")
+source(file.path(analysis, "load_all.R"))
+source(file.path(analysis, "analysis_pipeline.R"))
 
 # 
 # ## 0) parse args -------------------------------------------------------------
@@ -111,6 +108,3 @@ system.time({
                         diagnostic = FALSE,
                         B = 1)
 })
-
-
-message("Analysis complete")

@@ -1,37 +1,34 @@
 ## Sample Prep
-source("extra_functions.R")
-source("leave_in_connected.R")
-source("create_wide_rankings.R")
+source(file.path(analysis, "extra_functions.R"))
+source(file.path(analysis, "leave_in_connected.R"))
+source(file.path(analysis, "create_wide_rankings.R"))
 
 ## Core Results
-source("plackett_luce.R")
-source("experimental.R")
-source("borda_score.R")
+source(file.path(analysis, "plackett_luce.R"))
+source(file.path(analysis, "experimental.R"))
+source(file.path(analysis, "borda_score.R"))
 
 ## Bootstrap
-source("bootstrap_manual.R")
-source("bootstrap_pairwise_manual.R")
-source("borda_bootstrap.R")
+source(file.path(analysis, "bootstrap_manual.R"))
+source(file.path(analysis, "bootstrap_pairwise_manual.R"))
+source(file.path(analysis, "borda_bootstrap.R"))
 
 ## EIV
-source("eiv_bootstrap.R")
-source("bootstrap_summary.R")
+source(file.path(analysis, "eiv_bootstrap.R"))
+source(file.path(analysis, "bootstrap_summary.R"))
 
 ## PL to Borda
-source("expected_borda_score.R")
-source("pl_to_borda.R")
+source(file.path(analysis, "expected_borda_score.R"))
+source(file.path(analysis, "pl_to_borda.R"))
 
 ## Pairwise Process
-source("pairwise_process_borda.R") # Pairwise Process
-source("pairwise_process.R") # Pairwise Process
+source(file.path(analysis, "pairwise_process_borda.R")) # Pairwise Process
+source(file.path(analysis, "pairwise_process.R")) # Pairwise Process
 
 # Other
-source("katz_correct.R") # Noise Correction
-source("win_share.R") # Win Share
-source("EB_procedure.R") # EB Procedure
-source("score_function.R") # Score Function
-source("eivreg.R") # EIV
-source("pm_calc.R") # Not currently used
-
-
-
+source(file.path(analysis, "katz_correct.R")) # Noise Correction
+source(file.path(analysis, "win_share.R")) # Win Share
+source(file.path(analysis, "EB_procedure.R")) # EB Procedure
+source(file.path(analysis, "score_function.R")) # Score Function
+source(file.path(analysis, "eivreg.R")) # EIV
+source(file.path(analysis, "pm_calc.R")) # Not currently used
