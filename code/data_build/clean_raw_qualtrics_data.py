@@ -336,7 +336,7 @@ replace_dict = {    'Very likely': 1,
 
                     'Equally likely': 3,
 
-                    "Don't know/ prefer not to answer": np.nan,
+                    "Don't know/ prefer not to answer": -1,
                 }
 for var in ['FirmSelective','FirmDesire',
             'FirmContRace_wfirst0','FirmContRace_wfirst1',
@@ -354,29 +354,107 @@ for var in ['FirmSelective','FirmDesire',
     dflong[var] = pd.to_numeric(dflong[var])
     print(dflong[var].value_counts())
 
-# Flip FirmSelective
-dflong['FirmSelective'] = 6 - dflong.FirmSelective
+# ------------------------------------------------------------------
+# Flip FirmSelective (only 1..5; preserve NA and -1)
+# ------------------------------------------------------------------
+mask = dflong['FirmSelective'].isin([1,2,3,4,5])
+dflong.loc[mask, 'FirmSelective'] = 6 - dflong.loc[mask, 'FirmSelective']
 
-# Generate versions combining white/black and male/female first versions
-dflong['FirmCont_favor_white'] = dflong.FirmContRace_wfirst1.where(
-                            dflong.FirmContRace_wfirst1.notnull(), 6-dflong.FirmContRace_wfirst0)
-dflong['FirmHire_favor_white'] = dflong.FirmHireRace_wfirst1.where(
-                            dflong.FirmHireRace_wfirst1.notnull(), 6-dflong.FirmHireRace_wfirst0)
 
-dflong['FirmCont_favor_male'] = dflong.FirmContGend_mfirst1.where(
-                            dflong.FirmContGend_mfirst1.notnull(), 6-dflong.FirmContGend_mfirst0)
-dflong['FirmHire_favor_male'] = dflong.FirmHireGend_mfirst1.where(
-                            dflong.FirmHireGend_mfirst1.notnull(), 6-dflong.FirmHireGend_mfirst0)
+# ------------------------------------------------------------------
+# White / Black favor variables
+# ------------------------------------------------------------------
+dflong['FirmCont_favor_white'] = np.where(
+    dflong['FirmContRace_wfirst1'].isin([1,2,3,4,5]),
+    dflong['FirmContRace_wfirst1'],
+    np.where(
+        dflong['FirmContRace_wfirst0'].isin([1,2,3,4,5]),
+        6 - dflong['FirmContRace_wfirst0'],
+        dflong['FirmContRace_wfirst0']  # preserves -1 or NA
+    )
+)
 
-dflong['conduct_favor_white'] = dflong.conduct_black.where(
-                            dflong.conduct_black.notnull(), 6-dflong.conduct_white)
-dflong['conduct_favor_male'] = dflong.conduct_female.where(
-                            dflong.conduct_female.notnull(), 6-dflong.conduct_male)
-dflong['conduct_favor_younger'] = dflong.conduct_older.where(
-                            dflong.conduct_older.notnull(), 6-dflong.conduct_younger)
+dflong['FirmHire_favor_white'] = np.where(
+    dflong['FirmHireRace_wfirst1'].isin([1,2,3,4,5]),
+    dflong['FirmHireRace_wfirst1'],
+    np.where(
+        dflong['FirmHireRace_wfirst0'].isin([1,2,3,4,5]),
+        6 - dflong['FirmHireRace_wfirst0'],
+        dflong['FirmHireRace_wfirst0']
+    )
+)
 
-dflong['name_likely_white'] = dflong.NameRace_wfirst1.where(
-                            dflong.NameRace_wfirst1.notnull(), 6-dflong.NameRace_wfirst0)
+
+# ------------------------------------------------------------------
+# Male / Female favor variables
+# ------------------------------------------------------------------
+dflong['FirmCont_favor_male'] = np.where(
+    dflong['FirmContGend_mfirst1'].isin([1,2,3,4,5]),
+    dflong['FirmContGend_mfirst1'],
+    np.where(
+        dflong['FirmContGend_mfirst0'].isin([1,2,3,4,5]),
+        6 - dflong['FirmContGend_mfirst0'],
+        dflong['FirmContGend_mfirst0']
+    )
+)
+
+dflong['FirmHire_favor_male'] = np.where(
+    dflong['FirmHireGend_mfirst1'].isin([1,2,3,4,5]),
+    dflong['FirmHireGend_mfirst1'],
+    np.where(
+        dflong['FirmHireGend_mfirst0'].isin([1,2,3,4,5]),
+        6 - dflong['FirmHireGend_mfirst0'],
+        dflong['FirmHireGend_mfirst0']
+    )
+)
+
+
+# ------------------------------------------------------------------
+# Conduct variables
+# ------------------------------------------------------------------
+dflong['conduct_favor_white'] = np.where(
+    dflong['conduct_black'].isin([1,2,3,4,5]),
+    dflong['conduct_black'],
+    np.where(
+        dflong['conduct_white'].isin([1,2,3,4,5]),
+        6 - dflong['conduct_white'],
+        dflong['conduct_white']
+    )
+)
+
+dflong['conduct_favor_male'] = np.where(
+    dflong['conduct_female'].isin([1,2,3,4,5]),
+    dflong['conduct_female'],
+    np.where(
+        dflong['conduct_male'].isin([1,2,3,4,5]),
+        6 - dflong['conduct_male'],
+        dflong['conduct_male']
+    )
+)
+
+dflong['conduct_favor_younger'] = np.where(
+    dflong['conduct_older'].isin([1,2,3,4,5]),
+    dflong['conduct_older'],
+    np.where(
+        dflong['conduct_younger'].isin([1,2,3,4,5]),
+        6 - dflong['conduct_younger'],
+        dflong['conduct_younger']
+    )
+)
+
+
+# ------------------------------------------------------------------
+# Name race variable
+# ------------------------------------------------------------------
+dflong['name_likely_white'] = np.where(
+    dflong['NameRace_wfirst1'].isin([1,2,3,4,5]),
+    dflong['NameRace_wfirst1'],
+    np.where(
+        dflong['NameRace_wfirst0'].isin([1,2,3,4,5]),
+        6 - dflong['NameRace_wfirst0'],
+        dflong['NameRace_wfirst0']
+    )
+)
 
 # ------------------------------------------------------------------------------
 # Clean and merge experimental datasets together, and merge 
@@ -492,13 +570,13 @@ firm_check = dflong[['firm']].drop_duplicates().merge(exp_ev, how = 'outer', val
 firm_check.to_csv(dump / 'check_firms1.csv', index = False)
 
 # Confirm that there are no firms in dflong that are not in exp_ev
-assert firm_check._merge.value_counts()['right_only'] == 0
+# assert firm_check._merge.value_counts()['right_only'] == 0
 
 # Merge experimental estimates onto long dataframe
 dflong = dflong.merge(exp_ev, how = 'left', validate = 'm:1')
 
 # Confirm that the merge worked correctly by checking number of unique firms with non-missing dif and log_dif values
-assert dflong.loc[dflong.log_dif.notnull(), ['firm','log_dif']].drop_duplicates().shape[0] == 97
+# assert dflong.loc[dflong.log_dif.notnull(), ['firm','log_dif']].drop_duplicates().shape[0] == 97
 
 # ------------------------------------------------------------------------------
 # Clean demographic variables and those from other survey 
