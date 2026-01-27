@@ -26,7 +26,7 @@ message("\n----------------------------------------")
 message("Running analysis...")
 message("----------------------------------------\n")
 
-#source(file.path(analysis, "metafile.R"))
+source(file.path(analysis, "metafile.R"))
 
 # ------------------------------------------------------------------------------
 # Generate figures & tables
