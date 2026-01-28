@@ -606,8 +606,8 @@ df.loc[df['race'].str.lower() == 'nan', 'race'] = np.nan
 # Convert all characters in the educ variable to only letters, numbers, and spaces
 df['educ'] = df['educ'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', ' ', x)).str.strip()
 # df['educ'] = df['educ'].astype('object') \
-                       .str.replace(r'[^a-zA-Z0-9]', ' ', regex=True) \
-                       .str.strip()
+#                       .str.replace(r'[^a-zA-Z0-9]', ' ', regex=True) \
+#                       .str.strip()
 
 # Recode education values for consistency
 df['educ'].replace({'Some college  no degree': 'Some college, no degree',
@@ -629,8 +629,8 @@ df.loc[df.educ == "nan", 'educ'] = ""
 # Convert all characters in the empstat variable to only letters, underscores, numbers, and spaces
 df['empstat'] = df['empstat'].astype(str).apply(lambda x: re.sub(r'[^\w\s]','',x)).str.strip()
 # df['empstat'] = df['empstat'].astype('object') \
-                           .str.replace(r'[^\w\s]', '', regex=True) \
-                           .str.strip()
+#                           .str.replace(r'[^\w\s]', '', regex=True) \
+#                           .str.strip()
 
 # Replace "nan" strings with missing values
 df.loc[df.empstat == "nan", 'empstat'] = ""
