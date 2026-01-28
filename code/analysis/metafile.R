@@ -57,34 +57,12 @@ outcome_types <- list(
   "log_dif_gender" = "Experimental","dif_age" = "Experimental","log_dif_age" = "Experimental"
 )
 
-
-# Convert sentinel -1 to NA for all outcome columns
-# (handles both numeric -1 and character "-1")
-all_outcomes <- intersect(
-  unique(c(survey_vars, names(outcome_types))),   # everything you might analyze
-  names(data)                                     # actually present in the file
-)
-
-data <- data %>%
-  dplyr::mutate(
-    dplyr::across(
-      dplyr::all_of(all_outcomes),
-      ~ dplyr::na_if(suppressWarnings(as.numeric(.)), -1)
-    )
-  )
-
-data <- data %>%
-  mutate(educ = educ_0_1,
-         age = age_gt40)
-
 firms97 <- data %>% filter(!is.na(dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
-
 industry_map_path <- file.path(processed,"industry_map.xlsx")
+
 subset_var <- NULL
 subset_value <- NULL
 output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
-
-
 
 # # Function Call Female
 system.time({
@@ -110,6 +88,7 @@ system.time({
                         diagnostic = FALSE,
                         B = 1)
 })
+
 # 
 # ---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 # runs <- tibble::tribble(

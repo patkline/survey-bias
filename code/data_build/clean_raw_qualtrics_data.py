@@ -604,10 +604,10 @@ df.loc[df['race'].str.lower() == 'nan', 'race'] = np.nan
 
 ## Education
 # Convert all characters in the educ variable to only letters, numbers, and spaces
-df['educ'] = df['educ'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', ' ', x)).str.strip()
-# df['educ'] = df['educ'].astype('object') \
-#                       .str.replace(r'[^a-zA-Z0-9]', ' ', regex=True) \
-#                       .str.strip()
+# df['educ'] = df['educ'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', ' ', x)).str.strip()
+df['educ'] = df['educ'].astype('object') \
+                       .str.replace(r'[^a-zA-Z0-9]', ' ', regex=True) \
+                       .str.strip()
 
 # Recode education values for consistency
 df['educ'].replace({'Some college  no degree': 'Some college, no degree',
@@ -621,20 +621,20 @@ df['educ'].replace({'Some college  no degree': 'Some college, no degree',
                      '12th grade no diploma': 'Some years of high school'}, inplace = True)
 
 # Replace "nan" strings with missing values
-df.loc[df.educ == "nan", 'educ'] = ""
-# df.loc[df['educ'].str.lower() == 'nan', 'educ'] = ""
+# df.loc[df.educ == "nan", 'educ'] = ""
+df.loc[df['educ'].str.lower() == 'nan', 'educ'] = ""
 
 ## Employment
 
 # Convert all characters in the empstat variable to only letters, underscores, numbers, and spaces
-df['empstat'] = df['empstat'].astype(str).apply(lambda x: re.sub(r'[^\w\s]','',x)).str.strip()
-# df['empstat'] = df['empstat'].astype('object') \
-#                           .str.replace(r'[^\w\s]', '', regex=True) \
-#                           .str.strip()
+# df['empstat'] = df['empstat'].astype(str).apply(lambda x: re.sub(r'[^\w\s]','',x)).str.strip()
+df['empstat'] = df['empstat'].astype('object') \
+                           .str.replace(r'[^\w\s]', '', regex=True) \
+                           .str.strip()
 
 # Replace "nan" strings with missing values
-df.loc[df.empstat == "nan", 'empstat'] = ""
-# df.loc[df['empstat'].str.lower() == 'nan', 'empstat'] = ""
+# df.loc[df.empstat == "nan", 'empstat'] = ""
+df.loc[df['empstat'].str.lower() == 'nan', 'empstat'] = ""
 
 # Convert age variable to numeric
 df['age'] = pd.to_numeric(df.age, errors = 'coerce')

@@ -161,6 +161,10 @@ restricted_sample_analysis <- restricted_sample %>%
     }
   ))
 
+data <- data %>%
+  mutate(educ = educ_0_1,
+         age = age_gt40)
+
 # --- export analysis-ready version (NO -1s) ---
 write.csv(restricted_sample_analysis,
           file.path(processed, "long_survey_final.csv"),
