@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 
 # Run globals
-source("../globals.R")
+source("code/globals.R")
 
 # Load Necessary Functions
 source(file.path(analysis, "load_all.R"))
