@@ -28,3 +28,6 @@ if (basename(getwd()) != "survey-bias") {
 
 # Source globals.R to set up project paths and load packages
 source("code/globals.R")
+
+# Message that this file was sourced 
+message("🎃 .Rprofile was successfully sourced")

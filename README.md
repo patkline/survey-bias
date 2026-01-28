@@ -29,7 +29,7 @@ Repository for the code used to version-control the data build, analysis, and re
 1. Open R in the project directory and the `.Rprofile` will automatically,
    - Activate `renv` for package management
    - Set the working directory
-   - Install essential R packages
+   - Install necessary R packages
 
 2. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
 
@@ -62,7 +62,7 @@ Repository for the code used to version-control the data build, analysis, and re
    
    1. `/.Rprofile` --- File that auto-executes upon R startup (analogous to Stata profile.do file); does the following,
       1. Activates renv (which manages R package versions for the project)
-      2. Checks if essential R packages are installed (and installs them if not)
+      2. Checks if necessary R packages are installed (and installs them if not)
          1. `here` --- Allows for the relative file paths in the codebase to function without setting manually 
          2. `jsonlite, rlang` --- Necessary for renv to function properly
       3. Sets working to the project root directory (i.e., /survey-bias) and checks that this was successful (since all file paths in the codebase are relative to this root directory)
