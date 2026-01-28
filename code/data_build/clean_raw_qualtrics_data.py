@@ -594,11 +594,20 @@ df.loc[df.race == 'White', 'race_recode'] = 'White'
 df.loc[df.race == 'Black or African American', 'race_recode'] = 'Black'
 
 # Convert all characters in the race variable to only letters and spaces 
-df['race'] = df['race'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z]', ' ', x)).str.strip()
+# df['race'] = df['race'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z]', ' ', x)).str.strip()
+# Convert all characters in the race variable to only letters and spaces (vectorized, preserves NaN)
+df['race'] = df['race'].astype('object') \
+                     .str.replace(r'[^a-zA-Z]', ' ', regex=True) \
+                     .str.strip()
+# Convert literal 'nan' strings (if any) to real NA
+df.loc[df['race'].str.lower() == 'nan', 'race'] = np.nan
 
 ## Education
 # Convert all characters in the educ variable to only letters, numbers, and spaces
-df['educ'] = df['educ'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', ' ', x)).str.strip()
+# df['educ'] = df['educ'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', ' ', x)).str.strip()
+df['educ'] = df['educ'].astype('object') \
+                       .str.replace(r'[^a-zA-Z0-9]', ' ', regex=True) \
+                       .str.strip()
 
 # Recode education values for consistency
 df['educ'].replace({'Some college  no degree': 'Some college, no degree',
@@ -612,15 +621,20 @@ df['educ'].replace({'Some college  no degree': 'Some college, no degree',
                      '12th grade no diploma': 'Some years of high school'}, inplace = True)
 
 # Replace "nan" strings with missing values
-df.loc[df.educ == "nan", 'educ'] = ""
+# df.loc[df.educ == "nan", 'educ'] = ""
+df.loc[df['educ'].str.lower() == 'nan', 'educ'] = ""
 
 ## Employment
 
 # Convert all characters in the empstat variable to only letters, underscores, numbers, and spaces
-df['empstat'] = df['empstat'].astype(str).apply(lambda x: re.sub(r'[^\w\s]','',x)).str.strip()
+#df['empstat'] = df['empstat'].astype(str).apply(lambda x: re.sub(r'[^\w\s]','',x)).str.strip()
+df['empstat'] = df['empstat'].astype('object') \
+                           .str.replace(r'[^\w\s]', '', regex=True) \
+                           .str.strip()
 
 # Replace "nan" strings with missing values
-df.loc[df.empstat == "nan", 'empstat'] = ""
+#df.loc[df.empstat == "nan", 'empstat'] = ""
+df.loc[df['empstat'].str.lower() == 'nan', 'empstat'] = ""
 
 # Convert age variable to numeric
 df['age'] = pd.to_numeric(df.age, errors = 'coerce')
@@ -661,7 +675,10 @@ df['attention_score'] = df.apply(lambda x: count_attention(x), axis=1)
 df['response_duration'] = pd.to_numeric(df['Duration (in seconds)'])
 
 # Clean firm names in long dataframe by removing any text in parentheses
-dflong['firm_clean'] = dflong['firm'].astype(str).apply(lambda x: re.sub(r'\([^)]*\)', '', x)).str.strip()
+# dflong['firm_clean'] = dflong['firm'].astype(str).apply(lambda x: re.sub(r'\([^)]*\)', '', x)).str.strip()
+dflong['firm_clean'] = dflong['firm'].astype('object') \
+                           .str.replace(r'\([^)]*\)', '', regex=True) \
+                           .str.strip()
 
 # ------------------------------------------------------------------------------
 # Merge long dataframe with main df dataframe
