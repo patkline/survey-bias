@@ -7,13 +7,13 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
                                   run_jackknife = FALSE, run_bootstrap = FALSE, sim_pl_to_borda = FALSE,
                                   exact_pl_to_borda = FALSE, sum_signal_noise = FALSE,
                                   run_bs_eiv = FALSE, run_eiv = FALSE, eiv_summary = FALSE,
-                                  pairwise_process = FALSE,
+                                  run_pairwise_process = FALSE,
                                   diagnostic = FALSE, borda_score = FALSE,
                                   borda_bs_w = FALSE, borda_bs = FALSE,
                                   borda_eiv = FALSE,
                                   run_borda_eiv = FALSE,
                                   borda_eiv_summary = FALSE,
-                                  pairwise_process_borda = FALSE,
+                                  run_pairwise_process_borda = FALSE,
                                   generate_wide = TRUE,
                                   seed = 123,
                                   B = 200) {
@@ -554,7 +554,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   
   # Section ID: This section calculates covariance noise for each pair of outcomes.
   # The covariance noise is calculated using the sandwich formula.
-  if (pairwise_process) {
+  if (run_pairwise_process) {
     set.seed(seed)
     
     temp <- data %>% filter(!is.na(dif))
@@ -1355,7 +1355,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   
   # Section IID: This section runs pairwise processes borda score outcomes
   # The covariance noise is calculated using the sandwich formula.
-  if (pairwise_process_borda) {
+  if (run_pairwise_process_borda) {
     set.seed(seed)
     
     # empty lists to store results

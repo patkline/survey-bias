@@ -143,4 +143,25 @@ for (outcome in survey_vars) {
 restricted_sample <- data %>% dplyr::filter(resp_id %in% resp_ids_union)
 
 # --- export to the same folder as the import, new name ---
-write.csv(restricted_sample, file.path(processed, "long_survey_final.csv"), row.names = FALSE)
+write.csv(restricted_sample, file.path(processed, "long_survey_final_summary_stats.csv"), row.names = FALSE)
+
+# --- analysis version: convert -1 to NA everywhere ---
+restricted_sample_analysis <- restricted_sample %>%
+  mutate(across(
+    everything(),
+    ~ {
+      # If numeric/integer: convert -1 to NA
+      if (is.numeric(.) || is.integer(.)) return(na_if(., -1))
+      
+      # If character: convert "-1" to NA (in case it got read as text)
+      if (is.character(.)) return(na_if(., "-1"))
+      
+      # Otherwise (factors, lists, etc): leave unchanged
+      .
+    }
+  ))
+
+# --- export analysis-ready version (NO -1s) ---
+write.csv(restricted_sample_analysis,
+          file.path(processed, "long_survey_final.csv"),
+          row.names = FALSE)
