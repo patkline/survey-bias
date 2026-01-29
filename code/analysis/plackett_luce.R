@@ -3,6 +3,7 @@ run_plackett_luce <- function(data_wide, id_map, outcome, firms97) {
   # ---------------------------------
   # Fit PL model (MLE)
   # ---------------------------------
+  resp_ids <- data_wide$resp_id
   data_wide <- data_wide %>% dplyr::select(-resp_id)
   mod_mle   <- PlackettLuce(data_wide, npseudo = 0.5)
   summary_mod_mle <- summary(
@@ -45,18 +46,33 @@ run_plackett_luce <- function(data_wide, id_map, outcome, firms97) {
   # ---------------------------------
   K <- nrow(outcome_coeff)
   
-  # estfun × √n
-  S <- score_function(mod_mle)
-  # observed information (all params: firms + ties)
-  B_obs <- vcov(mod_mle, type = "observed", ref = NULL)
+  # ---------------------------------
+  # Robust SEs (sandwich) – FIRMS ONLY
+  # ---------------------------------
+  S_all <- score_function(mod_mle)  # n x p_all (firms + ties)
   
-  # sandwich: B^{-1} M B^{-1}, where M = E[ss']
-  M          <- crossprod(S) / nrow(S)
-  robust_cov <- B_obs %*% M %*% B_obs
+  # firm params in the same order as outcome_coeff
+  firm_mask_names <- paste0("firm", outcome_coeff$firm_id)
   
-  # restrict to firm parameters only, in the same order as outcome_coeff
-  firm_rows       <- paste0("firm", outcome_coeff$firm_id)
-  robust_cov_firm <- robust_cov[firm_rows, firm_rows, drop = FALSE]
+  take_idx <- match(firm_mask_names, colnames(S_all))
+  if (anyNA(take_idx)) {
+    miss <- firm_mask_names[is.na(take_idx)]
+    stop("Some firm params not found in score_function columns: ", paste(miss, collapse = ", "))
+  }
+  
+  S_firm <- as.matrix(S_all[, take_idx, drop = FALSE])  # n x J
+  
+  # observed info inverse (your "Binv") restricted to firms
+  Binv_firm <- vcov(mod_mle, type = "observed", ref = NULL)
+  Binv_firm <- Binv_firm[firm_mask_names, firm_mask_names, drop = FALSE]
+  
+  # sandwich covariance (firm x firm)
+  M          <- crossprod(S_firm)          # match your old scaling
+  robust_cov_firm <- Binv_firm %*% M %*% Binv_firm
+  
+  # build S as resp_id + firm<id> cols (for pairwise_process downstream)
+  S_df <- cbind(resp_id = resp_ids, as.data.frame(S_firm))
+  colnames(S_df)[-1] <- firm_mask_names
   
   robust_se <- sqrt(diag(robust_cov_firm))
   
@@ -67,6 +83,7 @@ run_plackett_luce <- function(data_wide, id_map, outcome, firms97) {
   
   outcome_coeff <- outcome_coeff %>%
     dplyr::left_join(robust_df, by = "firm_id")
+  
   
   new_est <- paste0(outcome)
   new_se  <- paste0(outcome, "_rse")
@@ -243,6 +260,10 @@ run_plackett_luce <- function(data_wide, id_map, outcome, firms97) {
     var_comp_alpha_97  = var_comp_alpha_97,
     ## NEW:
     logLik_mle         = logLik_mle,
-    n_par_mle          = n_par_mle
+    n_par_mle          = n_par_mle,
+    #NEW
+    robust_cov        = robust_cov_firm,
+    S                  = S_df,
+    Binv              = Binv_firm
   )
 }

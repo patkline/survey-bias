@@ -82,6 +82,10 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   if (process_outcomes) {
     set.seed(seed)
     
+    S_list    <- list()
+    Binv_list <- list()
+    cov_list  <- list()
+    
     # containers for PL outputs
     coeff_df       <- data.frame()
     se_df          <- data.frame()
@@ -114,6 +118,30 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       
       # ---------- Plackett–Luce estimation ----------
       pl <- run_plackett_luce(data_wide, id_map, outcome, firms97)
+      
+      S_list[[outcome]]    <- pl$S          # data.frame: resp_id + firm*
+      Binv_list[[outcome]] <- pl$Binv       # firm-only J×J
+      cov_list[[outcome]]  <- pl$robust_cov # firm-only J×J
+      
+      # -----------------------------
+      # Save to Excel (optional)
+      # -----------------------------
+      if (!is.null(pl$robust_cov)) {
+        sheet_cov <- sanitize_sheet(paste0("cov_", outcome))
+        remove_sheet_safely(wb, sheet_cov)
+        addWorksheet(wb, sheet_cov)
+        writeData(wb, sheet_cov, pl$robust_cov)
+        
+        sheet_S <- sanitize_sheet(paste0("S_", outcome))
+        remove_sheet_safely(wb, sheet_S)
+        addWorksheet(wb, sheet_S)
+        writeData(wb, sheet_S, pl$S)
+        
+        sheet_B <- sanitize_sheet(paste0("Binv_", outcome))
+        remove_sheet_safely(wb, sheet_B)
+        addWorksheet(wb, sheet_B)
+        writeData(wb, sheet_B, pl$Binv)
+      }
       
       # NEW: store log-likelihood + number of parameters
       lr_rows[[length(lr_rows) + 1L]] <- data.frame(
@@ -561,81 +589,98 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     unique_firms <- unique(temp$firm_id)
     
     pairs <- combn(survey_vars, 2, simplify = FALSE)
-    pairwise_rows <- vector("list", length(pairs))
-    i<-1
+    pairwise_rows <- vector("list", length(pairs) * 2)
+    i <- 1L
+    
     for (pair in pairs) {
       var1 <- pair[[1]]
       var2 <- pair[[2]]
       
-      data_wide1 <- data_list[[var1]]
-      data_wide2 <- data_list[[var2]]
+      # pull item-worth vectors
+      beta1 <- coeff_df %>% dplyr::pull(!!rlang::sym(var1))
+      beta2 <- coeff_df %>% dplyr::pull(!!rlang::sym(var2))
       
-      id_map1 <- id_map_list[[var1]]
-      id_map2 <- id_map_list[[var2]]
+      # retrieve stored PL objects
+      S1    <- S_list[[var1]]
+      S2    <- S_list[[var2]]
+      Binv1 <- Binv_list[[var1]]
+      Binv2 <- Binv_list[[var2]]
+      cov1  <- cov_list[[var1]]
+      cov2  <- cov_list[[var2]]
       
-      res <- pairwise_process(data_wide1, data_wide2, id_map1, id_map2, unique_firms)
-      J <- length(res$firms)
+      # -------------------------
+      # Restricted (unique firms)
+      # -------------------------
+      coeff_sub <- coeff_df %>%
+        dplyr::filter(firm_id %in% unique_firms) %>%
+        dplyr::arrange(match(firm_id, unique_firms))
       
-      pairwise_rows[[i]] <- tibble::tibble(
-        lhs           = var1,
-        rhs           = var2,
-        N1            = res$N1,
-        N2            = res$N2,
-        Ncommon       = res$Ncommon,
-        Ntot          = res$Ntot,
-        overlap_frac  = res$overlap_frac,
-        J_firms       = J,
-        variance1     = res$variance1,
-        variance2     = res$variance2,
-        covariance    = res$covariance,
-        noise1        = res$noise1,
-        noise2        = res$noise2,
-        noise12       = res$noise12,              # trace(Σ12)
-        cov_denoised  = res$covariance - res$noise12,
-        corr          = res$corr,
-        corr_c        = res$corr_c,
-        corr_den      = res$corr_den,
-        all_firms     = FALSE
+      firm_cols <- paste0("firm", coeff_sub$firm_id)
+      
+      beta1_sub <- coeff_sub %>% dplyr::pull(!!rlang::sym(var1))
+      beta2_sub <- coeff_sub %>% dplyr::pull(!!rlang::sym(var2))
+      
+      S1_sub   <- S1[, c("resp_id", firm_cols), drop = FALSE]
+      S2_sub   <- S2[, c("resp_id", firm_cols), drop = FALSE]
+      Binv1_sub <- Binv1[firm_cols, firm_cols, drop = FALSE]
+      Binv2_sub <- Binv2[firm_cols, firm_cols, drop = FALSE]
+      cov1_sub  <- cov1[firm_cols, firm_cols, drop = FALSE]
+      cov2_sub  <- cov2[firm_cols, firm_cols, drop = FALSE]
+      
+      res_restricted <- pairwise_process(
+        S1 = S1_sub,
+        S2 = S2_sub,
+        Binv1 = Binv1_sub,
+        Binv2 = Binv2_sub,
+        robust_cov1 = cov1_sub,
+        robust_cov2 = cov2_sub,
+        beta1 = beta1_sub,
+        beta2 = beta2_sub
       )
-      i<-i+1
       
-      res <- pairwise_process(data_wide1, data_wide2, id_map1, id_map2)
-      J <- length(res$firms)
+      pairwise_rows[[i]] <- tibble::as_tibble(res_restricted) %>%
+        dplyr::mutate(
+          lhs = var1,
+          rhs = var2,
+          all_firms = FALSE,
+          .before = 1
+        )
+      i <- i + 1L
       
-      pairwise_rows[[i]] <- tibble::tibble(
-        lhs           = var1,
-        rhs           = var2,
-        N1            = res$N1,
-        N2            = res$N2,
-        Ncommon       = res$Ncommon,
-        Ntot          = res$Ntot,
-        overlap_frac  = res$overlap_frac,
-        J_firms       = J,
-        variance1     = res$variance1,
-        variance2     = res$variance2,
-        covariance    = res$covariance,
-        noise1        = res$noise1,
-        noise2        = res$noise2,
-        noise12       = res$noise12,              # trace(Σ12)
-        cov_denoised  = res$covariance - res$noise12,
-        corr          = res$corr,
-        corr_c        = res$corr_c,
-        corr_den      = res$corr_den,
-        all_firms     = TRUE
+      # -------------------------
+      # All firms
+      # -------------------------
+      res_all <- pairwise_process(
+        S1 = S1,
+        S2 = S2,
+        Binv1 = Binv1,
+        Binv2 = Binv2,
+        robust_cov1 = cov1,
+        robust_cov2 = cov2,
+        beta1 = beta1,
+        beta2 = beta2
       )
-      i<-i+1
+      
+      pairwise_rows[[i]] <- tibble::as_tibble(res_all) %>%
+        dplyr::mutate(
+          lhs = var1,
+          rhs = var2,
+          all_firms = TRUE,
+          .before = 1
+        )
+      i <- i + 1L
     }
     
     pairwise_summary <- dplyr::bind_rows(pairwise_rows)
     
-    # Write to Excel
     remove_sheet_safely(wb, "pairwise_summary")
     openxlsx::addWorksheet(wb, "pairwise_summary")
-    openxlsx::writeData(wb, sheet = "pairwise_summary", x = pairwise_summary)
-    
+    openxlsx::writeData(wb, "pairwise_summary", pairwise_summary)
     openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-    message("✅  Pairwise summary saved to Excel")
+    
+    message("✅ Pairwise summary saved to Excel")
   }
+  
   
   
   # Section IE: This section tests the IIA assumption of the Plackett Luce Model
