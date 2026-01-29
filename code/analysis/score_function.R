@@ -2,7 +2,7 @@ score_function <- function(mod, ref_firm = NULL) {
   estfun_original <- estfun(mod, ref = ref_firm)
   sample_size <- dim(estfun_original)[[1]]
   scaling_factor <- sqrt(sample_size)
-  estfun_corrected <- estfun_original * scaling_factor
+  estfun_corrected <- estfun_original
   
   score_means_corrected <- colMeans(estfun_corrected)
   

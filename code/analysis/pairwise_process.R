@@ -141,8 +141,8 @@ pairwise_process <- function(S1,
   noise12 <- sum(Matrix::diag(Theta12)) / J
   
   # Correlations
-  denom_corr <- sqrt(pmax(0, variance1 - noise1)) *
-    sqrt(pmax(0, variance2 - noise2))
+  denom_corr <- sqrt(pmax(0, signal1)) *
+    sqrt(pmax(0, signal1))
   
   corr     <- covariance / (sqrt(variance1) * sqrt(variance2))
   corr_c   <- if (denom_corr > 0) (covariance - noise12) / denom_corr else NA_real_

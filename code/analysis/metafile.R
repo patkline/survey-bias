@@ -76,12 +76,12 @@ system.time({
                         run_bootstrap = TRUE,
                         run_bs_eiv = TRUE,
                         eiv_summary = TRUE,
-                        run_pairwise_process = FALSE,
+                        run_pairwise_process = TRUE,
                         borda_score = TRUE,
                         borda_bs_w = TRUE,
                         run_borda_eiv = TRUE,
                         borda_eiv_summary = TRUE,
-                        run_pairwise_process_borda = FALSE,
+                        run_pairwise_process_borda = TRUE,
                         sum_signal_noise = TRUE,
                         sim_pl_to_borda = FALSE,
                         exact_pl_to_borda = FALSE,
@@ -89,66 +89,66 @@ system.time({
                         B = 1)
 })
 
-# 
-# ---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
-# runs <- tibble::tribble(
-#   ~subset_var,   ~subset_value, ~output_stub,
-#   "gender",      1,             "Plackett_Luce_Subset_Female",
-#   "gender",      0,             "Plackett_Luce_Subset_Male",
-#   "race",        1,             "Plackett_Luce_Subset_Black",
-#   "race",        0,             "Plackett_Luce_Subset_White",
-#   "age",         1,             "Plackett_Luce_Subset_Age_gte40",
-#   "age",         0,             "Plackett_Luce_Subset_Age_lt40",
-#   "looking_job", 1,             "Plackett_Luce_Subset_Looking",
-#   "looking_job", 0,             "Plackett_Luce_Subset_Not_Looking",
-#   "fear",        1,             "Plackett_Luce_Subset_Feared_Discrimination_1",
-#   "fear",        0,             "Plackett_Luce_Subset_Feared_Discrimination_0",
-#   "educ",        1,             "Plackett_Luce_Subset_College",
-#   "educ",        0,             "Plackett_Luce_Subset_No_College"
-# )
-# 
-# 
-# # ---- 3) Run them all ----
-# results <- vector("list", nrow(runs))
-# 
-# for (i in seq_len(nrow(runs))) {
-#   subset_var   <- runs$subset_var[i]
-#   subset_value <- runs$subset_value[i]
-# 
-#   output_path <- file.path(excel, paste0(runs$output_stub[i], ".xlsx"))
-# 
-#   cat("\n=== Running:", runs$output_stub[i],
-#       "| subset_var =", subset_var,
-#       "| subset_value =", subset_value,
-#       "===\n")
-# 
-#   results[[i]] <- system.time({
-#     run_analysis_pipeline(
-#       data, respondent_col, firm_col, survey_vars, experimental_vars,
-#       outcome_types,
-#       subset_var = subset_var,
-#       subset_value = subset_value,
-#       firms97 = firms97,
-#       output_path = output_path,
-#       industry_map_path = industry_map_path,
-#       generate_wide = TRUE,
-#       process_outcomes = TRUE,
-#       run_bootstrap = TRUE,
-#       run_bs_eiv = TRUE,
-#       eiv_summary = TRUE,
-#       run_pairwise_process = FALSE,
-#       borda_score = TRUE,
-#       borda_bs_w = TRUE,
-#       run_borda_eiv = TRUE,
-#       borda_eiv_summary = TRUE,
-#       run_pairwise_process_borda = FALSE,
-#       sum_signal_noise = TRUE,
-#       sim_pl_to_borda = FALSE,
-#       exact_pl_to_borda = FALSE,
-#       diagnostic = FALSE,
-#       B = 1
-#     )
-#   })
-# }
+
+---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
+runs <- tibble::tribble(
+  ~subset_var,   ~subset_value, ~output_stub,
+  "gender",      1,             "Plackett_Luce_Subset_Female",
+  "gender",      0,             "Plackett_Luce_Subset_Male",
+  "race",        1,             "Plackett_Luce_Subset_Black",
+  "race",        0,             "Plackett_Luce_Subset_White",
+  "age",         1,             "Plackett_Luce_Subset_Age_gte40",
+  "age",         0,             "Plackett_Luce_Subset_Age_lt40",
+  "looking_job", 1,             "Plackett_Luce_Subset_Looking",
+  "looking_job", 0,             "Plackett_Luce_Subset_Not_Looking",
+  "fear",        1,             "Plackett_Luce_Subset_Feared_Discrimination_1",
+  "fear",        0,             "Plackett_Luce_Subset_Feared_Discrimination_0",
+  "educ",        1,             "Plackett_Luce_Subset_College",
+  "educ",        0,             "Plackett_Luce_Subset_No_College"
+)
+
+
+# ---- 3) Run them all ----
+results <- vector("list", nrow(runs))
+
+for (i in seq_len(nrow(runs))) {
+  subset_var   <- runs$subset_var[i]
+  subset_value <- runs$subset_value[i]
+
+  output_path <- file.path(excel, paste0(runs$output_stub[i], ".xlsx"))
+
+  cat("\n=== Running:", runs$output_stub[i],
+      "| subset_var =", subset_var,
+      "| subset_value =", subset_value,
+      "===\n")
+
+  results[[i]] <- system.time({
+    run_analysis_pipeline(
+      data, respondent_col, firm_col, survey_vars, experimental_vars,
+      outcome_types,
+      subset_var = subset_var,
+      subset_value = subset_value,
+      firms97 = firms97,
+      output_path = output_path,
+      industry_map_path = industry_map_path,
+      generate_wide = TRUE,
+      process_outcomes = TRUE,
+      run_bootstrap = TRUE,
+      run_bs_eiv = TRUE,
+      eiv_summary = TRUE,
+      run_pairwise_process = FALSE,
+      borda_score = TRUE,
+      borda_bs_w = TRUE,
+      run_borda_eiv = TRUE,
+      borda_eiv_summary = TRUE,
+      run_pairwise_process_borda = FALSE,
+      sum_signal_noise = TRUE,
+      sim_pl_to_borda = FALSE,
+      exact_pl_to_borda = FALSE,
+      diagnostic = FALSE,
+      B = 1
+    )
+  })
+}
 
 
