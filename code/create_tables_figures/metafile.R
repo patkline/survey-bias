@@ -7,11 +7,10 @@
 # Run globals
 source("code/globals.R")
 
-message("Creating tables and figures...")
+# Source individual table/figure scripts
+source(file.path(create_tables_figures, "summary_item_worths.R"))
+source(file.path(create_tables_figures, "heatmap_plots.R"))
+source(file.path(create_tables_figures, "heatmaps_combined.R"))
+source(file.path(create_tables_figures, "eiv_table_panels.R"))
 
-# Example: Source individual table/figure scripts
-# source(file.path(tables_figures_code, "figure_01.R"))
-# source(file.path(tables_figures_code, "figure_02.R"))
-# source(file.path(tables_figures_code, "table_01.R"))
-
-message("Tables and figures complete")
+message("🎃 Tables and figures complete")

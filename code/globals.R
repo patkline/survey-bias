@@ -29,6 +29,8 @@ dump <- file.path(data, "dump")
 
 # Github output paths
 excel <- file.path(git_survey_bias_root,"output/excel")
+figures <- file.path(git_survey_bias_root,"output/figures")
+tables <- file.path(git_survey_bias_root,"output/tables")
 
 # Dropbox data paths
 #db_survey_bias <- file.path(dropbox, "Survey Bias")
@@ -74,9 +76,15 @@ required_r_packages <- c(
   "sandwich",
   "tibble",
   "tidyr",
-  "writexl"
+  "writexl",
+  "xtable",
+  "scales",
+  "rlang",
+  "stringr",
+  "tibble",
+  "kableExtra",
+  "knitr"
 )
-
 
 # Identify missing R packages
 missing_r_packages <- required_r_packages[!sapply(required_r_packages, requireNamespace, quietly = TRUE)]
