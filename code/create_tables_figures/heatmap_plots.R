@@ -228,13 +228,13 @@ generate_heatmaps <- function(file_path, prefix, suffix, sheet, all) {
 }   
 
 # Example Usage  
-generate_heatmaps("~/Documents/consolidated_code_server/excel/Plackett_Luce_Full_Sample.xlsx","~/Documents/consolidated_code_server/figures/heatmaps/", "_full", "pairwise_summary", all = TRUE)
-generate_heatmaps("~/Documents/consolidated_code_server/excel/Plackett_Luce_Full_Sample.xlsx", 
-                  "~/Documents/consolidated_code_server/figures/heatmaps/", "_full_overlap", "pairwise_summary", all = FALSE)
-generate_heatmaps("~/Documents/consolidated_code_server/excel/Plackett_Luce_Full_Sample.xlsx", 
-                  "~/Documents/consolidated_code_server/figures/heatmaps/", "_full_borda", "pairwise_summary_borda", all = TRUE)
-generate_heatmaps("~/Documents/consolidated_code_server/excel/Plackett_Luce_Full_Sample.xlsx", 
-                  "~/Documents/consolidated_code_server/figures/heatmaps/", "_full_overlap_borda", "pairwise_summary_borda", all = FALSE)
+generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"),figures, "_full", "pairwise_summary", all = TRUE)
+generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"), 
+                  figures, "_full_overlap", "pairwise_summary", all = FALSE)
+generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"), 
+                  figures, "_full_borda", "pairwise_summary_borda", all = TRUE)
+generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"), 
+                  figures, "_full_overlap_borda", "pairwise_summary_borda", all = FALSE)
 
 
 # 

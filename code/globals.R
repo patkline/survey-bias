@@ -83,7 +83,8 @@ required_r_packages <- c(
   "stringr",
   "tibble",
   "kableExtra",
-  "knitr"
+  "knitr", 
+  "magick"
 )
 
 # Identify missing R packages
