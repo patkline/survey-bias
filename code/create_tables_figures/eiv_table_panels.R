@@ -22,7 +22,7 @@ pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
   if (!nrow(out)) return("NA (NA)")
   
   est <- suppressWarnings(as.numeric(out$sample_est))
-  se  <- suppressWarnings(as.numeric(out$bs_se))
+  se  <- suppressWarnings(as.numeric(out$sample_se))
   
   if (isTRUE(divide_by_100)) {
     est <- est / 100
