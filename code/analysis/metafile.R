@@ -93,18 +93,18 @@ system.time({
 #---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 runs <- tibble::tribble(
   ~subset_var,   ~subset_value, ~output_stub,
-  "gender",      1,             "Plackett_Luce_Subset_Female",
-  "gender",      0,             "Plackett_Luce_Subset_Male",
-  "race",        1,             "Plackett_Luce_Subset_Black",
-  "race",        0,             "Plackett_Luce_Subset_White",
-  "age",         1,             "Plackett_Luce_Subset_Age_gte40",
-  "age",         0,             "Plackett_Luce_Subset_Age_lt40",
+  # "gender",      1,             "Plackett_Luce_Subset_Female",
+  # "gender",      0,             "Plackett_Luce_Subset_Male",
+  # "race",        1,             "Plackett_Luce_Subset_Black",
+  # "race",        0,             "Plackett_Luce_Subset_White",
+  # "age",         1,             "Plackett_Luce_Subset_Age_gte40",
+  # "age",         0,             "Plackett_Luce_Subset_Age_lt40",
   "looking_job", 1,             "Plackett_Luce_Subset_Looking",
   "looking_job", 0,             "Plackett_Luce_Subset_Not_Looking",
   "fear",        1,             "Plackett_Luce_Subset_Feared_Discrimination_1",
   "fear",        0,             "Plackett_Luce_Subset_Feared_Discrimination_0",
-  "educ",        1,             "Plackett_Luce_Subset_College",
-  "educ",        0,             "Plackett_Luce_Subset_No_College"
+  # "educ",        1,             "Plackett_Luce_Subset_College",
+  # "educ",        0,             "Plackett_Luce_Subset_No_College"
 )
 
 
