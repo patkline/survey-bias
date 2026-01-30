@@ -47,7 +47,7 @@ bootstrap_manual <- function(wide_mat,
     ## --- robust SEs -------------------------------------------
     S     <- score_function(mod)                       # estfun × √n
     B_inv <- vcov(mod, type = "observed", ref = NULL) # full vcov (incl. ties)
-    M           <- crossprod(S) / nrow(S)
+    M           <- crossprod(S)
     robust_cov  <- B_inv %*% M %*% B_inv
     robust_se   <- sqrt(diag(robust_cov))[1:K]
     

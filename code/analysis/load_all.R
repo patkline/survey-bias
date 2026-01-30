@@ -31,4 +31,5 @@ source(file.path(analysis, "win_share.R")) # Win Share
 source(file.path(analysis, "EB_procedure.R")) # EB Procedure
 source(file.path(analysis, "score_function.R")) # Score Function
 source(file.path(analysis, "eivreg.R")) # EIV
-source(file.path(analysis, "pm_calc.R")) # Not currently used
+source(file.path(analysis, "pm_calc.R")) # EIV
+source(file.path(analysis, "recenter.R")) # Not currently used

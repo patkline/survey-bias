@@ -90,7 +90,7 @@ system.time({
 })
 
 
----- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
+#---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 runs <- tibble::tribble(
   ~subset_var,   ~subset_value, ~output_stub,
   "gender",      1,             "Plackett_Luce_Subset_Female",
@@ -136,12 +136,12 @@ for (i in seq_len(nrow(runs))) {
       run_bootstrap = TRUE,
       run_bs_eiv = TRUE,
       eiv_summary = TRUE,
-      run_pairwise_process = FALSE,
+      run_pairwise_process = TRUE,
       borda_score = TRUE,
       borda_bs_w = TRUE,
       run_borda_eiv = TRUE,
       borda_eiv_summary = TRUE,
-      run_pairwise_process_borda = FALSE,
+      run_pairwise_process_borda = TRUE,
       sum_signal_noise = TRUE,
       sim_pl_to_borda = FALSE,
       exact_pl_to_borda = FALSE,
