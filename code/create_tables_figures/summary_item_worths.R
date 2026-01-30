@@ -445,7 +445,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         theme_minimal(base_size = 14) +
         theme(
           axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
-          legend.position = "top",
+          legend.position = "none",
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(),
           panel.background = element_rect(fill = "white", color = "black"),
