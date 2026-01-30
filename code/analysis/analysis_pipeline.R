@@ -596,10 +596,6 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       var1 <- pair[[1]]
       var2 <- pair[[2]]
       
-      # pull item-worth vectors
-      beta1 <- coeff_df %>% dplyr::pull(!!rlang::sym(var1))
-      beta2 <- coeff_df %>% dplyr::pull(!!rlang::sym(var2))
-      
       # retrieve stored PL objects
       S1    <- S_list[[var1]]
       S2    <- S_list[[var2]]
@@ -617,9 +613,6 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       
       firm_cols <- paste0("firm", coeff_sub$firm_id)
       
-      beta1_sub <- coeff_sub %>% dplyr::pull(!!rlang::sym(var1))
-      beta2_sub <- coeff_sub %>% dplyr::pull(!!rlang::sym(var2))
-      
       S1_sub   <- S1[, c("resp_id", firm_cols), drop = FALSE]
       S2_sub   <- S2[, c("resp_id", firm_cols), drop = FALSE]
       Binv1_sub <- Binv1[firm_cols, firm_cols, drop = FALSE]
@@ -634,8 +627,9 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
         Binv2 = Binv2_sub,
         robust_cov1 = cov1_sub,
         robust_cov2 = cov2_sub,
-        beta1 = beta1_sub,
-        beta2 = beta2_sub
+        coeff_df = coeff_sub,
+        var1 = var1,
+        var2 = var2
       )
       
       pairwise_rows[[i]] <- tibble::as_tibble(res_restricted) %>%
@@ -657,8 +651,9 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
         Binv2 = Binv2,
         robust_cov1 = cov1,
         robust_cov2 = cov2,
-        beta1 = beta1,
-        beta2 = beta2
+        coeff_df = coeff_df,
+        var1 = var1,
+        var2 = var2
       )
       
       pairwise_rows[[i]] <- tibble::as_tibble(res_all) %>%

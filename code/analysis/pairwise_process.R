@@ -9,8 +9,60 @@ pairwise_process <- function(S1,
                              Binv2,
                              robust_cov1,
                              robust_cov2,
-                             beta1,
-                             beta2) {
+                             coeff_df,
+                             var1,
+                             var2) {
+  
+  # -----------------------
+  # Common-firms restriction
+  # -----------------------
+  # helper: pull firm IDs from names like "firm23"
+  .firm_ids_from_names <- function(nms) {
+    nms <- nms[grepl("^firm\\d+$", nms)]
+    as.integer(sub("^firm", "", nms))
+  }
+  
+  # firm IDs available in each S
+  firms1 <- .firm_ids_from_names(colnames(S1))
+  firms2 <- .firm_ids_from_names(colnames(S2))
+  
+  common_firms <- intersect(firms1, firms2)
+  if (length(common_firms) < 2L) {
+    stop("pairwise_process: fewer than 2 common firms between S1 and S2.")
+  }
+  
+  # Choose a stable order for the common firms (you can also use firms1 order)
+  common_firms <- sort(common_firms)
+  common_cols  <- paste0("firm", common_firms)
+  
+  # Subset S1/S2 to common firms (keep resp_id if present)
+  if (is.data.frame(S1)) {
+    S1 <- S1[, c("resp_id", common_cols), drop = FALSE]
+  } else {
+    S1 <- S1[, c("resp_id", common_cols), drop = FALSE]
+  }
+  
+  if (is.data.frame(S2)) {
+    S2 <- S2[, c("resp_id", common_cols), drop = FALSE]
+  } else {
+    S2 <- S2[, c("resp_id", common_cols), drop = FALSE]
+  }
+  
+  # Subset Binv/cov to common firms (must be named firm<id>)
+  Binv1       <- Binv1[common_cols, common_cols, drop = FALSE]
+  Binv2       <- Binv2[common_cols, common_cols, drop = FALSE]
+  robust_cov1 <- robust_cov1[common_cols, common_cols, drop = FALSE]
+  robust_cov2 <- robust_cov2[common_cols, common_cols, drop = FALSE]
+  
+  # Subset beta vectors to common firms
+  # If beta is named, align by name; else assume already in S/Binv order.
+  beta1 <- coeff_df %>% filter(firm_id %in% common_firms) %>% pull(!!rlang::sym(var1))
+  beta2 <- coeff_df %>% filter(firm_id %in% common_firms) %>% pull(!!rlang::sym(var2))
+  
+  if (length(beta1) != length(common_cols) || length(beta2) != length(common_cols)) {
+    stop("pairwise_process: beta lengths do not match the number of common firms. ",
+         "Consider naming beta by firm<id> so it can be aligned safely.")
+  }
   
   # Remove resp_id and coerce to numeric matrix (ensure order preserved)
   # NOTE: column order must match Binv row/col order. We assume upstream ensured that.
