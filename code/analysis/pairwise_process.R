@@ -193,12 +193,9 @@ pairwise_process <- function(S1,
   noise12 <- sum(Matrix::diag(Theta12)) / J
   
   # Correlations
-  denom_corr <- sqrt(pmax(0, signal1)) *
-    sqrt(pmax(0, signal1))
-  
   corr     <- covariance / (sqrt(variance1) * sqrt(variance2))
-  corr_c   <- if (denom_corr > 0) (covariance - noise12) / denom_corr else NA_real_
-  corr_den <- if (denom_corr > 0) covariance / denom_corr else NA_real_
+  corr_c   <- (covariance - noise12) / (sqrt(signal1) * sqrt(signal2))
+  corr_den <- covariance / (sqrt(signal1) * sqrt(signal2))
   
   list(
     N1            = N1,
