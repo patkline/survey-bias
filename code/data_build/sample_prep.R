@@ -15,7 +15,6 @@ source("code/globals.R")
 # Source necessary functions
 source(file.path(helper_functions, "leave_in_connected.R"))
 source(file.path(helper_functions, "1_preprocessing_v3.R"))
-#source(file.path(analysis, "analysis_pipeline_v2.R"))
 
 # ------------------------------------------------------------------------------
 # Prepare Sample

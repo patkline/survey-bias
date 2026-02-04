@@ -3,6 +3,7 @@
 # Requires: readxl, dplyr, tidyr, ggplot2, xtable, scales, rlang
 # Prev. name: 4a_summary_item_worths_v6.R
 # -------------------------------------------------------------------
+# Run globals
 source("code/globals.R")
 
 create_plots_and_tables_from_sheets <- function(excel_path,
