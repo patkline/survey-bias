@@ -169,9 +169,10 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         outcome,
         Borda_sd                = sqrt(pmax(variance, 0)) * borda_mult,
         Borda_sd_bias_corrected = sqrt(pmax(signal,   0)) * borda_mult,
-        Borda_t_stat            = as.numeric(t_stat)
+        Borda_t_stat            = as.numeric(t_stat),
+        Borda_var_norm          = as.numeric(pmax(signal, 0))/0.0844
       )
-      
+
     # Merge; ensure requested outcomes present
     tab <- dplyr::full_join(pl_df, borda_df, by = "outcome")
     if (!is.null(outcomes) && length(outcomes)) {
@@ -207,7 +208,8 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         `PL: reliability`                = .data$PL_reliability,
         `Borda: sd`                      = .data$Borda_sd,
         `Borda: bias corrected sd`       = .data$Borda_sd_bias_corrected,
-        `Borda: t-stat`                  = .data$Borda_t_stat
+        `Borda: t-stat`                  = .data$Borda_t_stat,
+        `Borda: normed variance`         = .data$Borda_var_norm
       )
     utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
     
@@ -231,21 +233,23 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         `Standard deviation.2`                 = fmt_dec(.data$Borda_sd,                latex_decimals),
         `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals),
         `t-statistic.2`                        = fmt_dec(.data$Borda_t_stat,            latex_decimals),
+        `var_norm`                             = fmt_dec(.data$Borda_var_norm,          latex_decimals)
       )
     
-    xt <- xtable::xtable(latex_df, align = c("l","l","c","c","c","c","c", "c","c"))
+    xt <- xtable::xtable(latex_df, align = c("l","l","c","c","c","c","c","c","c","c"))
     
     header <- paste0(
       "\\toprule\n",
-      " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{3}{c}{Borda} \\\\\n",
-      "\\cmidrule(lr){2-5} \\cmidrule(lr){6-8}\n",
+      " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{4}{c}{Borda} \\\\\n",
+      "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}\n",
       "Outcome & Std Dev & ",
       "\\shortstack{Signal\\\\Std Dev} & ",
       "\\shortstack{T-stat\\\\no signal} & ",
       "ICC & ",
       "Std Dev & ",
       "\\shortstack{Signal\\\\Std Dev} & ",
-      "\\shortstack{T-stat\\\\no signal} \\\\\n",
+      "\\shortstack{T-stat\\\\no signal} &",
+      "\\shortstack{Normed\\\\Variance} \\\\\n",
       "\\midrule\n"
     )
     
