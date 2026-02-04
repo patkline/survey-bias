@@ -93,7 +93,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       return(invisible(NULL))
     }
     
-    need_cols <- c("outcome","variance","signal","Borda","PL")
+    need_cols <- c("outcome","variance","signal","Borda","PL", "Vhat", "sigma2_hat")
     if (!all(need_cols %in% names(ssn))) {
       message("⚠️ 'sum_signal_noise' must contain columns: ",
               paste(need_cols, collapse = ", "))
@@ -119,8 +119,19 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     if (!is.null(outcomes) && length(outcomes)) {
       ssn <- dplyr::filter(ssn, .data$outcome %in% outcomes)
     }
+
+    # --- Build t-stats ---
+    ssn <- ssn %>%
+      dplyr::mutate(
+        t_stat = ifelse(
+          is.finite(Vhat) & Vhat > 0,
+          sigma2_hat / sqrt(Vhat),
+          NA_real_
+        )
+      )
+
     
-    # --- Build PL SDs + reliability (PL == TRUE rows only) ---
+     # --- Build PL SDs + reliability (PL == TRUE rows only) ---
     pl_df <- ssn %>%
       dplyr::filter(.data$PL %in% TRUE)
     
@@ -131,7 +142,8 @@ create_plots_and_tables_from_sheets <- function(excel_path,
           outcome,
           PL_sd                   = sqrt(pmax(variance, 0)),
           PL_sd_bias_corrected    = sqrt(pmax(signal,   0)),
-          PL_reliability          = as.numeric(reliability)
+          PL_reliability          = as.numeric(reliability),
+          PL_t_stat               = as.numeric(t_stat)
         )
     } else {
       # otherwise compute reliability from signal
@@ -145,7 +157,8 @@ create_plots_and_tables_from_sheets <- function(excel_path,
             rel <- ifelse(is.finite(sig), (sig / 1.64) / (1 + sig / 1.64), NA_real_)
             rel[!is.finite(rel)] <- NA_real_
             rel
-          }
+          },
+          PL_t_stat               = as.numeric(t_stat)
         )
     }
     
@@ -155,9 +168,10 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       dplyr::transmute(
         outcome,
         Borda_sd                = sqrt(pmax(variance, 0)) * borda_mult,
-        Borda_sd_bias_corrected = sqrt(pmax(signal,   0)) * borda_mult
+        Borda_sd_bias_corrected = sqrt(pmax(signal,   0)) * borda_mult,
+        Borda_t_stat            = as.numeric(t_stat)
       )
-    
+      
     # Merge; ensure requested outcomes present
     tab <- dplyr::full_join(pl_df, borda_df, by = "outcome")
     if (!is.null(outcomes) && length(outcomes)) {
@@ -189,9 +203,11 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         Outcome = .data$Outcome_display,
         `PL: sd`                         = .data$PL_sd,
         `PL: bias corrected sd`          = .data$PL_sd_bias_corrected,
+        `PL: t-stat`                     = .data$PL_t_stat,
         `PL: reliability`                = .data$PL_reliability,
         `Borda: sd`                      = .data$Borda_sd,
-        `Borda: bias corrected sd`       = .data$Borda_sd_bias_corrected
+        `Borda: bias corrected sd`       = .data$Borda_sd_bias_corrected,
+        `Borda: t-stat`                  = .data$Borda_t_stat
       )
     utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
     
@@ -210,22 +226,26 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         Outcome = .data$Outcome_display,
         `Standard deviation`                   = fmt_dec(.data$PL_sd,                   latex_decimals),
         `Bias-corrected standard deviation`    = fmt_dec(.data$PL_sd_bias_corrected,    latex_decimals),
+        `t-statistic`                          = fmt_dec(.data$PL_t_stat,               latex_decimals),
         `Reliability`                          = fmt_dec(.data$PL_reliability,          latex_decimals),
         `Standard deviation.2`                 = fmt_dec(.data$Borda_sd,                latex_decimals),
-        `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals)
+        `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals),
+        `t-statistic.2`                        = fmt_dec(.data$Borda_t_stat,            latex_decimals),
       )
     
-    xt <- xtable::xtable(latex_df, align = c("l","l","c","c","c","c","c"))
+    xt <- xtable::xtable(latex_df, align = c("l","l","c","c","c","c","c", "c","c"))
     
     header <- paste0(
       "\\toprule\n",
-      " & \\multicolumn{3}{c}{Plackett--Luce} & \\multicolumn{2}{c}{Borda} \\\\\n",
-      "\\cmidrule(lr){2-4} \\cmidrule(lr){5-6}\n",
+      " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{3}{c}{Borda} \\\\\n",
+      "\\cmidrule(lr){2-5} \\cmidrule(lr){6-8}\n",
       "Outcome & Std Dev & ",
       "\\shortstack{Signal\\\\Std Dev} & ",
-      "Reliability & ",
+      "\\shortstack{T-stat\\\\no signal} & ",
+      "ICC & ",
       "Std Dev & ",
-      "\\shortstack{Signal\\\\Std Dev} \\\\\n",
+      "\\shortstack{Signal\\\\Std Dev} & ",
+      "\\shortstack{T-stat\\\\no signal} \\\\\n",
       "\\midrule\n"
     )
     
