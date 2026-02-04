@@ -27,7 +27,7 @@ make_confidence_table <- function(
     restrict_vars = c(
       "conduct_favor_younger",  # for confidence_age_conduct
       "conduct_favor_male",     # for confidence_gend_conduct
-      "conduct_black",          # for confidence_race_conduct
+      "conduct_favor_white",          # for confidence_race_conduct
       "FirmCont_favor_male",    # for confidence_gend_names
       "FirmCont_favor_white"    # for confidence_race_names
     ),
