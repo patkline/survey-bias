@@ -140,7 +140,7 @@ label_mapping <- c(
   "discretion" = "Manager Discretion",
   "FirmSelective" = "Firm Selectivity",
   "FirmDesire" = "Firm Desirability",
-  "conduct_black" = "Discrimination Black (Conduct)",
+  "conduct_favor_white" = "Discrimination Black (Conduct)",
   "conduct_favor_younger" = "Discrimination Older (Conduct)",
   "conduct_favor_male" = "Discrimination Female (Conduct)",
   "FirmHire_favor_male" = "Discrimination Female (Hire)",

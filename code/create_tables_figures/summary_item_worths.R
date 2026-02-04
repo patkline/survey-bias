@@ -619,7 +619,7 @@ label_mapping <- c(
   "discretion" = "Manager Discretion",
   "FirmSelective" = "Firm Selectivity",
   "FirmDesire" = "Firm Desirability",
-  "conduct_black" = "Discrimination Black (Conduct)",
+  "conduct_favor_white" = "Discrimination Black (Conduct)",
   "conduct_favor_younger" = "Discrimination Older (Conduct)",
   "conduct_favor_male" = "Discrimination Female (Conduct)",
   "FirmHire_favor_male" = "Discrimination Female (Hire)",
@@ -631,7 +631,7 @@ label_mapping <- c(
 )
 
 outs <- c(
-  "FirmCont_favor_white","FirmHire_favor_white","conduct_black",
+  "FirmCont_favor_white","FirmHire_favor_white","conduct_favor_white",
   "FirmCont_favor_male","FirmHire_favor_male","conduct_favor_male",
   "conduct_favor_younger","discretion","FirmSelective","FirmDesire",
   "pooled_favor_white", "pooled_favor_male"
