@@ -209,7 +209,7 @@ two_way_bar(
 res <- make_confidence_table(
   df      = data,
   id_var  = "ResponseId",
-  out_tex = file.path(paste0(figures, "/confidence_conf_table.tex"))
+  out_tex = file.path(paste0(tables, "/confidence_conf_table.tex"))
 )
 
 # --- 6) Information source histogram (conduct arm only) ----------
