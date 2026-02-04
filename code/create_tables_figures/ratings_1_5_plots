@@ -1,0 +1,105 @@
+# ------------------------------------------------------------------------------
+# Purpose: Create ratings (1–5) plots
+#
+# Created: Nico Rotundo 2026-01-11 
+# Adapted Jordan Cammarota's summary_statistics_wrapper.R
+# summary_figures_ratings.R
+# ------------------------------------------------------------------------------
+
+# Run globals
+source("code/globals.R")
+
+## Source helper functions
+
+# plot_rating_1to5_restrict()
+source(file.path(helper_functions, "summary_figures_ratings.R"))
+
+# plot_yes_no_pna_both()
+source(file.path(helper_functions, "summary_figures_yes_no.R"))
+
+# make_summary_table() 
+source(file.path(helper_functions, "summary_statistics_new.R"))
+
+# make_response_duration_hist()
+source(file.path(helper_functions, "response_duration_hist.R")) 
+
+# two_way_bar()
+source(file.path(helper_functions, "summary_two_way_bar.R"))
+
+# make_confidence_table()
+source(file.path(helper_functions, "summary_figures_confidence.R"))
+
+# make_information_source_hist()
+source(file.path(helper_functions, "summary_figure_info_source.R"))
+
+#if (!dir.exists(figures_dir)) dir.create(figures_dir, recursive = TRUE)
+#if (!dir.exists(figures))  dir.create(figures,  recursive = TRUE)
+
+# --- Source helper scripts ---------------------------------------
+#src <- function(fn) {
+#  p <- file.path(code, fn)
+#  if (file.exists(p)) {
+#    message("Sourcing: ", p)
+#    source(p)
+#  } else stop("Required file not found: ", p)
+#}
+# Expect these files to define the functions shown in your snippets
+
+
+# ------------------------------------------------------------------------------
+# Load data
+# ------------------------------------------------------------------------------
+
+# Assert data file exists
+stopifnot(file.exists(file.path(processed, "long_survey_final.csv")))
+
+# Load data 
+data <- read.csv(file.path(processed, "long_survey_final.csv"), stringsAsFactors = FALSE)
+
+# Check data is unique on ResponseId x firm
+stopifnot(nrow(data) == length(unique(paste(data$ResponseId, data$option_number))))
+
+# ------------------------------------------------------------------------------
+# xx
+# ------------------------------------------------------------------------------
+# --- 1) Ratings (1–5) plots --------------------------------------
+stopifnot(exists("plot_rating_1to5_restrict"))
+
+out_png <- function(name) file.path(figures, paste0(name, ".png"))
+
+rating_calls <- list(
+  list(var = "FirmCont_white",  out = "FirmCont_favor_white_share"),
+  list(var = "FirmCont_black",  out = "FirmCont_favor_black_share"),
+  list(var = "FirmHire_white",  out = "FirmHire_favor_white_share"),
+  list(var = "FirmHire_black",  out = "FirmHire_favor_black_share"),
+  list(var = "FirmCont_male",   out = "FirmCont_favor_male_share"),
+  list(var = "FirmCont_female", out = "FirmCont_favor_female_share"),
+  list(var = "FirmHire_male",   out = "FirmHire_favor_male_share"),
+  list(var = "FirmHire_female", out = "FirmHire_favor_female_share"),
+  list(var = "conduct_white",   out = "conduct_white_share"),
+  list(var = "conduct_black",   out = "conduct_black_share"),
+  list(var = "conduct_female",  out = "conduct_female_share"),
+  list(var = "conduct_male",    out = "conduct_male_share"),
+  list(var = "conduct_older",   out = "conduct_older_share"),
+  list(var = "conduct_younger", out = "conduct_younger_share")
+)
+
+for (rc in rating_calls) {
+  if (rc$var %in% names(data)) {
+    message("Plotting ratings for: ", rc$var)
+    
+    # conduct_* → "level" labels; everything else → "gap" labels
+    label_version <- if (startsWith(rc$var, "conduct_")) "level" else "gap"
+    
+    plot_rating_1to5_restrict(
+      df = data,
+      var = rc$var,
+      id_var = "ResponseId",
+      label_version = label_version,
+      outfile = out_png(rc$out),
+      ymax = 60
+    )
+  } else {
+    message("Skipping missing rating var: ", rc$var)
+  }
+}

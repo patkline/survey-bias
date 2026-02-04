@@ -7,6 +7,16 @@
 # Run globals
 source("code/globals.R")
 
+# ------------------------------------------------------------------------------
+# Summary statistics
+# ------------------------------------------------------------------------------
+
+# Summary statistics wrapper script
+source(file.path(create_tables_figures, "summary_statistics_wrapper.R"))
+
+# ------------------------------------------------------------------------------
+# XX
+# ------------------------------------------------------------------------------
 # Source individual table/figure scripts
 source(file.path(create_tables_figures, "summary_item_worths.R"))
 source(file.path(create_tables_figures, "heatmaps_combined.R"))
