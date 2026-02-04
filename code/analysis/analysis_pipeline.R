@@ -486,7 +486,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     pairs <- list(
       c("cb_central_full",              "discretion", "EIVBS_central_discretion"),
       c("log_dif",                      "FirmCont_favor_white", "EIVBS_logdif_cont_white"),
-      c("log_dif",                      "conduct_black", "EIVBS_logdif_cond_white"),
+      c("log_dif",                      "conduct__favor_white", "EIVBS_logdif_cond_white"),
       c("log_dif",                      "pooled_favor_white", "EIVBS_logdif_pool_white"),
       c("log_dif_gender",               "FirmCont_favor_male" , "EIVBS_logdif_cont_male"),
       c("log_dif_gender",               "conduct_favor_male" , "EIVBS_logdif_cond_male"),
@@ -545,7 +545,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     pairs <- list(
       c("cb_central_full",              "discretion", "EIVBS_central_discretion"),
       c("log_dif",        "FirmCont_favor_white", "EIVBS_logdif_cont_white"),
-      c("log_dif",        "conduct_black",        "EIVBS_logdif_cond_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVBS_logdif_cond_white"),
       c("log_dif",        "pooled_favor_white",   "EIVBS_logdif_pool_white"),
       c("log_dif_gender", "FirmCont_favor_male",  "EIVBS_logdif_cont_male"),
       c("log_dif_gender", "conduct_favor_male",   "EIVBS_logdif_cond_male"),
@@ -1299,7 +1299,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     pairs <- list(
       c("cb_central_full",              "discretion", "EIVBordaw_central_discretion"),
       c("log_dif",                      "FirmCont_favor_white", "EIVBordaw_logdif_cont_white"),
-      c("log_dif",                      "conduct_black", "EIVBordaw_logdif_cond_white"),
+      c("log_dif",                      "conduct_favor_white", "EIVBordaw_logdif_cond_white"),
       c("log_dif",                      "pooled_favor_white", "EIVBordaw_logdif_pool_white"),
       c("log_dif_gender",               "FirmCont_favor_male" , "EIVBordaw_logdif_cont_male"),
       c("log_dif_gender",               "conduct_favor_male" , "EIVBordaw_logdif_cond_male"),
@@ -1359,7 +1359,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     pairs <- list(
       c("cb_central_full",              "discretion", "EIVBordaw_central_discretion"),
       c("log_dif",        "FirmCont_favor_white", "EIVBordaw_logdif_cont_white"),
-      c("log_dif",        "conduct_black",        "EIVBordaw_logdif_cond_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVBordaw_logdif_cond_white"),
       c("log_dif",        "pooled_favor_white",   "EIVBordaw_logdif_pool_white"),
       c("log_dif_gender", "FirmCont_favor_male",  "EIVBordaw_logdif_cont_male"),
       c("log_dif_gender", "conduct_favor_male",   "EIVBordaw_logdif_cond_male"),
