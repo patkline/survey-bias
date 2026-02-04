@@ -86,7 +86,8 @@ required_r_packages <- c(
   "knitr", 
   "magick", 
   "ggpattern",
-  "ragg"
+  "ragg",
+  "rland"
 )
 
 # Identify missing R packages
