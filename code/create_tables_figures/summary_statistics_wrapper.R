@@ -137,7 +137,7 @@ if ("sample" %in% names(data)) {
     sample_var = "sample",
     label0     = "Convenience",
     label1     = "Probability",
-    outfile    = file.path(figures, "summary_prob_conv.tex")
+    outfile    = file.path(tables, "summary_prob_conv.tex")
   )
 } else {
   message("Missing 'sample' column for prob/conv table (skipping)")
@@ -153,7 +153,7 @@ if ("conduct_white" %in% names(data)) {
     sample_var = "sample",
     label0     = "Conduct",
     label1     = "Names",
-    outfile    = file.path(figures, "summary_cond_names.tex")
+    outfile    = file.path(tables, "summary_cond_names.tex")
   )
 } else {
   message("Missing 'conduct_white' for Names vs Conduct table (skipping)")
