@@ -16,16 +16,16 @@ Repository for the code used to version-control the data build, analysis, and re
 ## Setup instructions
 
 ### If you haven't cloned the repository yet,
-1. Install Git LFS at https://git-lfs.com/ (step 1 only)
+1. Install Git LFS at https://git-lfs.com/ 
 
-2. Clone the repository using `git clone https://github.com/[username]/survey-bias.git`
+2. Clone the repository using `git clone https://github.com/pat-kline/survey-bias.git`
 
-### If you already cloned the repository:
-1. Install Git LFS at https://git-lfs.com/ (step 1 only)
+### If you already cloned the repository,
+1. Install Git LFS at https://git-lfs.com/
 
-2. Download the actual data files by running `git lfs pull` in the `/survey-bias` directory 
+2. Download the actual data files by running `git lfs pull` in the `/survey-bias` directory on your terminal
 
-### Final setup (all users):
+### Final setup (all users),
 1. Open an R terminal in VScode in the project directory and the `.Rprofile` will automatically,
    - Activate `renv` for package management
    - Set the working directory
@@ -34,6 +34,9 @@ Repository for the code used to version-control the data build, analysis, and re
 2. Confirm the following message displayed in your terminal "🎃 .Rprofile was successfully sourced" 
 
 3. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
+
+## For code you write, 
+1. For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages
 
 ## For any issues, reach out to me at `nrotundo@berkeley.edu`
 
