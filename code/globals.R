@@ -87,7 +87,7 @@ required_r_packages <- c(
   "magick", 
   "ggpattern",
   "ragg",
-  "rland"
+  "rlang"
 )
 
 # Identify missing R packages
