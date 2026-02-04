@@ -18,12 +18,12 @@ Repository for the code used to version-control the data build, analysis, and re
 ### If you haven't cloned the repository yet,
 1. Install Git LFS at https://git-lfs.com/ 
 
-2. Clone the repository using `git clone https://github.com/pat-kline/survey-bias.git`
+2. Clone the repository via GitHub desktop interface or by typing `git clone https://github.com/pat-kline/survey-bias.git` in your terminal within whatever directory you want to store the project in on your machine
 
 ### If you already cloned the repository,
 1. Install Git LFS at https://git-lfs.com/
 
-2. Download the actual data files by running `git lfs pull` in the `/survey-bias` directory on your terminal
+2. Download the actual data files by running `git lfs pull` in the `/survey-bias` directory in your terminal
 
 ### Final setup (all users),
 1. Open an R terminal in VScode in the project directory and the `.Rprofile` will automatically,
