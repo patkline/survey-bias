@@ -64,7 +64,7 @@ data <- data %>%
 data <- data %>%
   mutate(
     pooled_favor_white = coalesce(na_if(FirmCont_favor_white, -1),
-                                  na_if(conduct_black,        -1)),
+                                  na_if(conduct_favor_white,  -1)),
     pooled_favor_male  = coalesce(na_if(FirmCont_favor_male,  -1),
                                   na_if(conduct_favor_male,   -1))
   )
@@ -113,7 +113,7 @@ survey_vars <- c(
   "FirmCont_favor_white", "FirmHire_favor_white", "conduct_favor_white",
   "FirmCont_favor_male",  "FirmHire_favor_male",  "conduct_favor_male",
   "conduct_favor_younger","discretion",           "FirmSelective",
-  "FirmDesire",           "conduct_black"
+  "FirmDesire"
 )
 
 # --- collect union of resp_ids that survive 'cleaning' for ANY outcome ---

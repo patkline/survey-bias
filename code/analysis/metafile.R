@@ -35,7 +35,7 @@ data <- read.csv(file_path, stringsAsFactors = FALSE)
 survey_vars <- c("FirmCont_favor_white", "FirmHire_favor_white", "conduct_favor_white",
                  "FirmCont_favor_male", "FirmHire_favor_male", "conduct_favor_male",
                  "conduct_favor_younger", "discretion", "FirmSelective", "FirmDesire",
-                 "conduct_black","pooled_favor_white","pooled_favor_male")
+                 "pooled_favor_white","pooled_favor_male")
 experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "cb_central_full")
 respondent_col <- "ResponseId"
 firm_col <- "firm"

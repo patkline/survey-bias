@@ -486,7 +486,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     pairs <- list(
       c("cb_central_full",              "discretion", "EIVBS_central_discretion"),
       c("log_dif",                      "FirmCont_favor_white", "EIVBS_logdif_cont_white"),
-      c("log_dif",                      "conduct__favor_white", "EIVBS_logdif_cond_white"),
+      c("log_dif",                      "conduct_favor_white", "EIVBS_logdif_cond_white"),
       c("log_dif",                      "pooled_favor_white", "EIVBS_logdif_pool_white"),
       c("log_dif_gender",               "FirmCont_favor_male" , "EIVBS_logdif_cont_male"),
       c("log_dif_gender",               "conduct_favor_male" , "EIVBS_logdif_cond_male"),
@@ -504,7 +504,8 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       sheet_nm2 <- paste0("bs_",lhs_var)
       
       print(paste0("Running BS EIV Procedure: ", lhs_var, " ~ ", rhs_var))
-      results <- bs_eiv_run(output_path, industry_map, lhs_var, rhs_var, borda = FALSE, iterations = B)
+      weights <- data %>% select(firm_id, njobs) %>% rename(weights = njobs) %>% select(firm_id,weights) %>% distinct()
+      results <- bs_eiv_run(output_path, industry_map, lhs_var, rhs_var, borda = FALSE, iterations = B, weights = weights)
       eiv <- results$eiv
       boot_df <- results$lhs_boot
       
@@ -1318,7 +1319,8 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       sheet_nm2 <- paste0("bs_",lhs_var)
       
       print(paste0("Running BS EIV Procedure: ", lhs_var, " ~ ", rhs_var))
-      results <- bs_eiv_run(output_path, industry_map, lhs_var, rhs_var, borda =TRUE, center = TRUE)
+      weights <- data %>% select(firm_id, njobs) %>% rename(weights = njobs) %>% select(firm_id,weights) %>% distinct()
+      results <- bs_eiv_run(output_path, industry_map, lhs_var, rhs_var, borda =TRUE, center = TRUE, weights = weights)
       eiv <- results$eiv
       boot_df <- results$lhs_boot
       
@@ -1502,282 +1504,6 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   }
   
   
-  
-  
-  
-  
-  ################################################################################
-  # Section 2: Jackknife Leave Out Estimation, Store Item Worths and SEs
-  ################################################################################
-  # if (run_jackknife) {
-  #   for (outcome in survey_vars) {
-  #     cat("Running Jackknife:", outcome, "\n")
-  #   
-  #     prep <- prepare_pltree_data(
-  #      data         = data,
-  #       rank_col     = outcome,
-  #       subgroup_var = NULL,
-  #       subgroup_filter = NULL)
-  #   
-  #     data_wide <- prep$data_wide_pltree
-  #     id_map <- prep$id_map
-  #   
-  #     jk_res <- try(
-  #       jackknife_manual(data_wide, id_map),
-  #       silent = TRUE
-  #     )
-  #   
-  #     if (inherits(jk_res, "try-error")) {
-  #       cat("⚠️ Jackknife for", outcome, "failed with error:\n",
-  #           conditionMessage(attr(jk_res, "condition")), "\n")
-  #     } else {
-  #       remove_sheet_safely(wb, paste0("jk_", outcome))
-  #       addWorksheet(wb, paste0("jk_", outcome))
-  #       writeData(wb, sheet = paste0("jk_", outcome), x = jk_res$iter_df)
-  #     
-  #       remove_sheet_safely(wb, paste0("jk_se_", outcome))
-  #       addWorksheet(wb, paste0("jk_se_", outcome))
-  #       writeData(wb, sheet = paste0("jk_se_", outcome), x = jk_res$se_df)
-  #     
-  #       remove_sheet_safely(wb, paste0("jk_r_", outcome))
-  #       addWorksheet(wb, paste0("jk_r_", outcome))
-  #       writeData(wb, sheet = paste0("jk_r_", outcome), x = jk_res$robust_df)
-  #     
-  #       cat("✅ Jackknife Saved:", outcome, "\n")
-  #     }
-  #   }
-  # }
-  # 
-  
-  ################################################################################
-  # Section 4: Jackknife EIV
-  ################################################################################
-  # if (run_eiv) {
-  #   
-  #   # pairs <- list(
-  #   #   c("dif",                          "FirmCont_favor_white", "EIV_dif_cont_white"),
-  #   #   c("dif",                          "conduct_black", "EIV_dif_cond_white"),
-  #   #   c("log_dif",                      "FirmCont_favor_white", "EIV_logdif_cont_white"),
-  #   #   c("log_dif",                      "conduct_black", "EIV_logdif_cond_white"),
-  #   #   c("dif_gender",                   "FirmCont_favor_male", "EIV_dif_cont_male"),
-  #   #   c("dif_gender",                   "conduct_favor_male", "EIV_dif_cond_male"),
-  #   #   c("log_dif_gender",               "FirmCont_favor_male" , "EIV_logdif_cont_male"),
-  #   #   c("log_dif_gender",               "conduct_favor_male" , "EIV_logdif_cond_male"),
-  #   #   c("dif_age",                      "conduct_favor_younger" , "EIV_dif_cont_young"),
-  #   #   c("log_dif_age",                  "conduct_favor_younger" , "EIV_logdif_cond_young")
-  #   # )
-  #   
-  #   pairs <- list(
-  #     c("log_dif",                      "FirmCont_favor_white", "EIV_logdif_cont_white"),
-  #     c("log_dif",                      "conduct_black", "EIV_logdif_cond_white"),
-  #     c("log_dif_gender",               "FirmCont_favor_male" , "EIV_logdif_cont_male"),
-  #     c("log_dif_gender",               "conduct_favor_male" , "EIV_logdif_cond_male"),
-  #     c("log_dif_age",                  "conduct_favor_younger" , "EIV_logdif_cond_young")
-  #   )
-  #   
-  #   # 2. Loop over that list
-  #   eiv_rows <- list()      # <- will hold the per-pair summary tibbles
-  #   
-  #   for(pair in pairs) {
-  #     lhs_var <- pair[1]
-  #     rhs_var <- pair[2]
-  #     sheet_nm <- pair[3]
-  #     
-  #     if (lhs_var == "cb_central_full") {
-  #       print(paste0("Running EIV: ", lhs_var, " ~ ", rhs_var))
-  #       results <- eiv_run(output_path, industry_map, lhs_var, rhs_var, TRUE)
-  #       
-  #       remove_sheet_safely(wb, sheet_nm)
-  #       addWorksheet(wb, sheet_nm)
-  #       writeData(wb, sheet_nm, results)
-  #       saveWorkbook(wb, output_path, overwrite = TRUE)
-  #       print(paste0("EIV Results Saved: ",lhs_var," ~ ",rhs_var))
-  #     }
-  #     
-  #     jk <- jackknife_summary(output_path, sheet_nm,
-  #                             lhs = lhs_var,
-  #                             rhs = rhs_var)
-  #     
-  #     eiv_rows[[sheet_nm]] <- jk          # keep in the list
-  #   }
-  #   
-  #   eiv_all <- dplyr::bind_rows(eiv_rows)
-  #   print(eiv_all)
-  #   
-  #   remove_sheet_safely(wb, "EIV_Jackknife")
-  #   addWorksheet(wb, "EIV_Jackknife")
-  #   writeData(wb, "EIV_Jackknife", eiv_all)
-  #   
-  #   saveWorkbook(wb, output_path, overwrite = TRUE)
-  #   message("✅  Combined EIV / jack-knife summary saved in sheet “EIV”.")
-  # }
-  
-  ################################################################################
-  # Section 5: Bootstrap EIV
-  ################################################################################
-  
-  # # -----------------------------------------------
-  # # Run Correlation
-  # # -----------------------------------------------
-  # # 2) generate all unordered pairs (combn with m=2)
-  # raw_pairs <- combn(all_vars, 2, simplify = FALSE)
-  # 
-  # # 3) for each pair, enforce the “experimental→RHS” rule and skip if both exp
-  # fixed_pairs <- lapply(raw_pairs, function(pair) {
-  #   a <- pair[1]; b <- pair[2]
-  #   a_exp <- a %in% experimental_vars
-  #   b_exp <- b %in% experimental_vars
-  #   
-  #   # skip if both are experimental
-  #   if (a_exp && b_exp) return(NULL)
-  #   
-  #   # if exactly one is experimental, make sure it’s in slot 2
-  #   if (a_exp && !b_exp) return(c(b, a))
-  #   if (b_exp && !a_exp) return(c(a, b))
-  #   
-  #   # otherwise leave order as-is (both non-exp)
-  #   return(c(a, b))
-  # })
-  # 
-  # # 4) drop the NULLs and dedupe any accidental duplicates
-  # fixed_pairs <- Filter(Negate(is.null), fixed_pairs)
-  # uniq_keys   <- unique(vapply(fixed_pairs, paste, character(1), collapse = "||"))
-  # pairs       <- strsplit(uniq_keys, "\\|\\|")
-  # 
-  # # 5) loop once
-  # for(pair in pairs) {
-  #   var1 <- pair[1]
-  #   var2 <- pair[2]
-  #   is_exp_rhs <- var2 %in% experimental_vars
-  #   
-  #   # call your function
-  #   results <- correlation_run(output_path, var1, var2, type = is_exp_rhs)
-  #   
-  #   # write them out
-  #   sheet_name <- paste0("corr_", var1, "_", var2)
-  #   remove_sheet_safely(wb, sheet_name)
-  #   addWorksheet(wb, sheet_name)
-  #   writeData(wb, sheet_name, results)
-  # }
-  # 
-  # -----------------------------------------------
-  # Run 2b: Bootstrap OR Load from Excel if Disabled
-  # -----------------------------------------------
-  # bootstrap_results <- list()
-  # 
-  # if (run_bootstrap) {
-  #   bootstrap_results <- bootstrap_routine(data, respondent_col, firm_col, survey_vars, B = 1000)
-  # 
-  #   # Append bootstrap results to Excel
-  #   for (outcome in names(bootstrap_results)) {
-  #     remove_sheet_safely(wb, outcome)
-  #     addWorksheet(wb, outcome)
-  #     writeData(wb, sheet = outcome, x = bootstrap_results[[outcome]])
-  #   }
-  #   saveWorkbook(wb, output_path, overwrite = TRUE)
-  #   print("Bootstrap Results Saved")
-  # } else {
-  #   print("⚠️ Skipping Bootstrap. Loading from Excel.")
-  # 
-  #   # Load existing bootstrap results from Excel
-  #   existing_sheets <- names(wb)
-  # 
-  #   for (outcome in survey_vars) {
-  #     theta_outcome <- paste0(outcome,"_theta")
-  #     if (outcome %in% existing_sheets) {
-  #       bootstrap_results[[outcome]] <- read.xlsx(output_path, sheet = outcome)
-  #       print(paste("✅ Loaded bootstrap results for:", outcome))
-  #     } else {
-  #       print(paste("⚠️ No bootstrap results for:", outcome, ". Skipping."))
-  #       bootstrap_results[[outcome]] <- NA  # Assign NA for missing results
-  #     }
-  #     if (theta_outcome %in% existing_sheets) {
-  #       bootstrap_results[[theta_outcome]] <- read.xlsx(output_path, sheet = outcome)
-  #       print(paste("✅ Loaded bootstrap results for:", outcome,"_theta"))
-  #     } else {
-  #       print(paste("⚠️ No bootstrap results for:", outcome, "_theta. Skipping."))
-  #       bootstrap_results[[theta_outcome]] <- NA  # Assign NA for missing results
-  #     }
-  #   }
-  # }
-  # 
-  # bootstrap_ses <- calculate_bootstrap_se(bootstrap_results)
-  # bootstrap_ses <- bootstrap_ses %>%
-  #   mutate(
-  #   equal_weighted_favor_male_se_bs = sqrt(`FirmCont_favor_male_se_bs`^2 + `conduct_favor_male_se_bs`^2) / 2,
-  #   equal_weighted_favor_white_se_bs = sqrt(`FirmCont_favor_white_se_bs`^2 + `conduct_black_se_bs`^2) / 2
-  # )
-  # print("Bootstrap SEs Completed")
-  # remove_sheet_safely(wb, "BS_Standard_Errors")
-  # addWorksheet(wb, "BS_Standard_Errors")
-  # writeData(wb, "BS_Standard_Errors", bootstrap_ses)
-  
-  # Section IB: This section bootstraps the Plackett Luce model and stores
-  # coefficients, SEs and robust SEs for each iteration of the bootstrap.
-  # if (run_bootstrap) {
-  #   
-  #   for (outcome in survey_vars) {
-  #     
-  #     cat("Running Bootstrap:", outcome, "\n")
-  #     
-  #     prep <- prepare_pltree_data(
-  #       data         = data,
-  #       rank_col     = outcome,
-  #       subgroup_var = NULL,
-  #       subgroup_filter = NULL)
-  #     
-  #     data_wide <- prep$data_wide_pltree
-  #     id_map <- prep$id_map
-  #     ## ------------------------------------------------------------
-  #     ##  Draw & save bootstrap weights  (n × 200, rescaled)
-  #     ## ------------------------------------------------------------
-  #     n  <- nrow(data_wide)                # number of respondents / rows
-  #     B  <- 200                            # number of bootstrap reps
-  #     
-  #     weights_mat <- generate_weights(n, B, seed=123)
-  #     
-  #     # make the matrix data-frame-friendly  -------------------------
-  #     colnames(weights_mat) <- paste0("w_", seq_len(B))
-  #     weights_df <- cbind(
-  #       resp_id = data_wide$resp_id,       # preserve respondent ID
-  #       as.data.frame(weights_mat)
-  #     )
-  #     
-  #     # write to Excel  ----------------------------------------------
-  #     sheet_nm <- paste0("bs_w_", outcome)
-  #     
-  #     remove_sheet_safely(wb, sheet_nm)
-  #     addWorksheet(wb, sheet_nm)
-  #     writeData(wb, sheet = sheet_nm, x = weights_df)
-  #     
-  #     bs_res <- try(
-  #       bootstrap_manual(data_wide, id_map, B = 200, seed = 123, weights = weights_df),
-  #       silent = TRUE
-  #     )
-  #     
-  #     if (inherits(bs_res, "try-error")) {
-  #       cat("⚠️ Bootstrap for", outcome, "failed with error:\n",
-  #           conditionMessage(attr(bs_res, "condition")), "\n")
-  #     } else {
-  #       remove_sheet_safely(wb, paste0("bs_", outcome))
-  #       addWorksheet(wb, paste0("bs_", outcome))
-  #       writeData(wb, sheet = paste0("bs_", outcome), x = bs_res$iter_df)
-  #       
-  #       remove_sheet_safely(wb, paste0("bs_se_", outcome))
-  #       addWorksheet(wb, paste0("bs_se_", outcome))
-  #       writeData(wb, sheet = paste0("bs_se_", outcome), x = bs_res$se_df)
-  #       
-  #       remove_sheet_safely(wb, paste0("bs_r_", outcome))
-  #       addWorksheet(wb, paste0("bs_r_", outcome))
-  #       writeData(wb, sheet = paste0("bs_r_", outcome), x = bs_res$robust_df)
-  #       
-  #       cat("✅ Bootstrap Saved:", outcome, "\n")
-  #     }
-  #   }
-  #   
-  #   saveWorkbook(wb, output_path, overwrite = TRUE)
-  #   message("✅  Bootstrap saved")
-  # }
   
   ## ---- FINAL: Summarize Signal/Noise across outcomes ----
   if (isTRUE(sum_signal_noise)) {

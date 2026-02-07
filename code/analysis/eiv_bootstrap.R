@@ -2,7 +2,7 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
                        borda = FALSE,
                        n_cores = min(32, max(1, parallel::detectCores(logical = TRUE) - 1)),
                        use_psock_on_windows = FALSE,
-                       center = FALSE, iterations = 200) { 
+                       center = FALSE, iterations = 200, weights = NULL) { 
   
   # ---- helpers ---------------------------------------------------------------
   read_baseline <- function(sheet, col) {
@@ -71,6 +71,7 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
     dplyr::left_join(boot_df, by = "firm_id") %>%
     dplyr::left_join(industry_map, by = "firm_id") %>%
     dplyr::filter(!is.na(.data[[lhs_var]])) %>%
+    dplyr::left_join(weights, by = "firm_id") %>%
     dplyr::filter(!is.na(.data[["aer_naics2"]]))
   
   # ---- 4) Industry dummies ---------------------------------------------------
@@ -99,7 +100,7 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
   
   # Keep only what's actually needed
   keep_cols <- unique(c(
-    "firm","firm_id",
+    "firm","firm_id", "weights",
     lhs_var,
     rhs_iters,
     lhs_iters,
@@ -115,6 +116,7 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
     
     iter_rhs <- reg_data[[paste0("iter_",     i)]]
     iter_lhs <- reg_data[[paste0("iter_lhs_", i)]]
+    weights <- reg_data[[paste0("weights")]]
     
     if (center) {
       reg_data[[rhs_var]] <- iter_rhs - mean(iter_rhs, na.rm = TRUE)
@@ -160,8 +162,20 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
            se   = sqrt(m1$vcov[rhs_var, rhs_var]))
     }, error = function(e) list(coef = NA_real_, se = NA_real_))
     
+    m1_vals_w <- tryCatch({
+      m1 <- eivreg(f1, data = reg_data, Sigma_error = Sigma1, weights = weights)
+      list(coef = coef(m1)[rhs_var],
+           se   = sqrt(m1$vcov[rhs_var, rhs_var]))
+    }, error = function(e) list(coef = NA_real_, se = NA_real_))
+    
     m2_vals <- tryCatch({
       m2 <- eivreg(f2, data = reg_data, Sigma_error = Sigma2)
+      list(coef = coef(m2)[rhs_var],
+           se   = sqrt(m2$vcov[rhs_var, rhs_var]))
+    }, error = function(e) list(coef = NA_real_, se = NA_real_))
+    
+    m2_vals_w <- tryCatch({
+      m2 <- eivreg(f2, data = reg_data, Sigma_error = Sigma2, weights = weights)
       list(coef = coef(m2)[rhs_var],
            se   = sqrt(m2$vcov[rhs_var, rhs_var]))
     }, error = function(e) list(coef = NA_real_, se = NA_real_))
@@ -177,6 +191,8 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
       check_rhs   = mean(reg_data[[rhs_var]], na.rm = TRUE),
       coef1       = m1_vals$coef, se1 = m1_vals$se,
       coef2       = m2_vals$coef, se2 = m2_vals$se,
+      coef3     = m1_vals_w$coef, se3 = m1_vals_w$se,
+      coef4     = m2_vals_w$coef, se4 = m2_vals_w$se,
       stringsAsFactors = FALSE
     )
   }

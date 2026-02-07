@@ -54,7 +54,9 @@ bs_summary <- function(path, sheet, lhs, rhs, na_tol = 0.02) {
   ## 4) bind the two coefficients’ results
   bind_rows(
     one_coef(coef1, se1, 1),
-    one_coef(coef2, se2, 2)
+    one_coef(coef2, se2, 2),
+    one_coef(coef3, se3, 3),
+    one_coef(coef4, se4, 4)
   )
 }
 

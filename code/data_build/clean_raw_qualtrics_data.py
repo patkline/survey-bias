@@ -476,6 +476,7 @@ exp_ev_g['dif_gender'] = exp_ev_g.dif
 exp_ev_g['log_dif_gender'] = exp_ev_g.log_dif
 exp_ev_g['dif_se_gender'] = exp_ev_g.dif_se
 exp_ev_g['log_dif_se_gender'] = exp_ev_g.log_dif_se
+exp_ev_g['njobs'] = exp_ev_g.njobs
 
 # Rename variables in the exp_ev_40 dataframe
 exp_ev_40['dif_age'] = exp_ev_40.dif
@@ -488,7 +489,7 @@ exp_cb_central['cb_central_full'] = exp_cb_central.cb_central
 exp_cb_central_se['cb_central_full_se'] = exp_cb_central_se.cb_central_se
 
 # Merge secondary dataframes onto the main exp_ev dataframe
-exp_ev = exp_ev.merge(exp_ev_g[['firm_id', 'dif_gender', 'dif_se_gender', 'log_dif_gender', 'log_dif_se_gender']], how = 'left', validate = '1:1')
+exp_ev = exp_ev.merge(exp_ev_g[['firm_id', 'dif_gender', 'dif_se_gender', 'log_dif_gender', 'log_dif_se_gender','njobs']], how = 'left', validate = '1:1')
 exp_ev = exp_ev.merge(exp_ev_40[['firm_id', 'dif_age', 'dif_se_age', 'log_dif_age', 'log_dif_se_age']], how = 'left', validate = '1:1')
 exp_ev = exp_ev.merge(exp_ev_ranking[['firm_id', 'groups_lambda0.25']], how = 'left', validate = '1:1')
 exp_ev = exp_ev.merge(exp_cb_central[['firm_id','cb_central_full']], how = 'outer', validate = '1:1')
@@ -506,7 +507,7 @@ exp_ev.rename(columns = {'firm_code': 'firm'}, inplace = True)
 # Keep necessary variables
 exp_ev = exp_ev[['dif', 'dif_gender', 'log_dif', 'log_dif_gender', 'groups_lambda0.25',
                  'dif_se', 'dif_se_gender', 'log_dif_se', 'log_dif_se_gender'
-                 , 'dif_age', 'dif_se_age', 'log_dif_age', 'log_dif_se_age', 'firm', 'firm_id','cb_central_full', 'cb_central_full_se']]
+                 , 'dif_age', 'dif_se_age', 'log_dif_age', 'log_dif_se_age', 'firm', 'firm_id','cb_central_full', 'cb_central_full_se','njobs']]
 
 # Define dictionary to normalize firm names between datasets
 replace_firms = {
