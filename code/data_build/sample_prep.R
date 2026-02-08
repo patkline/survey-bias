@@ -160,7 +160,7 @@ restricted_sample_analysis <- restricted_sample %>%
     }
   ))
 
-data <- data %>%
+restricted_sample_analysis <- restricted_sample_analysis %>%
   mutate(educ = educ_0_1,
          age = age_gt40)
 
