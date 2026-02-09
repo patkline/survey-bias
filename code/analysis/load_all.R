@@ -16,6 +16,7 @@ source(file.path(analysis, "borda_bootstrap.R"))
 ## EIV
 source(file.path(analysis, "eiv_bootstrap.R"))
 source(file.path(analysis, "bootstrap_summary.R"))
+source(file.path(analysis, "eiv_bivariate.R"))
 
 ## PL to Borda
 source(file.path(analysis, "expected_borda_score.R"))

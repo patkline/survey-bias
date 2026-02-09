@@ -9,13 +9,14 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
                                   output_path, industry_map_path, process_outcomes = FALSE, 
                                   run_jackknife = FALSE, run_bootstrap = FALSE, sim_pl_to_borda = FALSE,
                                   exact_pl_to_borda = FALSE, sum_signal_noise = FALSE,
-                                  run_bs_eiv = FALSE, run_eiv = FALSE, eiv_summary = FALSE,
+                                  run_bs_eiv = FALSE, eiv_bivariate = FALSE, eiv_summary = FALSE,
                                   run_pairwise_process = FALSE,
                                   diagnostic = FALSE, borda_score = FALSE,
                                   borda_bs_w = FALSE, borda_bs = FALSE,
                                   borda_eiv = FALSE,
                                   run_borda_eiv = FALSE,
                                   borda_eiv_summary = FALSE,
+                                  borda_eiv_bivariate = FALSE,
                                   run_pairwise_process_borda = FALSE,
                                   generate_wide = TRUE,
                                   seed = 123,
@@ -485,13 +486,19 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     
     pairs <- list(
       c("cb_central_full",              "discretion", "EIVBS_central_discretion"),
-      c("log_dif",                      "FirmCont_favor_white", "EIVBS_logdif_cont_white"),
-      c("log_dif",                      "conduct_favor_white", "EIVBS_logdif_cond_white"),
-      c("log_dif",                      "pooled_favor_white", "EIVBS_logdif_pool_white"),
-      c("log_dif_gender",               "FirmCont_favor_male" , "EIVBS_logdif_cont_male"),
-      c("log_dif_gender",               "conduct_favor_male" , "EIVBS_logdif_cond_male"),
-      c("log_dif_gender",               "pooled_favor_male",   "EIVBS_logdif_pool_male"),
-      c("log_dif_age",                  "conduct_favor_younger" , "EIVBS_logdif_cond_young")
+      c("log_dif",        "FirmCont_favor_white", "EIVBS_logdif_cont_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVBS_logdif_cond_white"),
+      c("log_dif",        "pooled_favor_white",   "EIVBS_logdif_pool_white"),
+      c("log_dif",        "FirmSelective", "EIVBS_logdifbw_select"),
+      c("log_dif",        "discretion", "EIVBS_logdifbw_discret"),
+      c("log_dif_gender", "FirmCont_favor_male",  "EIVBS_logdif_cont_male"),
+      c("log_dif_gender", "conduct_favor_male",   "EIVBS_logdif_cond_male"),
+      c("log_dif_gender", "pooled_favor_male",    "EIVBS_logdif_pool_male"),
+      c("log_dif_gender",        "FirmSelective", "EIVBS_logdifmf_select"),
+      c("log_dif_gender",        "discretion", "EIVBS_logdifmf_discret"),
+      c("log_dif_age",    "conduct_favor_younger","EIVBS_logdif_cond_young"),
+      c("log_dif_age",        "FirmSelective", "EIVBS_logdifyo_select"),
+      c("log_dif_age",        "discretion", "EIVBS_logdifyo_discret")
     )
     
     # 2. Loop over that list
@@ -548,10 +555,16 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       c("log_dif",        "FirmCont_favor_white", "EIVBS_logdif_cont_white"),
       c("log_dif",        "conduct_favor_white",        "EIVBS_logdif_cond_white"),
       c("log_dif",        "pooled_favor_white",   "EIVBS_logdif_pool_white"),
+      c("log_dif",        "FirmSelective", "EIVBS_logdifbw_select"),
+      c("log_dif",        "discretion", "EIVBS_logdifbw_discret"),
       c("log_dif_gender", "FirmCont_favor_male",  "EIVBS_logdif_cont_male"),
       c("log_dif_gender", "conduct_favor_male",   "EIVBS_logdif_cond_male"),
       c("log_dif_gender", "pooled_favor_male",    "EIVBS_logdif_pool_male"),
-      c("log_dif_age",    "conduct_favor_younger","EIVBS_logdif_cond_young")
+      c("log_dif_gender",        "FirmSelective", "EIVBS_logdifmf_select"),
+      c("log_dif_gender",        "discretion", "EIVBS_logdifmf_discret"),
+      c("log_dif_age",    "conduct_favor_younger","EIVBS_logdif_cond_young"),
+      c("log_dif_age",        "FirmSelective", "EIVBS_logdifyo_select"),
+      c("log_dif_age",        "discretion", "EIVBS_logdifyo_discret")
     )
     
     eiv_rows <- list()
@@ -581,6 +594,53 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     } else {
       message("⚠️  No component EIVBS_* sheets found to summarize.")
     }
+  }
+  
+  if (eiv_bivariate) {
+    
+    pairs <- list(
+      c("log_dif","FirmSelective", "discretion", "EIVBS_logdifbw_sel_dis"),
+      c("log_dif_gender", "FirmSelective", "discretion", "EIVBS_logdifmf_sel_dis"),
+      c("log_dif_age","FirmSelective", "discretion", "EIVBS_logdifyo_sel_dis")
+    )
+    
+    # 2. Loop over that list
+    eiv_rows <- list()      # <- will hold the per-pair summary tibbles
+    
+    for(pair in pairs) {
+      lhs_var <- pair[1]
+      rhs_var1 <- pair[2]
+      rhs_var2 <- pair[3]
+      sheet_nm <- pair[4]
+      
+      print(paste0("Running EIV Procedure: ", lhs_var, " ~ ", rhs_var1, " + ", rhs_var2))
+      weights <- data %>% select(firm_id, njobs) %>% rename(weights = njobs) %>% select(firm_id,weights) %>% distinct()
+      eiv <- eiv_run(output_path, industry_map, lhs_var, rhs_var1, rhs_var2, borda = FALSE, weights = weights)
+      
+      remove_sheet_safely(wb, sheet_nm)
+      addWorksheet(wb, sheet_nm)
+      writeData(wb, sheet_nm, eiv)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      print(paste0("BS EIV Results Saved: ",lhs_var," ~ ",rhs_var1, " + ", rhs_var2))
+      
+      jk <- bs_summary(output_path, sheet_nm,
+                       lhs = lhs_var,
+                       rhs = paste0(rhs_var1, " + ", rhs_var2))
+      
+      eiv_rows[[sheet_nm]] <- jk          # keep in the list
+    }
+    
+    
+    eiv_all <- dplyr::bind_rows(eiv_rows)
+    print(eiv_all)
+    
+    remove_sheet_safely(wb, "EIV_BIVARIATE")     # MEA edit: rename temporarily to not write over old results
+    addWorksheet(wb, "EIV_BIVARIATE")
+    writeData(wb, "EIV_BIVARIATE", eiv_all)
+    
+    saveWorkbook(wb, output_path, overwrite = TRUE)
+    message("✅  Combined EIV / BS Summary saved in sheet “EIV_BS")
+    
   }
   
   
@@ -1501,6 +1561,54 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     
     openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
     message("✅  Pairwise summary saved to Excel")
+  }
+  
+  
+  if (borda_eiv_bivariate) {
+    
+    pairs <- list(
+      c("log_dif","FirmSelective", "discretion", "EIVBorda_logdifbw_sel_dis"),
+      c("log_dif_gender", "FirmSelective", "discretion", "EIVBorda_logdifmf_sel_dis"),
+      c("log_dif_age","FirmSelective", "discretion", "EIVBorda_logdifyo_sel_dis")
+    )
+    
+    # 2. Loop over that list
+    eiv_rows <- list()      # <- will hold the per-pair summary tibbles
+    
+    for(pair in pairs) {
+      lhs_var <- pair[1]
+      rhs_var1 <- pair[2]
+      rhs_var2 <- pair[3]
+      sheet_nm <- pair[4]
+      
+      print(paste0("Running EIV Procedure: ", lhs_var, " ~ ", rhs_var1, " + ", rhs_var2))
+      weights <- data %>% select(firm_id, njobs) %>% rename(weights = njobs) %>% select(firm_id,weights) %>% distinct()
+      eiv <- eiv_run(output_path, industry_map, lhs_var, rhs_var1, rhs_var2, borda = TRUE, weights = weights)
+      
+      remove_sheet_safely(wb, sheet_nm)
+      addWorksheet(wb, sheet_nm)
+      writeData(wb, sheet_nm, eiv)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      print(paste0("BS EIV Results Saved: ",lhs_var," ~ ",rhs_var1, " + ", rhs_var2))
+      
+      jk <- bs_summary(output_path, sheet_nm,
+                       lhs = lhs_var,
+                       rhs = paste0(rhs_var1, " + ", rhs_var2))
+      
+      eiv_rows[[sheet_nm]] <- jk          # keep in the list
+    }
+    
+    
+    eiv_all <- dplyr::bind_rows(eiv_rows)
+    print(eiv_all)
+    
+    remove_sheet_safely(wb, "EIV_BORDA_BIVARIATE")     # MEA edit: rename temporarily to not write over old results
+    addWorksheet(wb, "EIV_BORDA_BIVARIATE")
+    writeData(wb, "EIV_BORDA_BIVARIATE", eiv_all)
+    
+    saveWorkbook(wb, output_path, overwrite = TRUE)
+    message("✅  Combined EIV / BS Summary saved in sheet “EIV_BS")
+    
   }
   
   
