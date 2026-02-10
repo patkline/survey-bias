@@ -15,11 +15,15 @@ eiv_run <- function(filepath, industry_map, lhs_var, rhs_var1, rhs_var2,
   
   read_noise <- function(df, var1, var2 = NULL, col) {
     if (is.null(var2)) {
-      df %>% filter(all_firms == FALSE) %>%
-        filter(lhs == var1) %>% select(col) %>% distinct() %>% pull(col)
+      # Use base R subsetting to avoid data masking issues
+      subset_df <- df[df$all_firms == FALSE & df$lhs == var1, ]
+      unique(subset_df[[col]])
     } else {
-      df %>% filter(all_firms == FALSE) %>%
-        filter((lhs == var1 & rhs == var2) | (lhs == var2 & rhs == var1)) %>% pull(col)
+      # Use base R subsetting to avoid data masking issues
+      subset_df <- df[df$all_firms == FALSE &
+                      ((df$lhs == var1 & df$rhs == var2) |
+                       (df$lhs == var2 & df$rhs == var1)), ]
+      subset_df[[col]]
     }
   }
   
@@ -46,9 +50,10 @@ eiv_run <- function(filepath, industry_map, lhs_var, rhs_var1, rhs_var2,
   reg_data <- lhs_df %>%
     dplyr::left_join(rhs_df[[1]],  by = "firm_id") %>%
     dplyr::left_join(industry_map, by = "firm_id") %>%
-    dplyr::filter(!is.na(.data[[lhs_var]])) %>%
-    dplyr::filter(!is.na(.data[["aer_naics2"]])) %>% 
     dplyr::left_join(rhs_df[[2]], by = "firm_id")
+
+  # Filter using base R to avoid data masking issues
+  reg_data <- reg_data[!is.na(reg_data[[lhs_var]]) & !is.na(reg_data[["aer_naics2"]]), ]
   
   if (!is.null(weights)) {
     reg_data <- reg_data %>% dplyr::left_join(weights, by = "firm_id")

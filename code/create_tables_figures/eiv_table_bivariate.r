@@ -104,31 +104,52 @@ build_bivariate_df <- function(cfg) {
   table_df
 }
 
-# ---------- BUILD A THREE-PANEL LATEX TABLE ----------
+# ---------- BUILD A TWO-PANEL LATEX TABLE (PL and Borda) ----------
 
-build_three_panel_bivariate_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
+build_two_panel_bivariate_table <- function(cfg_pl_race, cfg_pl_gender, cfg_pl_age,
+                                             cfg_borda_race, cfg_borda_gender, cfg_borda_age,
+                                             out_tex) {
 
-  df_race   <- build_bivariate_df(cfg_race)
-  df_gender <- build_bivariate_df(cfg_gender)
-  df_age    <- build_bivariate_df(cfg_age)
+  # Build PL dataframes
+  df_pl_race   <- build_bivariate_df(cfg_pl_race)
+  df_pl_gender <- build_bivariate_df(cfg_pl_gender)
+  df_pl_age    <- build_bivariate_df(cfg_pl_age)
 
-  # Force same column order/labels (use race as reference)
-  common_cols <- colnames(df_race)
-  df_race   <- df_race[, common_cols]
-  df_gender <- df_gender[, common_cols]
-  df_age    <- df_age[, common_cols]
+  # Build Borda dataframes
+  df_borda_race   <- build_bivariate_df(cfg_borda_race)
+  df_borda_gender <- build_bivariate_df(cfg_borda_gender)
+  df_borda_age    <- build_bivariate_df(cfg_borda_age)
 
-  # Combine all three panels
-  combined_df <- bind_rows(df_race, df_gender, df_age)
+  # Force same column order/labels (use PL race as reference)
+  common_cols <- colnames(df_pl_race)
+  df_pl_race      <- df_pl_race[, common_cols]
+  df_pl_gender    <- df_pl_gender[, common_cols]
+  df_pl_age       <- df_pl_age[, common_cols]
+  df_borda_race   <- df_borda_race[, common_cols]
+  df_borda_gender <- df_borda_gender[, common_cols]
+  df_borda_age    <- df_borda_age[, common_cols]
 
-  n_race   <- nrow(df_race)
-  n_gender <- nrow(df_gender)
-  n_age    <- nrow(df_age)
+  # Combine all panels
+  combined_df <- bind_rows(
+    df_pl_race, df_pl_gender, df_pl_age,
+    df_borda_race, df_borda_gender, df_borda_age
+  )
+
+  n_pl_race      <- nrow(df_pl_race)
+  n_pl_gender    <- nrow(df_pl_gender)
+  n_pl_age       <- nrow(df_pl_age)
+  n_borda_race   <- nrow(df_borda_race)
+  n_borda_gender <- nrow(df_borda_gender)
+  n_borda_age    <- nrow(df_borda_age)
+
+  # Total rows for each main panel
+  n_pl    <- n_pl_race + n_pl_gender + n_pl_age
+  n_borda <- n_borda_race + n_borda_gender + n_borda_age
 
   # Add line breaks to longer column names for LaTeX using shortstack
   display_cols <- common_cols
-  display_cols <- gsub("Looking for a Job", "\\\\shortstack{Looking for\\\\\\\\a Job}", display_cols)
   display_cols <- gsub("Not Looking for a Job", "\\\\shortstack{Not Looking\\\\\\\\for a Job}", display_cols)
+  display_cols <- gsub("Looking for a Job", "\\\\shortstack{Looking for\\\\\\\\a Job}", display_cols)
   display_cols <- gsub("Feared Discrimination", "\\\\shortstack{Feared\\\\\\\\Discrimination}", display_cols)
   display_cols <- gsub("Did Not Fear Discrimination", "\\\\shortstack{Did Not Fear\\\\\\\\Discrimination}", display_cols)
 
@@ -141,51 +162,80 @@ build_three_panel_bivariate_table <- function(cfg_race, cfg_gender, cfg_age, out
     linesep   = "",
     escape    = FALSE
   ) %>%
-    pack_rows("Panel A: Race", 1, n_race) %>%
-    pack_rows("Panel B: Gender", n_race + 1, n_race + n_gender) %>%
-    pack_rows("Panel C: Age", n_race + n_gender + 1, n_race + n_gender + n_age)
+    pack_rows("Panel A: Plackett--Luce", 1, n_pl) %>%
+    pack_rows("\\\\textit{Race}", 1, n_pl_race, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Gender}", n_pl_race + 1, n_pl_race + n_pl_gender, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Age}", n_pl_race + n_pl_gender + 1, n_pl, italic = TRUE, escape = FALSE) %>%
+    pack_rows("Panel B: Borda", n_pl + 1, n_pl + n_borda) %>%
+    pack_rows("\\\\textit{Race}", n_pl + 1, n_pl + n_borda_race, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Gender}", n_pl + n_borda_race + 1, n_pl + n_borda_race + n_borda_gender, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Age}", n_pl + n_borda_race + n_borda_gender + 1, n_pl + n_borda, italic = TRUE, escape = FALSE)
 
   dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
   writeLines(tex_code, out_tex)
-  message("✓ LaTeX three-panel bivariate table saved to: ", out_tex)
+  message("✓ LaTeX two-panel bivariate table (PL and Borda) saved to: ", out_tex)
 }
 
-# ---------- CONFIGS FOR THREE RUNS ----------
+# ---------- CONFIGS FOR PL AND BORDA RUNS ----------
 
 root_dir <- excel
 
 runs <- list(
-  # 1. RACE
-  list(
+  # Plackett-Luce
+  pl_race = list(
     root        = root_dir,
     sheet_name  = "EIV_BIVARIATE",
     lhs         = "log_dif",
     coef1       = 1L,  # Selectivity
     coef3       = 3L   # Discretion
   ),
-  # 2. GENDER
-  list(
+  pl_gender = list(
     root        = root_dir,
     sheet_name  = "EIV_BIVARIATE",
     lhs         = "log_dif_gender",
     coef1       = 1L,
     coef3       = 3L
   ),
-  # 3. AGE
-  list(
+  pl_age = list(
     root        = root_dir,
     sheet_name  = "EIV_BIVARIATE",
+    lhs         = "log_dif_age",
+    coef1       = 1L,
+    coef3       = 3L
+  ),
+
+  # Borda
+  borda_race = list(
+    root        = root_dir,
+    sheet_name  = "EIV_BORDA_BIVARIATE",
+    lhs         = "log_dif",
+    coef1       = 1L,
+    coef3       = 3L
+  ),
+  borda_gender = list(
+    root        = root_dir,
+    sheet_name  = "EIV_BORDA_BIVARIATE",
+    lhs         = "log_dif_gender",
+    coef1       = 1L,
+    coef3       = 3L
+  ),
+  borda_age = list(
+    root        = root_dir,
+    sheet_name  = "EIV_BORDA_BIVARIATE",
     lhs         = "log_dif_age",
     coef1       = 1L,
     coef3       = 3L
   )
 )
 
-# ---------- BUILD THE THREE-PANEL TABLE ----------
+# ---------- BUILD THE TWO-PANEL TABLE ----------
 
-build_three_panel_bivariate_table(
-  cfg_race   = runs[[1]],
-  cfg_gender = runs[[2]],
-  cfg_age    = runs[[3]],
-  out_tex    = file.path(tables, "EIV_bivariate_three_panel.tex")
+build_two_panel_bivariate_table(
+  cfg_pl_race    = runs$pl_race,
+  cfg_pl_gender  = runs$pl_gender,
+  cfg_pl_age     = runs$pl_age,
+  cfg_borda_race   = runs$borda_race,
+  cfg_borda_gender = runs$borda_gender,
+  cfg_borda_age    = runs$borda_age,
+  out_tex        = file.path(tables, "EIV_bivariate_two_panel.tex")
 )
