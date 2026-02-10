@@ -12,13 +12,13 @@ pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
   dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
                   error = function(e) tibble())
   if (!nrow(dat)) return("NA (NA)")
-  
-  out <- dat %>%
-    mutate(coef = suppressWarnings(as.numeric(.data$coef))) %>%
-    filter(.data$rhs == rhs_var,
-           .data$lhs == lhs_var,
-           .data$coef == coef_num)
-  
+
+  # Convert coef column to numeric
+  dat$coef <- suppressWarnings(as.numeric(dat$coef))
+
+  # Filter using base R to avoid data masking issues in rowwise context
+  out <- dat[dat$rhs == rhs_var & dat$lhs == lhs_var & dat$coef == coef_num, ]
+
   if (!nrow(out)) return("NA (NA)")
   
   est <- suppressWarnings(as.numeric(out$sample_est))
@@ -62,6 +62,8 @@ build_eiv_df <- function(cfg) {
   rhs_contact <- cfg$rhs_contact
   rhs_conduct <- cfg$rhs_conduct
   rhs_extra   <- cfg$rhs_extra
+  coef1       <- cfg$coef1
+  coef2       <- cfg$coef2
   
   scale_by_100 <- cfg$scale_by_100 %||% FALSE
   filemap      <- cfg$filemap %||% default_filemap
@@ -72,12 +74,12 @@ build_eiv_df <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      `(1) Contact`               = pull_est(root, file, lhs, rhs_contact, 1L, sheet_name, scale_by_100),
-      `(2) Contact (Industry FE)` = pull_est(root, file, lhs, rhs_contact, 2L, sheet_name, scale_by_100),
-      `(3) Conduct`               = pull_est(root, file, lhs, rhs_conduct, 1L, sheet_name, scale_by_100),
-      `(4) Conduct (Industry FE)` = pull_est(root, file, lhs, rhs_conduct, 2L, sheet_name, scale_by_100),
-      `__col5`                    = pull_est(root, file, lhs, rhs_extra,   1L, sheet_name, scale_by_100),
-      `__col6`                    = pull_est(root, file, lhs, rhs_extra,   2L, sheet_name, scale_by_100)
+      `(1) Contact`               = pull_est(root, file, lhs, rhs_contact, coef1, sheet_name, scale_by_100),
+      `(2) Contact (Industry FE)` = pull_est(root, file, lhs, rhs_contact, coef2, sheet_name, scale_by_100),
+      `(3) Conduct`               = pull_est(root, file, lhs, rhs_conduct, coef1, sheet_name, scale_by_100),
+      `(4) Conduct (Industry FE)` = pull_est(root, file, lhs, rhs_conduct, coef2, sheet_name, scale_by_100),
+      `__col5`                    = pull_est(root, file, lhs, rhs_extra,   coef1, sheet_name, scale_by_100),
+      `__col6`                    = pull_est(root, file, lhs, rhs_extra,   coef2, sheet_name, scale_by_100)
     ) %>%
     ungroup() %>%
     select(-file) %>%
@@ -115,10 +117,6 @@ build_two_panel_eiv_table <- function(cfg_pl, cfg_borda, out_tex) {
     linesep   = "",
     escape    = FALSE
   ) %>%
-    kable_styling(
-      full_width = FALSE,
-      position   = "center"
-    ) %>%
     pack_rows("Panel A: Plackett--Luce", 1, n_pl) %>%
     pack_rows("Panel B: Borda", n_pl + 1, n_pl + n_borda)
   
@@ -142,7 +140,9 @@ runs <- list(
     rhs_extra   = "pooled_favor_white",
     scale_by_100 = FALSE,
     col5_label  = "(5) Pooled",
-    col6_label  = "(6) Pooled (Industry FE)"
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
   ),
   # 2. GENDER – Plackett–Luce
   list(
@@ -154,7 +154,9 @@ runs <- list(
     rhs_extra   = "pooled_favor_male",
     scale_by_100 = FALSE,
     col5_label  = "(5) Pooled",
-    col6_label  = "(6) Pooled (Industry FE)"
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
   ),
   # 3. AGE – Plackett–Luce
   list(
@@ -166,7 +168,9 @@ runs <- list(
     rhs_extra   = "pooled_favor_younger",
     scale_by_100 = FALSE,
     col5_label  = "(5) Pooled",
-    col6_label  = "(6) Pooled (Industry FE)"
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
   ),
   # 4. RACE – Borda
   list(
@@ -178,7 +182,9 @@ runs <- list(
     rhs_extra   = "pooled_favor_white",
     scale_by_100 = FALSE,
     col5_label  = "(5) Pooled",
-    col6_label  = "(6) Pooled (Industry FE)"
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
   ),
   # 5. GENDER – Borda
   list(
@@ -190,7 +196,9 @@ runs <- list(
     rhs_extra   = "pooled_favor_male",
     scale_by_100 = FALSE,
     col5_label  = "(5) Pooled",
-    col6_label  = "(6) Pooled (Industry FE)"
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
   ),
   # 6. AGE – Borda
   list(
@@ -202,7 +210,9 @@ runs <- list(
     rhs_extra   = "pooled_favor_younger",
     scale_by_100 = FALSE,
     col5_label  = "(5) Pooled",
-    col6_label  = "(6) Pooled (Industry FE)"
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
   )
 )
 
@@ -227,4 +237,118 @@ build_two_panel_eiv_table(
   cfg_pl    = runs[[3]],
   cfg_borda = runs[[6]],
   out_tex   = file.path(tables, "EIV_age_two_panel.tex")
+)
+
+# ---------- CONFIGS FOR ALL SIX RUNS - WEIGHTED ----------
+
+root_dir <- excel
+
+runs_wt <- list(
+  # 1. RACE – Plackett–Luce
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_BS",
+    lhs         = "log_dif",
+    rhs_contact = "FirmCont_favor_white",
+    rhs_conduct = "conduct_favor_white",
+    rhs_extra   = "pooled_favor_white",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 2. GENDER – Plackett–Luce
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_BS",
+    lhs         = "log_dif_gender",
+    rhs_contact = "FirmCont_favor_male",
+    rhs_conduct = "conduct_favor_male",
+    rhs_extra   = "pooled_favor_male",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 3. AGE – Plackett–Luce
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_BS",
+    lhs         = "log_dif_age",
+    rhs_contact = "FirmCont_favor_younger",
+    rhs_conduct = "conduct_favor_younger",
+    rhs_extra   = "pooled_favor_younger",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 4. RACE – Borda
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_Bordaw",
+    lhs         = "log_dif",
+    rhs_contact = "FirmCont_favor_white",
+    rhs_conduct = "conduct_favor_white",
+    rhs_extra   = "pooled_favor_white",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 5. GENDER – Borda
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_Bordaw",
+    lhs         = "log_dif_gender",
+    rhs_contact = "FirmCont_favor_male",
+    rhs_conduct = "conduct_favor_male",
+    rhs_extra   = "pooled_favor_male",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 6. AGE – Borda
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_Bordaw",
+    lhs         = "log_dif_age",
+    rhs_contact = "FirmCont_favor_younger",
+    rhs_conduct = "conduct_favor_younger",
+    rhs_extra   = "pooled_favor_younger",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  )
+)
+
+# ---------- BUILD THE THREE TWO-PANEL TABLES - WEIGHTED ----------
+
+# Race: Panel A = Plackett–Luce (runs[[1]]), Panel B = Borda (runs[[4]])
+build_two_panel_eiv_table(
+  cfg_pl    = runs_wt[[1]],
+  cfg_borda = runs_wt[[4]],
+  out_tex   = file.path(tables, "EIV_race_two_panel_wt.tex")
+)
+
+# Gender
+build_two_panel_eiv_table(
+  cfg_pl    = runs_wt[[2]],
+  cfg_borda = runs_wt[[5]],
+  out_tex   = file.path(tables, "EIV_gender_two_panel_wt.tex")
+)
+
+# Age
+build_two_panel_eiv_table(
+  cfg_pl    = runs_wt[[3]],
+  cfg_borda = runs_wt[[6]],
+  out_tex   = file.path(tables, "EIV_age_two_panel_wt.tex")
 )
