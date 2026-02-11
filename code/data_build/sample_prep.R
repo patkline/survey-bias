@@ -102,11 +102,17 @@ data <- data %>%
          confidence_race_conduct_numeric = recode(confidence_race_conduct, !!!confidence_levels, .default = NA_real_),
          confidence_gend_conduct_numeric = recode(confidence_gend_conduct, !!!confidence_levels, .default = NA_real_),
          confidence_age_conduct_numeric = recode(confidence_age_conduct, !!!confidence_levels, .default = NA_real_)) %>%
-  mutate(confidence_race_names_gt_median = ifelse(confidence_race_names_numeric > median(confidence_race_names_numeric, na.rm=TRUE),1,0),
-         confidence_gend_names_gt_median = ifelse(confidence_gend_names_numeric > median(confidence_gend_names_numeric, na.rm=TRUE),1,0),
-         confidence_race_conduct_gt_median = ifelse(confidence_race_conduct_numeric > median(confidence_race_conduct_numeric, na.rm=TRUE),1,0),
-         confidence_gend_conduct_gt_median = ifelse(confidence_gend_conduct_numeric > median(confidence_gend_conduct_numeric, na.rm=TRUE),1,0),
-         confidence_age_conduct_gt_median = ifelse(confidence_age_conduct_numeric > median(confidence_age_conduct_numeric, na.rm=TRUE),1,0))
+  mutate(confidence_race_names_gt_median = ifelse(confidence_race_names_numeric > 3,1,0),
+         confidence_gend_names_gt_median = ifelse(confidence_gend_names_numeric > 3,1,0),
+         confidence_race_conduct_gt_median = ifelse(confidence_race_conduct_numeric > 3,1,0),
+         confidence_gend_conduct_gt_median = ifelse(confidence_gend_conduct_numeric > 3,1,0),
+         confidence_age_conduct_gt_median = ifelse(confidence_age_conduct_numeric > 3,1,0)) %>%
+  mutate(
+    confidence_gend = coalesce(na_if(confidence_gend_conduct_gt_median, -1),
+                                  na_if(confidence_gend_names_gt_median,  -1)),
+    confidence_race  = coalesce(na_if(confidence_race_names_gt_median,  -1),
+                                  na_if(confidence_race_conduct_gt_median,   -1))
+  )
 
 # --- outcomes list (unchanged names) ---
 survey_vars <- c(
