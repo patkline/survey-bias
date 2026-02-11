@@ -26,18 +26,29 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
   id_map <- data %>% select(firm_id, firm) %>% distinct()
   
   # Step 6: Filter data to respondents with rankings for 5 firms
-  rank_sym <- sym(rank_col)
+  # data <- data %>%
+  #   filter(!is.na(.data[[rank_col]])) %>%
+  #   group_by(resp_id) %>%
+  #   filter(n() > 2) %>%
+  #   mutate(
+  #     min_rank = min(.data[[rank_col]], na.rm = TRUE),
+  #     max_rank = max(.data[[rank_col]], na.rm = TRUE)
+  #   ) %>%
+  #   filter(min_rank != max_rank) %>%
+  #   ungroup()
+  
+  rank_sym <- rlang::sym(rank_col)
   data <- data %>%
-    filter(!is.na(!!rank_sym)) %>%
+    dplyr::filter(!is.na(!!rank_sym)) %>%
     group_by(resp_id) %>%
-    filter(n() > 2) %>%
-    mutate(
+    dplyr::filter(n() > 2) %>%
+    dplyr::mutate(
       min_rank = min(!!rank_sym, na.rm = TRUE),
       max_rank = max(!!rank_sym, na.rm = TRUE)
     ) %>%
-    filter(min_rank != max_rank) %>%
-    ungroup() 
-  
+    dplyr::filter(min_rank != max_rank) %>%
+    ungroup()
+
   # Step 7: Assign Ranks from Ratings
   data_ranked <- data %>%
     group_by(resp_id) %>%
@@ -49,15 +60,15 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
   respondents_to_drop <- data_ranked %>%
     group_by(resp_id, firm_id) %>%
     summarise(n = n(), .groups = "drop") %>%
-    filter(n > 1L) %>%
+    dplyr::filter(n > 1L) %>%
     pull(resp_id)
   
   data_ranked <- data_ranked %>%
-    filter(!resp_id %in% respondents_to_drop)
+    dplyr::filter(!resp_id %in% respondents_to_drop)
   
   # Restrict to Leave out Connected Set
   firm_set <- leave_in_connected_set(data_ranked)
-  data_ranked <- data_ranked %>% filter(firm_id %in% firm_set)
+  data_ranked <- data_ranked %>% dplyr::filter(firm_id %in% firm_set)
 
   # Step 8: Pivot to Wide and Clean
   data_wide_pltree <- data_ranked %>%

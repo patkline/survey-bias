@@ -6,7 +6,7 @@ leave_in_connected_set <- function(data) {
   firms <- data %>% select(firm_id, resp_id)
   
   edge_df <- full_join(firms, firms, by = "resp_id", relationship = "many-to-many") %>%
-    filter(firm_id.x < firm_id.y) %>%
+    dplyr::filter(firm_id.x < firm_id.y) %>%
     count(firm_id.x, firm_id.y, name = "weight") %>%
     rename(from = firm_id.x, to = firm_id.y)
   

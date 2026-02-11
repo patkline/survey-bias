@@ -30,32 +30,20 @@ source(file.path(analysis, "analysis_pipeline.R"))
 file_path <- file.path(processed, "long_survey_final.csv")
 data <- read.csv(file_path, stringsAsFactors = FALSE)
 
-
 # Define outcomes and relevant columns
-survey_vars <- c("FirmCont_favor_white", "FirmHire_favor_white", "conduct_favor_white",
-                 "FirmCont_favor_male", "FirmHire_favor_male", "conduct_favor_male",
-                 "conduct_favor_younger", "discretion", "FirmSelective", "FirmDesire",
+survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white", 
+                 "FirmHire_favor_white", "FirmHire_black", "FirmHire_white",
+                 "conduct_favor_white", "conduct_black", "conduct_white",
+                 "FirmCont_favor_male", "FirmCont_male", "FirmCont_female", 
+                 "FirmHire_favor_male", "FirmHire_male", "FirmHire_female", 
+                 "conduct_favor_male", "conduct_male", "conduct_female",
+                 "conduct_favor_younger", "conduct_younger", "conduct_older", 
+                 "discretion", "FirmSelective", "FirmDesire",
                  "pooled_favor_white","pooled_favor_male")
+
 experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "cb_central_full")
 respondent_col <- "ResponseId"
 firm_col <- "firm"
-
-outcome_types <- list(
-  "FirmCont_favor_white" = "Non-Experimental","FirmHire_favor_white" = "Non-Experimental",
-  "conduct_favor_white" = "Non-Experimental","FirmCont_favor_male" = "Non-Experimental",
-  "FirmHire_favor_male" = "Non-Experimental","conduct_favor_male" = "Non-Experimental",
-  "conduct_black" = "Non-Experimental","conduct_white" = "Non-Experimental",
-  "conduct_male" = "Non-Experimental","conduct_female" = "Non-Experimental",
-  "FirmCont_black" = "Non-Experimental","FirmCont_white" = "Non-Experimental",
-  "FirmCont_male" = "Non-Experimental","FirmCont_female" = "Non-Experimental",
-  "FirmHire_white" = "Non-Experimental","FirmHire_black" = "Non-Experimental",
-  "FirmHire_male" = "Non-Experimental","FirmHire_female" = "Non-Experimental",
-  "conduct_favor_younger" = "Non-Experimental","discretion" = "Non-Experimental",
-  "FirmSelective" = "Non-Experimental","FirmDesire" = "Non-Experimental",
-  "pooled_favor_white" = "Non-Experimental","pooled_favor_male" = "Non-Experimental",
-  "dif" = "Experimental","log_dif" = "Experimental","dif_gender" = "Experimental",
-  "log_dif_gender" = "Experimental","dif_age" = "Experimental","log_dif_age" = "Experimental"
-)
 
 firms97 <- data %>% filter(!is.na(dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
 industry_map_path <- file.path(processed,"industry_map.xlsx")

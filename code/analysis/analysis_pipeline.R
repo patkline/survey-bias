@@ -5,7 +5,7 @@ source("code/globals.R")
 # Define Wrapper Function
 # -----------------------------------------------
 run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                                  outcome_types, subset_var = NULL, subset_value = NULL, firms97 = NULL, 
+                                  subset_var = NULL, subset_value = NULL, firms97 = NULL, 
                                   output_path, industry_map_path, process_outcomes = FALSE, 
                                   run_jackknife = FALSE, run_bootstrap = FALSE, sim_pl_to_borda = FALSE,
                                   exact_pl_to_borda = FALSE, sum_signal_noise = FALSE,
