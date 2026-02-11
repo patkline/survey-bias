@@ -28,7 +28,7 @@ create_combined_tri_heatmap <- function(file_path,
                                         
                                         # vertical offsets (smaller = closer to panel)
                                         top_vjust      = -0.7,
-                                        bot_vjust      =  1.3,
+                                        bot_vjust      =  1.4,
                                         
                                         # plot margins (points) -- can stay generous; we'll trim later
                                         top_margin_pt    = 40,
@@ -83,13 +83,13 @@ create_combined_tri_heatmap <- function(file_path,
     geom_text(aes(label = sprintf("%.2f", corr_c)), size = 3) +
     theme_minimal() +
     theme(
-      axis.text.x  = element_text(angle = 45, hjust = 1, size = 10,
-                                  margin = margin(t = 16)),
+      axis.text.x  = element_text(angle = 45, hjust = 1, vjust = 0.85, size = 10,
+                                  margin = margin(t = 24)),
       axis.text.y  = element_text(size = 10),
       legend.position = "right",
       panel.grid = element_blank()
     ) +
-    labs(title = title, x = "Outcomes", y = "Outcomes")
+    labs(title = title, x = NULL, y = NULL)
   
   # --- centered outside labels with LONG arrows tight to text ---
   cx <- (n + 1) / 2
