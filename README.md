@@ -38,6 +38,27 @@ Repository for the code used to version-control the data build, analysis, and re
 ## For code you write, 
 1. For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages
 
+# Comparing results across code changes
+
+To do a clean before/after check of **all results outputs**, use the rerun+compare driver. Baseline is defined as the **git-tracked** contents of `output/` (what a fresh clone would see).
+
+From the project root:
+
+- `Rscript code/tools/results_rerun_compare.R --run-name my_test`
+
+This will:
+1. Prompt to revert `output/` to the git baseline if it differs (type `YES` to proceed).
+2. Rerun results via `code/create_tables_figures/metafile.R`.
+3. Write a compact run bundle under `output/runs/` containing:
+   - `changes.csv` (file-level + cell-level diffs for `.tex` and `.xlsx`)
+   - `comparison.tex` (+ `comparison.pdf` if `pdflatex` is installed) showing old vs new for changed tables/figures (figures are side-by-side; `.tex` tables are included as old/new snippets)
+
+Notes:
+- Baseline is defined as the git-tracked contents of output/tables, output/figures, output/excel.
+- `--skip-rerun` compares your current output/ against the baseline. If output/ is dirty, the tool will prompt to temporarily reset output/ to capture the baseline snapshot and then restore your outputs.
+
+If there are zero changes, the tool prints a message and deletes the run folder.
+
 ## For any issues, reach out to me at `nrotundo@berkeley.edu`
 
 # Todo
