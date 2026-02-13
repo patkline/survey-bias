@@ -45,7 +45,7 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
     # PL path: RHS from bs_<rhs_var>, signal from pl_signal_<rhs_var>
     bs_rhs <- read.xlsx(filepath, sheet = paste0("bs_", rhs_var))
     # Expect cols: firm_id, firm, iter_0, iter_1, ..., iter_B
-    signal_df <- read.xlsx(filepath, sheet = paste0("pl_s_", rhs_var)) %>% filter(all_firms == FALSE)
+    signal_df <- read.xlsx(filepath, sheet = paste0("pl_s_", rhs_var)) %>% dplyr::filter(all_firms == FALSE)
     
   } else {
     # Borda path: RHS from borda_* sheets, signal from borda_signal_<rhs_var>
@@ -62,7 +62,7 @@ bs_eiv_run <- function(filepath, industry_map, lhs_var, rhs_var,
       bs_rhs <- dplyr::left_join(rhs0, bs_rhs, by = c("firm","firm_id"))
     }
     
-    signal_df <- read.xlsx(filepath, sheet = paste0("b_s_", rhs_var)) %>% filter(all_firms == FALSE)
+    signal_df <- read.xlsx(filepath, sheet = paste0("b_s_", rhs_var)) %>% dplyr::filter(all_firms == FALSE)
   }
   
   # ---- 3) Merge LHS, RHS and industry map -----------------------------------

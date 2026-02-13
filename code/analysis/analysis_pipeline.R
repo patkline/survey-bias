@@ -28,7 +28,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   
   # Subset data if a subset variable and value are provided
   if (!is.null(subset_var) & !is.null(subset_value)) {
-    data <- data %>% filter(!!sym(subset_var) == subset_value)
+    data <- data %>% dplyr::filter(!!sym(subset_var) == subset_value)
   }
   
   # Map from firms to industries
@@ -63,7 +63,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       )
       
       data_list[[outcome]]   <- prep$data_wide_pltree
-      id_map_list[[outcome]] <- prep$id_map %>% filter(!is.na(firm), firm!="nan")
+      id_map_list[[outcome]] <- prep$id_map %>% dplyr::filter(!is.na(firm), firm!="nan")
     
     }
 
@@ -476,6 +476,104 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     cat("✅ Plackett–Luce results, Bootstrap sheets, EB (V1 & V2), EB_Psi1, PL signal sheets, per-outcome Win_Share sheets, and likelihood_ratio saved\n")
   }
   
+  # Section ID: This section calculates covariance noise for each pair of outcomes.
+  # The covariance noise is calculated using the sandwich formula.
+  if (run_pairwise_process) {
+    set.seed(seed)
+    
+    temp <- data %>% dplyr::filter(!is.na(dif))
+    unique_firms <- unique(temp$firm_id)
+    
+    pairs <- combn(survey_vars, 2, simplify = FALSE)
+    pairwise_rows <- vector("list", length(pairs) * 2)
+    i <- 1L
+    
+    for (pair in pairs) {
+      print(pair)
+      var1 <- pair[[1]]
+      var2 <- pair[[2]]
+      
+      # retrieve stored PL objects
+      S1    <- S_list[[var1]]
+      S2    <- S_list[[var2]]
+      Binv1 <- Binv_list[[var1]]
+      Binv2 <- Binv_list[[var2]]
+      cov1  <- cov_list[[var1]]
+      cov2  <- cov_list[[var2]]
+      
+      # -------------------------
+      # Restricted (unique firms)
+      # -------------------------
+      coeff_sub <- coeff_df %>%
+        dplyr::filter(firm_id %in% unique_firms) %>%
+        dplyr::arrange(match(firm_id, unique_firms))
+      
+      firm_cols <- paste0("firm", coeff_sub$firm_id)
+      firm_cols1 <- intersect(firm_cols, names(S1))
+      firm_cols2 <- intersect(firm_cols, names(S2))
+      
+      S1_sub   <- S1[, c("resp_id", firm_cols1), drop = FALSE]
+      S2_sub   <- S2[, c("resp_id", firm_cols2), drop = FALSE]
+      Binv1_sub <- Binv1[firm_cols1, firm_cols1, drop = FALSE]
+      Binv2_sub <- Binv2[firm_cols2, firm_cols2, drop = FALSE]
+      cov1_sub  <- cov1[firm_cols1, firm_cols1, drop = FALSE]
+      cov2_sub  <- cov2[firm_cols2, firm_cols2, drop = FALSE]
+      
+      res_restricted <- pairwise_process(
+        S1 = S1_sub,
+        S2 = S2_sub,
+        Binv1 = Binv1_sub,
+        Binv2 = Binv2_sub,
+        robust_cov1 = cov1_sub,
+        robust_cov2 = cov2_sub,
+        coeff_df = coeff_sub,
+        var1 = var1,
+        var2 = var2
+      )
+      
+      pairwise_rows[[i]] <- tibble::as_tibble(res_restricted) %>%
+        dplyr::mutate(
+          lhs = var1,
+          rhs = var2,
+          all_firms = FALSE,
+          .before = 1
+        )
+      i <- i + 1L
+      
+      # -------------------------
+      # All firms
+      # -------------------------
+      res_all <- pairwise_process(
+        S1 = S1,
+        S2 = S2,
+        Binv1 = Binv1,
+        Binv2 = Binv2,
+        robust_cov1 = cov1,
+        robust_cov2 = cov2,
+        coeff_df = coeff_df,
+        var1 = var1,
+        var2 = var2
+      )
+      
+      pairwise_rows[[i]] <- tibble::as_tibble(res_all) %>%
+        dplyr::mutate(
+          lhs = var1,
+          rhs = var2,
+          all_firms = TRUE,
+          .before = 1
+        )
+      i <- i + 1L
+    }
+    
+    pairwise_sum <- dplyr::bind_rows(pairwise_rows)
+    
+    remove_sheet_safely(wb, "pairwise_summary")
+    openxlsx::addWorksheet(wb, "pairwise_summary")
+    openxlsx::writeData(wb, "pairwise_summary", pairwise_sum)
+    openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+    
+    message("✅ Pairwise summary saved to Excel")
+  }
   
   # Section IC: This section runs the runs the EIV model for the full sample and
   # each bootstrap iteration. It then summarizes the coefficient, SE, and bootstrap
@@ -642,105 +740,6 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     message("✅  Combined EIV / BS Summary saved in sheet “EIV_BS")
     
   }
-  
-  
-  # Section ID: This section calculates covariance noise for each pair of outcomes.
-  # The covariance noise is calculated using the sandwich formula.
-  if (run_pairwise_process) {
-    set.seed(seed)
-    
-    temp <- data %>% filter(!is.na(dif))
-    unique_firms <- unique(temp$firm_id)
-    
-    pairs <- combn(survey_vars, 2, simplify = FALSE)
-    pairwise_rows <- vector("list", length(pairs) * 2)
-    i <- 1L
-    
-    for (pair in pairs) {
-      var1 <- pair[[1]]
-      var2 <- pair[[2]]
-      
-      # retrieve stored PL objects
-      S1    <- S_list[[var1]]
-      S2    <- S_list[[var2]]
-      Binv1 <- Binv_list[[var1]]
-      Binv2 <- Binv_list[[var2]]
-      cov1  <- cov_list[[var1]]
-      cov2  <- cov_list[[var2]]
-      
-      # -------------------------
-      # Restricted (unique firms)
-      # -------------------------
-      coeff_sub <- coeff_df %>%
-        dplyr::filter(firm_id %in% unique_firms) %>%
-        dplyr::arrange(match(firm_id, unique_firms))
-      
-      firm_cols <- paste0("firm", coeff_sub$firm_id)
-      
-      S1_sub   <- S1[, c("resp_id", firm_cols), drop = FALSE]
-      S2_sub   <- S2[, c("resp_id", firm_cols), drop = FALSE]
-      Binv1_sub <- Binv1[firm_cols, firm_cols, drop = FALSE]
-      Binv2_sub <- Binv2[firm_cols, firm_cols, drop = FALSE]
-      cov1_sub  <- cov1[firm_cols, firm_cols, drop = FALSE]
-      cov2_sub  <- cov2[firm_cols, firm_cols, drop = FALSE]
-      
-      res_restricted <- pairwise_process(
-        S1 = S1_sub,
-        S2 = S2_sub,
-        Binv1 = Binv1_sub,
-        Binv2 = Binv2_sub,
-        robust_cov1 = cov1_sub,
-        robust_cov2 = cov2_sub,
-        coeff_df = coeff_sub,
-        var1 = var1,
-        var2 = var2
-      )
-      
-      pairwise_rows[[i]] <- tibble::as_tibble(res_restricted) %>%
-        dplyr::mutate(
-          lhs = var1,
-          rhs = var2,
-          all_firms = FALSE,
-          .before = 1
-        )
-      i <- i + 1L
-      
-      # -------------------------
-      # All firms
-      # -------------------------
-      res_all <- pairwise_process(
-        S1 = S1,
-        S2 = S2,
-        Binv1 = Binv1,
-        Binv2 = Binv2,
-        robust_cov1 = cov1,
-        robust_cov2 = cov2,
-        coeff_df = coeff_df,
-        var1 = var1,
-        var2 = var2
-      )
-      
-      pairwise_rows[[i]] <- tibble::as_tibble(res_all) %>%
-        dplyr::mutate(
-          lhs = var1,
-          rhs = var2,
-          all_firms = TRUE,
-          .before = 1
-        )
-      i <- i + 1L
-    }
-    
-    pairwise_summary <- dplyr::bind_rows(pairwise_rows)
-    
-    remove_sheet_safely(wb, "pairwise_summary")
-    openxlsx::addWorksheet(wb, "pairwise_summary")
-    openxlsx::writeData(wb, "pairwise_summary", pairwise_summary)
-    openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-    
-    message("✅ Pairwise summary saved to Excel")
-  }
-  
-  
   
   # Section IE: This section tests the IIA assumption of the Plackett Luce Model
   # To do this, we compare the unrestricted model: 3 models (1 for each anchor firm) 
@@ -1352,112 +1351,6 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     cat("✅ Borda Score (means) -> 'borda_score', SEs -> 'borda_score_se', EB -> 'borda_score_eb', EB hyperparameters -> 'borda_EB_psi1', and Borda signal sheets 'b_s_[outcome]' (all_firms TRUE/FALSE) saved\n")
   }
   
-  
-  # Section IIC: This section runs eiv for the borda score
-  if (run_borda_eiv) {
-    set.seed(seed)
-    
-    pairs <- list(
-      c("cb_central_full",              "discretion", "EIVBordaw_central_discretion"),
-      c("log_dif",                      "FirmCont_favor_white", "EIVBordaw_logdif_cont_white"),
-      c("log_dif",                      "conduct_favor_white", "EIVBordaw_logdif_cond_white"),
-      c("log_dif",                      "pooled_favor_white", "EIVBordaw_logdif_pool_white"),
-      c("log_dif_gender",               "FirmCont_favor_male" , "EIVBordaw_logdif_cont_male"),
-      c("log_dif_gender",               "conduct_favor_male" , "EIVBordaw_logdif_cond_male"),
-      c("log_dif_gender",               "pooled_favor_male" , "EIVBordaw_logdif_pool_male"),
-      c("log_dif_age",                  "conduct_favor_younger" , "EIVBordaw_logdif_cond_young")
-    )
-
-
-    # 2. Loop over that list
-    eiv_rows <- list()      # <- will hold the per-pair summary tibbles
-    
-    for(pair in pairs) {
-      lhs_var <- pair[1]
-      rhs_var <- pair[2]
-      sheet_nm <- pair[3]
-      sheet_nm2 <- paste0("bs_",lhs_var)
-      
-      print(paste0("Running BS EIV Procedure: ", lhs_var, " ~ ", rhs_var))
-      weights <- data %>% select(firm_id, njobs) %>% rename(weights = njobs) %>% select(firm_id,weights) %>% distinct()
-      results <- bs_eiv_run(output_path, industry_map, lhs_var, rhs_var, borda =TRUE, center = TRUE, weights = weights)
-      eiv <- results$eiv
-      boot_df <- results$lhs_boot
-      
-      remove_sheet_safely(wb, sheet_nm)
-      addWorksheet(wb, sheet_nm)
-      writeData(wb, sheet_nm, eiv)
-      saveWorkbook(wb, output_path, overwrite = TRUE)
-      print(paste0("BS EIV Results Saved: ",lhs_var," ~ ",rhs_var))
-      
-      remove_sheet_safely(wb, sheet_nm2)
-      addWorksheet(wb, sheet_nm2)
-      writeData(wb, sheet_nm2, boot_df)
-      saveWorkbook(wb, output_path, overwrite = TRUE)
-      print(paste0("BS LHS Saved"))
-      
-      jk <- bs_summary(output_path, sheet_nm,
-                       lhs = lhs_var,
-                       rhs = rhs_var)
-      
-      eiv_rows[[sheet_nm]] <- jk          # keep in the list
-    }
-    
-    eiv_all <- dplyr::bind_rows(eiv_rows)
-    print(eiv_all)
-    
-    remove_sheet_safely(wb, "EIV_Bordaw")
-    addWorksheet(wb, "EIV_Bordaw")
-    writeData(wb, "EIV_Bordaw", eiv_all)
-    
-    saveWorkbook(wb, output_path, overwrite = TRUE)
-    message("✅  Combined EIV / BS Summary saved in sheet “EIV_Bordaw")  
-    }
-  
-  ##
-  if (borda_eiv_summary) {
-    # Only rebuild the combined summary for the Borda EIV from saved sheets
-    
-    pairs <- list(
-      c("cb_central_full",              "discretion", "EIVBordaw_central_discretion"),
-      c("log_dif",        "FirmCont_favor_white", "EIVBordaw_logdif_cont_white"),
-      c("log_dif",        "conduct_favor_white",        "EIVBordaw_logdif_cond_white"),
-      c("log_dif",        "pooled_favor_white",   "EIVBordaw_logdif_pool_white"),
-      c("log_dif_gender", "FirmCont_favor_male",  "EIVBordaw_logdif_cont_male"),
-      c("log_dif_gender", "conduct_favor_male",   "EIVBordaw_logdif_cond_male"),
-      c("log_dif_gender", "pooled_favor_male",    "EIVBordaw_logdif_pool_male"),
-      c("log_dif_age",    "conduct_favor_younger","EIVBordaw_logdif_cond_young")
-    )
-    
-    eiv_rows <- list()
-    for (pair in pairs) {
-      lhs_var  <- pair[1]
-      rhs_var  <- pair[2]
-      sheet_nm <- pair[3]
-      
-      jk <- try(
-        bs_summary(output_path, sheet_nm, lhs = lhs_var, rhs = rhs_var),
-        silent = TRUE
-      )
-      if (inherits(jk, "try-error")) {
-        message("⚠️ Skipping ", sheet_nm, " (sheet missing or unreadable).")
-        next
-      }
-      eiv_rows[[sheet_nm]] <- jk
-    }
-    
-    if (length(eiv_rows)) {
-      eiv_all <- dplyr::bind_rows(eiv_rows)
-      remove_sheet_safely(wb, "EIV_Bordaw")
-      addWorksheet(wb, "EIV_Bordaw")
-      writeData(wb, "EIV_Bordaw", eiv_all)
-      saveWorkbook(wb, output_path, overwrite = TRUE)
-      message("✅  EIV_Bordaw summary rebuilt (no recompute).")
-    } else {
-      message("⚠️  No component EIVBordaw_* sheets found to summarize.")
-    }
-  }
-  
   # Section IID: This section runs pairwise processes borda score outcomes
   # The covariance noise is calculated using the sandwich formula.
   if (run_pairwise_process_borda) {
@@ -1465,7 +1358,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     
     # empty lists to store results
     Bindiv_list <- list()
-    temp <- data %>% filter(!is.na(dif))
+    temp <- data %>% dplyr::filter(!is.na(dif))
     unique_firms <- unique(temp$firm_id)
     
     # 1) prep once and store
@@ -1473,7 +1366,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       cat("Preparing:", outcome, "\n")
       data_wide <-  data_list[[outcome]]   # resp_id + firm1..firmN (0 / 1..K)
       id_map    <- id_map_list[[outcome]]
-
+      
       B_indiv <- compute_borda_individual_wide(
         data_wide        = data_wide,
         id_map           = id_map,
@@ -1561,6 +1454,123 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     
     openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
     message("✅  Pairwise summary saved to Excel")
+  }
+  
+  
+  # Section IIC: This section runs eiv for the borda score
+  if (run_borda_eiv) {
+    set.seed(seed)
+    
+    pairs <- list(
+      c("cb_central_full",              "discretion", "EIVBordaw_central_discretion"),
+      c("log_dif",        "FirmCont_favor_white", "EIVBordaw_logdif_cont_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVBordaw_logdif_cond_white"),
+      c("log_dif",        "pooled_favor_white",   "EIVBordaw_logdif_pool_white"),
+      c("log_dif",        "FirmSelective", "EIVBordaw_logdifbw_select"),
+      c("log_dif",        "discretion", "EIVBordaw_logdifbw_discret"),
+      c("log_dif_gender", "FirmCont_favor_male",  "EIVBordaw_logdif_cont_male"),
+      c("log_dif_gender", "conduct_favor_male",   "EIVBordaw_logdif_cond_male"),
+      c("log_dif_gender", "pooled_favor_male",    "EIVBordaw_logdif_pool_male"),
+      c("log_dif_gender",        "FirmSelective", "EIVBordaw_logdifmf_select"),
+      c("log_dif_gender",        "discretion", "EIVBordaw_logdifmf_discret"),
+      c("log_dif_age",    "conduct_favor_younger","EIVBordaw_logdif_cond_young"),
+      c("log_dif_age",        "FirmSelective", "EIVBordaw_logdifyo_select"),
+      c("log_dif_age",        "discretion", "EIVBordaw_logdifyo_discret")
+    )
+
+    # 2. Loop over that list
+    eiv_rows <- list()      # <- will hold the per-pair summary tibbles
+    
+    for(pair in pairs) {
+      lhs_var <- pair[1]
+      rhs_var <- pair[2]
+      sheet_nm <- pair[3]
+      sheet_nm2 <- paste0("bs_",lhs_var)
+      
+      print(paste0("Running BS EIV Procedure: ", lhs_var, " ~ ", rhs_var))
+      weights <- data %>% select(firm_id, njobs) %>% rename(weights = njobs) %>% select(firm_id,weights) %>% distinct()
+      results <- bs_eiv_run(output_path, industry_map, lhs_var, rhs_var, borda =TRUE, center = TRUE, weights = weights)
+      eiv <- results$eiv
+      boot_df <- results$lhs_boot
+      
+      remove_sheet_safely(wb, sheet_nm)
+      addWorksheet(wb, sheet_nm)
+      writeData(wb, sheet_nm, eiv)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      print(paste0("BS EIV Results Saved: ",lhs_var," ~ ",rhs_var))
+      
+      remove_sheet_safely(wb, sheet_nm2)
+      addWorksheet(wb, sheet_nm2)
+      writeData(wb, sheet_nm2, boot_df)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      print(paste0("BS LHS Saved"))
+      
+      jk <- bs_summary(output_path, sheet_nm,
+                       lhs = lhs_var,
+                       rhs = rhs_var)
+      
+      eiv_rows[[sheet_nm]] <- jk          # keep in the list
+    }
+    
+    eiv_all <- dplyr::bind_rows(eiv_rows)
+    print(eiv_all)
+    
+    remove_sheet_safely(wb, "EIV_Bordaw")
+    addWorksheet(wb, "EIV_Bordaw")
+    writeData(wb, "EIV_Bordaw", eiv_all)
+    
+    saveWorkbook(wb, output_path, overwrite = TRUE)
+    message("✅  Combined EIV / BS Summary saved in sheet “EIV_Bordaw")  
+    }
+  
+  ##
+  if (borda_eiv_summary) {
+    # Only rebuild the combined summary for the Borda EIV from saved sheets
+    
+    pairs <- list(
+      c("cb_central_full",              "discretion", "EIVBordaw_central_discretion"),
+      c("log_dif",        "FirmCont_favor_white", "EIVBordaw_logdif_cont_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVBordaw_logdif_cond_white"),
+      c("log_dif",        "pooled_favor_white",   "EIVBordaw_logdif_pool_white"),
+      c("log_dif",        "FirmSelective", "EIVBordaw_logdifbw_select"),
+      c("log_dif",        "discretion", "EIVBordaw_logdifbw_discret"),
+      c("log_dif_gender", "FirmCont_favor_male",  "EIVBordaw_logdif_cont_male"),
+      c("log_dif_gender", "conduct_favor_male",   "EIVBordaw_logdif_cond_male"),
+      c("log_dif_gender", "pooled_favor_male",    "EIVBordaw_logdif_pool_male"),
+      c("log_dif_gender",        "FirmSelective", "EIVBordaw_logdifmf_select"),
+      c("log_dif_gender",        "discretion", "EIVBordaw_logdifmf_discret"),
+      c("log_dif_age",    "conduct_favor_younger","EIVBordaw_logdif_cond_young"),
+      c("log_dif_age",        "FirmSelective", "EIVBordaw_logdifyo_select"),
+      c("log_dif_age",        "discretion", "EIVBordaw_logdifyo_discret")
+    )
+    
+    eiv_rows <- list()
+    for (pair in pairs) {
+      lhs_var  <- pair[1]
+      rhs_var  <- pair[2]
+      sheet_nm <- pair[3]
+      
+      jk <- try(
+        bs_summary(output_path, sheet_nm, lhs = lhs_var, rhs = rhs_var),
+        silent = TRUE
+      )
+      if (inherits(jk, "try-error")) {
+        message("⚠️ Skipping ", sheet_nm, " (sheet missing or unreadable).")
+        next
+      }
+      eiv_rows[[sheet_nm]] <- jk
+    }
+    
+    if (length(eiv_rows)) {
+      eiv_all <- dplyr::bind_rows(eiv_rows)
+      remove_sheet_safely(wb, "EIV_Bordaw")
+      addWorksheet(wb, "EIV_Bordaw")
+      writeData(wb, "EIV_Bordaw", eiv_all)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      message("✅  EIV_Bordaw summary rebuilt (no recompute).")
+    } else {
+      message("⚠️  No component EIVBordaw_* sheets found to summarize.")
+    }
   }
   
   

@@ -3,8 +3,8 @@ bs_summary <- function(path, sheet, lhs, rhs, na_tol = 0.02) {
   dat <- read_excel(path, sheet = sheet)
   
   ## 2) split full-sample vs leave-one-out
-  full_row <- filter(dat, iter == 0)
-  loo_rows <- filter(dat, iter > 0)
+  full_row <- dplyr::filter(dat, iter == 0)
+  loo_rows <- dplyr::filter(dat, iter > 0)
   n_total  <- nrow(loo_rows)  # total number of reps (for NA share)
   
   ## 3) helper that makes the 4 numbers for one column

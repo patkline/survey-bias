@@ -56,8 +56,8 @@ pairwise_process <- function(S1,
   
   # Subset beta vectors to common firms
   # If beta is named, align by name; else assume already in S/Binv order.
-  beta1 <- coeff_df %>% filter(firm_id %in% common_firms) %>% pull(!!rlang::sym(var1))
-  beta2 <- coeff_df %>% filter(firm_id %in% common_firms) %>% pull(!!rlang::sym(var2))
+  beta1 <- coeff_df %>% dplyr::filter(firm_id %in% common_firms) %>% pull(!!rlang::sym(var1))
+  beta2 <- coeff_df %>% dplyr::filter(firm_id %in% common_firms) %>% pull(!!rlang::sym(var2))
   
   if (length(beta1) != length(common_cols) || length(beta2) != length(common_cols)) {
     stop("pairwise_process: beta lengths do not match the number of common firms. ",

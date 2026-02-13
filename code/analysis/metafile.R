@@ -45,7 +45,7 @@ experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_ag
 respondent_col <- "ResponseId"
 firm_col <- "firm"
 
-firms97 <- data %>% filter(!is.na(dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
+firms97 <- data %>% dplyr::filter(!is.na(dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
 industry_map_path <- file.path(processed,"industry_map.xlsx")
 
 subset_var <- NULL
@@ -53,36 +53,42 @@ subset_value <- NULL
 output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
 
 # Function Call Female
-system.time({
-  run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                        outcome_types, subset_var = subset_var, subset_value = subset_value,
-                        firms97 = firms97,
-                        output_path = output_path,
-                        industry_map_path = industry_map_path,
-                        generate_wide = TRUE,
-                        process_outcomes = TRUE,
-                        run_bootstrap = TRUE,
-                        run_bs_eiv = TRUE,
-                        eiv_summary = TRUE,
-                        eiv_bivariate = TRUE,
-                        run_pairwise_process = TRUE,
-                        borda_score = TRUE,
-                        borda_bs_w = TRUE,
-                        run_borda_eiv = TRUE,
-                        borda_eiv_summary = TRUE,
-                        run_pairwise_process_borda = TRUE,
-                        borda_eiv_bivariate = TRUE,
-                        sum_signal_noise = TRUE,
-                        sim_pl_to_borda = FALSE,
-                        exact_pl_to_borda = FALSE,
-                        diagnostic = FALSE,
-                        B = 1)
-})
+# system.time({
+#   run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
+#                         subset_var = subset_var, subset_value = subset_value,
+#                         firms97 = firms97,
+#                         output_path = output_path,
+#                         industry_map_path = industry_map_path,
+#                         generate_wide = TRUE,
+#                         process_outcomes = TRUE,
+#                         run_bootstrap = TRUE,
+#                         run_bs_eiv = TRUE,
+#                         eiv_summary = TRUE,
+#                         eiv_bivariate = TRUE,
+#                         run_pairwise_process = TRUE,
+#                         borda_score = TRUE,
+#                         borda_bs_w = TRUE,
+#                         run_borda_eiv = TRUE,
+#                         borda_eiv_summary = TRUE,
+#                         run_pairwise_process_borda = TRUE,
+#                         borda_eiv_bivariate = TRUE,
+#                         sum_signal_noise = TRUE,
+#                         sim_pl_to_borda = FALSE,
+#                         exact_pl_to_borda = FALSE,
+#                         diagnostic = FALSE,
+#                         B = 1)
+# })
 
 
 #---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 runs <- tibble::tribble(
   ~subset_var,   ~subset_value, ~output_stub,
+  "confidence_race", 1,         "Plackett_Luce_Subset_Conf_Race_Y",
+  "confidence_race", 0,         "Plackett_Luce_Subset_Conf_Race_N",
+  "confidence_gend", 1,         "Plackett_Luce_Subset_Conf_Gender_Y",
+  "confidence_gend", 0,         "Plackett_Luce_Subset_Conf_Gender_N",
+  "sample",          1,         "Plackett_Luce_Subset_Probability",
+  "sample",          0,         "Plackett_Luce_Subset_Convenience",
   "gender",          1,         "Plackett_Luce_Subset_Female",
   "gender",          0,         "Plackett_Luce_Subset_Male",
   "race",            1,         "Plackett_Luce_Subset_Black",
@@ -94,13 +100,7 @@ runs <- tibble::tribble(
   "fear",            1,         "Plackett_Luce_Subset_Feared_Discrimination_1",
   "fear",            0,         "Plackett_Luce_Subset_Feared_Discrimination_0",
   "educ",            1,         "Plackett_Luce_Subset_College",
-  "educ",            0,         "Plackett_Luce_Subset_No_College",
-  "confidence_race", 1,         "Plackett_Luce_Subset_Conf_Race_Y",
-  "confidence_race", 0,         "Plackett_Luce_Subset_Conf_Race_N",
-  "confidence_gend", 1,         "Plackett_Luce_Subset_Conf_Gender_Y",
-  "confidence_gend", 0,         "Plackett_Luce_Subset_Conf_Gender_N",
-  "sample",          1,         "Plackett_Luce_Subset_Probability",
-  "sample",          0,         "Plackett_Luce_Subset_Convenience"
+  "educ",            0,         "Plackett_Luce_Subset_No_College"
 )
 
 
