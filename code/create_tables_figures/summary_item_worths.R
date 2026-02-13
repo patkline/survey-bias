@@ -17,7 +17,9 @@ create_plots_and_tables_from_sheets <- function(excel_path,
                                                 add_45_line   = TRUE,
                                                 ws_type = NULL,   # optional WS filter
                                                 gap_width = 3,    # <-- # of blank slots between bottom/top groups
-                                                scale_borda_to_100 = FALSE) {  # rescale Borda 0–1 -> 0–100
+                                                scale_borda_to_100 = FALSE,  # rescale Borda 0–1 -> 0–100
+                                                variance_csv_name = "variance_biascorrected_pl_borda.csv",
+                                                variance_tex_name = "variance_biascorrected_pl_borda.tex") {
   
   # scale controls for Borda
   borda_mult   <- if (isTRUE(scale_borda_to_100)) 100 else 1
@@ -278,7 +280,9 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     outcomes      = outcomes,
     tables_dir    = tables_dir,
     label_mapping = label_mapping,
-    borda_mult    = borda_mult
+    borda_mult    = borda_mult,
+    csv_name      = variance_csv_name,
+    tex_name      = variance_tex_name
   )
   
   for (new_outcome in outcomes) {
@@ -667,4 +671,52 @@ create_plots_and_tables_from_sheets(
   label_mapping = label_mapping,
   add_45_line = TRUE,
   scale_borda_to_100 = FALSE
+)
+
+# -------------------------------
+# Alternate framings outcomes
+# -------------------------------
+alternate_framings <- c(
+  "FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
+  "FirmHire_favor_white", "FirmHire_black", "FirmHire_white",
+  "conduct_favor_white", "conduct_black", "conduct_white",
+  "FirmCont_favor_male", "FirmCont_male", "FirmCont_female",
+  "FirmHire_favor_male", "FirmHire_male", "FirmHire_female",
+  "conduct_favor_male", "conduct_male", "conduct_female",
+  "conduct_favor_younger", "conduct_younger", "conduct_older"
+)
+
+# Label mapping for alternate framings
+alternate_label_mapping <- c(
+  "FirmCont_favor_white" = "Discrimination Black (Contact)",
+  "FirmCont_black" = "Discrimination Black - Black Wording (Contact)",
+  "FirmCont_white" = "Discrimination Black - White Wording (Contact)",
+  "FirmHire_favor_white" = "Discrimination Black (Hire)",
+  "FirmHire_black" = "Discrimination Black - Black Wording (Hire)",
+  "FirmHire_white" = "Discrimination Black - White Wording (Hire)",
+  "conduct_favor_white" = "Discrimination Black (Conduct)",
+  "conduct_black" = "Discrimination Black - Black Wording (Conduct)",
+  "conduct_white" = "Discrimination Black - White Wording (Conduct)",
+  "FirmCont_favor_male" = "Discrimination Female (Contact)",
+  "FirmCont_male" = "Discrimination Female - Male Wording (Contact)",
+  "FirmCont_female" = "Discrimination Female - Female Wording (Contact)",
+  "FirmHire_favor_male" = "Discrimination Female (Hire)",
+  "FirmHire_male" = "Discrimination Female - Male Wording (Hire)",
+  "FirmHire_female" = "Discrimination Female - Female Wording (Hire)",
+  "conduct_favor_male" = "Discrimination Female (Conduct)",
+  "conduct_male" = "Discrimination Female - Male Wording (Conduct)",
+  "conduct_female" = "Discrimination Female - Female Wording (Conduct)",
+  "conduct_favor_younger" = "Discrimination Older (Conduct)",
+  "conduct_younger" = "Discrimination Older - Younger Wording (Conduct)",
+  "conduct_older" = "Discrimination Older - Older Wording (Conduct)"
+)
+
+# Create tables for alternate framings
+create_plots_and_tables_from_sheets(
+  excel_path, alternate_framings, figures, tables,
+  label_mapping = alternate_label_mapping,
+  add_45_line = TRUE,
+  scale_borda_to_100 = FALSE,
+  variance_csv_name = "variance_biascorrected_pl_borda_alternate.csv",
+  variance_tex_name = "variance_biascorrected_pl_borda_alternate.tex"
 )
