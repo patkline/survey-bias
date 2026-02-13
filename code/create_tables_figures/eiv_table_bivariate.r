@@ -228,6 +228,116 @@ runs <- list(
   )
 )
 
+# ---------- UNIVARIATE FUNCTIONS ----------
+
+# Pull univariate estimates from EIV_BS sheet
+pull_univariate_est <- function(root, file, lhs_var, rhs_var, coef_num,
+                                sheet = "EIV_BS", divide_by_100 = FALSE) {
+  path <- file.path(root, file)
+  dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
+                  error = function(e) tibble())
+  if (!nrow(dat)) return("NA (NA)")
+
+  # Convert coef column to numeric
+  dat$coef <- suppressWarnings(as.numeric(dat$coef))
+
+  # Filter for specific lhs, rhs, and coef
+  out <- dat[dat$lhs == lhs_var & dat$rhs == rhs_var & dat$coef == coef_num, ]
+
+  if (!nrow(out)) return("NA (NA)")
+
+  est <- suppressWarnings(as.numeric(out$sample_est))
+  se  <- suppressWarnings(as.numeric(out$sample_se))
+
+  if (isTRUE(divide_by_100)) {
+    est <- est / 100
+    se  <- se  / 100
+  }
+  paste0(fmt3(est), " (", fmt3(se), ")")
+}
+
+# ---------- BUILD COMPARISON TABLE (BIVARIATE VS UNIVARIATE) ----------
+
+build_comparison_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
+  # This table has:
+  # - 3 subpanels: Race, Gender, Age
+  # - 4 columns: Bivariate No FE, Bivariate With FE, Univariate No FE, Univariate With FE
+  # - Each cell shows Selectivity and Discretion stacked
+  # - Only uses Full Sample
+
+  root <- cfg_race$root
+  full_sample_file <- "Plackett_Luce_Full_Sample.xlsx"
+
+  build_panel <- function(cfg) {
+    lhs <- cfg$lhs
+    bivariate_sheet <- cfg$bivariate_sheet
+    univariate_sheet <- cfg$univariate_sheet
+
+    # Column 1: Bivariate No FE (coef1 = Selectivity, coef3 = Discretion)
+    biv_nofe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 1L, bivariate_sheet)
+    biv_nofe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 3L, bivariate_sheet)
+
+    # Column 2: Bivariate With FE (coef2 = Selectivity, coef4 = Discretion)
+    biv_fe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 2L, bivariate_sheet)
+    biv_fe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 4L, bivariate_sheet)
+
+    # Column 3: Univariate No FE (coef1)
+    uni_nofe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 1L, univariate_sheet)
+    uni_nofe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 1L, univariate_sheet)
+
+    # Column 4: Univariate With FE (coef2)
+    uni_fe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 2L, univariate_sheet)
+    uni_fe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 2L, univariate_sheet)
+
+    tibble(
+      Regressor = c("Selectivity", "Discretion"),
+      `Combined Model` = c(biv_nofe_sel, biv_nofe_dis),
+      `Combined Model (Industry FEs)` = c(biv_fe_sel, biv_fe_dis),
+      `Separate Models` = c(uni_nofe_sel, uni_nofe_dis),
+      `Separate Models (Industry FEs)` = c(uni_fe_sel, uni_fe_dis)
+    )
+  }
+
+  # Build three panels
+  df_race   <- build_panel(cfg_race)
+  df_gender <- build_panel(cfg_gender)
+  df_age    <- build_panel(cfg_age)
+
+  # Combine
+  combined_df <- bind_rows(df_race, df_gender, df_age)
+
+  n_race   <- nrow(df_race)
+  n_gender <- nrow(df_gender)
+  n_age    <- nrow(df_age)
+
+  # Format column names with shortstack for longer names
+  col_names <- colnames(combined_df)
+  col_names <- gsub("Combined Model \\(Industry FEs\\)",
+                    "\\\\shortstack{Combined Model\\\\\\\\(Industry FEs)}",
+                    col_names)
+  col_names <- gsub("Separate Models \\(Industry FEs\\)",
+                    "\\\\shortstack{Separate Models\\\\\\\\(Industry FEs)}",
+                    col_names)
+
+  # Generate LaTeX table
+  tex_code <- kable(
+    combined_df,
+    format    = "latex",
+    booktabs  = TRUE,
+    align     = c("l", rep("c", ncol(combined_df) - 1)),
+    col.names = col_names,
+    linesep   = "",
+    escape    = FALSE
+  ) %>%
+    pack_rows("\\\\textit{Race}", 1, n_race, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Gender}", n_race + 1, n_race + n_gender, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Age}", n_race + n_gender + 1, n_race + n_gender + n_age, italic = TRUE, escape = FALSE)
+
+  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
+  writeLines(tex_code, out_tex)
+  message("✓ LaTeX comparison table (Bivariate vs Univariate) saved to: ", out_tex)
+}
+
 # ---------- BUILD THE TWO-PANEL TABLE ----------
 
 build_two_panel_bivariate_table(
@@ -238,4 +348,34 @@ build_two_panel_bivariate_table(
   cfg_borda_gender = runs$borda_gender,
   cfg_borda_age    = runs$borda_age,
   out_tex        = file.path(tables, "EIV_bivariate_two_panel.tex")
+)
+
+# ---------- BUILD THE COMPARISON TABLE ----------
+
+comparison_runs <- list(
+  race = list(
+    root = root_dir,
+    lhs = "log_dif",
+    bivariate_sheet = "EIV_BIVARIATE",
+    univariate_sheet = "EIV_BS"
+  ),
+  gender = list(
+    root = root_dir,
+    lhs = "log_dif_gender",
+    bivariate_sheet = "EIV_BIVARIATE",
+    univariate_sheet = "EIV_BS"
+  ),
+  age = list(
+    root = root_dir,
+    lhs = "log_dif_age",
+    bivariate_sheet = "EIV_BIVARIATE",
+    univariate_sheet = "EIV_BS"
+  )
+)
+
+build_comparison_table(
+  cfg_race   = comparison_runs$race,
+  cfg_gender = comparison_runs$gender,
+  cfg_age    = comparison_runs$age,
+  out_tex    = file.path(tables, "EIV_bivariate_vs_univariate.tex")
 )
