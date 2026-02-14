@@ -21,6 +21,8 @@ source(file.path(create_tables_figures, "summary_statistics_wrapper.R"))
 source(file.path(create_tables_figures, "summary_item_worths.R"))
 source(file.path(create_tables_figures, "heatmaps_combined.R"))
 source(file.path(create_tables_figures, "eiv_table_panels.R"))
+source(file.path(create_tables_figures, "eiv_table_discretion.R"))
+source(file.path(create_tables_figures, "eiv_table_bivariate.R"))
 
 message("🎃 Tables and figures complete")
 
