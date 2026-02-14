@@ -1,10 +1,7 @@
-library(readxl)
-library(dplyr)
-library(tidyr)
-library(stringr)
-library(tibble)
-library(kableExtra)
-library(knitr)
+source("code/globals.R")
+
+# Location of the input Excel files used to build this table
+root_dir <- excel
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
@@ -17,15 +14,17 @@ pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
   
   path <- file.path(root, file)
   dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
-                  error = function(e) tibble())
+                  error = function(e) tibble::tibble())
   
   if (!nrow(dat)) return("NA (NA)")
   
   out <- dat %>%
-    mutate(coef = suppressWarnings(as.numeric(.data$coef))) %>%
-    filter(.data$rhs == rhs_var,
-           .data$lhs == lhs_var,
-           .data$coef == coef_num)
+    dplyr::mutate(coef = suppressWarnings(as.numeric(.data$coef))) %>%
+    dplyr::filter(
+      .data$rhs == rhs_var,
+      .data$lhs == lhs_var,
+      .data$coef == coef_num
+    )
   
   if (!nrow(out)) return("NA (NA)")
   
@@ -78,15 +77,11 @@ build_eiv_df_two_cols <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      `__col1` = pull_est(root, file, lhs, rhs, 1L, sheet = sheet_name, divide_by_100 = scale_by_100),
-      `__col2` = pull_est(root, file, lhs, rhs, 2L, sheet = sheet_name, divide_by_100 = scale_by_100)
+      !!col1_label := pull_est(root, file, lhs, rhs, 1L, sheet = sheet_name, divide_by_100 = scale_by_100),
+      !!col2_label := pull_est(root, file, lhs, rhs, 2L, sheet = sheet_name, divide_by_100 = scale_by_100)
     ) %>%
     ungroup() %>%
-    select(-file) %>%
-    rename(
-      !!col1_label := `__col1`,
-      !!col2_label := `__col2`
-    )
+    select(-file)
   
   table_df
 }
