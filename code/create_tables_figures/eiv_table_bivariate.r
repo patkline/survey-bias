@@ -282,12 +282,13 @@ build_comparison_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
     biv_fe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 4L, bivariate_sheet)
 
     # Column 3: Univariate No FE (coef1)
-    uni_nofe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 1L, univariate_sheet)
-    uni_nofe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 1L, univariate_sheet)
+    # NOTE: for univariate EIV_BS, weighted specs are coefs 3 (No FE) and 4 (Industry FEs)
+    uni_nofe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 3L, univariate_sheet)
+    uni_nofe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 3L, univariate_sheet)
 
     # Column 4: Univariate With FE (coef2)
-    uni_fe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 2L, univariate_sheet)
-    uni_fe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 2L, univariate_sheet)
+    uni_fe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 4L, univariate_sheet)
+    uni_fe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 4L, univariate_sheet)
 
     tibble(
       Regressor = c("Selectivity", "Discretion"),
@@ -377,5 +378,5 @@ build_comparison_table(
   cfg_race   = comparison_runs$race,
   cfg_gender = comparison_runs$gender,
   cfg_age    = comparison_runs$age,
-  out_tex    = file.path(tables, "EIV_bivariate_vs_univariate.tex")
+  out_tex    = file.path(tables, "EIV_bivariate_vs_univariate_wt.tex")
 )
