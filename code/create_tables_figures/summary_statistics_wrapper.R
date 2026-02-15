@@ -132,12 +132,50 @@ temp_data <- data %>% mutate(gender = ifelse(gender == 1, "Female", "Male"))
 
 # (a) Probability vs Convenience
 if ("sample" %in% names(data)) {
+  probconv_components <- make_summary_table_components(
+    df = temp_data,
+    sample_var = "sample"
+  )
+
   make_summary_table(
     df         = temp_data,
     sample_var = "sample",
     label0     = "Convenience",
     label1     = "Probability",
-    outfile    = file.path(tables, "summary_prob_conv.tex")
+    outfile    = file.path(tables, "summary_prob_conv.tex"),
+    components = probconv_components
+  )
+
+  # Subtables (preserve header + N row; subset by panel)
+  make_summary_table(
+    df         = temp_data,
+    sample_var = "sample",
+    label0     = "Convenience",
+    label1     = "Probability",
+    outfile    = file.path(tables, "summary_prob_conv_demographics.tex"),
+    sections_keep = c("Gender", "Race", "Hispanic", "Age", "Marital Status"),
+    include_section_headers = FALSE,
+    components = probconv_components
+  )
+
+  make_summary_table(
+    df         = temp_data,
+    sample_var = "sample",
+    label0     = "Convenience",
+    label1     = "Probability",
+    outfile    = file.path(tables, "summary_prob_conv_education.tex"),
+    sections_keep = c("Education"),
+    components = probconv_components
+  )
+
+  make_summary_table(
+    df         = temp_data,
+    sample_var = "sample",
+    label0     = "Convenience",
+    label1     = "Probability",
+    outfile    = file.path(tables, "summary_prob_conv_work_income.tex"),
+    sections_keep = c("Employment", "Income"),
+    components = probconv_components
   )
 } else {
   message("Missing 'sample' column for prob/conv table (skipping)")
