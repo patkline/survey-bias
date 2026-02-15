@@ -70,6 +70,11 @@ build_eiv_df_two_cols <- function(cfg) {
   rhs          <- cfg$rhs
   scale_by_100 <- cfg$scale_by_100 %||% FALSE
   filemap      <- cfg$filemap %||% default_filemap
+  if (is.null(cfg$coef1) || is.null(cfg$coef2)) {
+    stop("🧌 cfg must specify coef1 and coef2 (e.g., 1/2 for unweighted or 3/4 for weighted).")
+  }
+  coef1 <- cfg$coef1
+  coef2 <- cfg$coef2
   
   col1_label <- cfg$col1_label %||% "(1) Discretion"
   col2_label <- cfg$col2_label %||% "(2) Discretion (Industry FE)"
@@ -77,8 +82,8 @@ build_eiv_df_two_cols <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      !!col1_label := pull_est(root, file, lhs, rhs, 1L, sheet = sheet_name, divide_by_100 = scale_by_100),
-      !!col2_label := pull_est(root, file, lhs, rhs, 2L, sheet = sheet_name, divide_by_100 = scale_by_100)
+      !!col1_label := pull_est(root, file, lhs, rhs, coef1, sheet = sheet_name, divide_by_100 = scale_by_100),
+      !!col2_label := pull_est(root, file, lhs, rhs, coef2, sheet = sheet_name, divide_by_100 = scale_by_100)
     ) %>%
     ungroup() %>%
     select(-file)
@@ -132,7 +137,9 @@ cfg_pl <- list(
   rhs         = "discretion",
   scale_by_100 = FALSE,
   col1_label  = "(1) Discretion",
-  col2_label  = "(2) Discretion (Industry FE)"
+  col2_label  = "(2) Discretion (Industry FE)",
+  coef1       = 1L,
+  coef2       = 2L
 )
 
 cfg_borda <- list(
@@ -142,12 +149,26 @@ cfg_borda <- list(
   rhs         = "discretion",
   scale_by_100 = FALSE,
   col1_label  = "(1) Discretion",
-  col2_label  = "(2) Discretion (Industry FE)"
+  col2_label  = "(2) Discretion (Industry FE)",
+  coef1       = 1L,
+  coef2       = 2L
 )
 
-# ---------- BUILD THE TABLE ----------
+# ---------- BUILD THE TABLES (UNWEIGHTED + WEIGHTED) ----------
+
+# Unweighted (coef 1/2)
 build_two_panel_eiv_table_two_cols(
   cfg_pl    = cfg_pl,
   cfg_borda = cfg_borda,
   out_tex   = file.path(tables, "EIV_discretion_two_panel.tex")
+)
+
+# Weighted (coef 3/4)
+cfg_pl_wt <- modifyList(cfg_pl, list(coef1 = 3L, coef2 = 4L))
+cfg_borda_wt <- modifyList(cfg_borda, list(coef1 = 3L, coef2 = 4L))
+
+build_two_panel_eiv_table_two_cols(
+  cfg_pl    = cfg_pl_wt,
+  cfg_borda = cfg_borda_wt,
+  out_tex   = file.path(tables, "EIV_discretion_two_panel_wt.tex")
 )
