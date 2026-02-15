@@ -23,6 +23,7 @@ source(file.path(create_tables_figures, "heatmaps_combined.R"))
 source(file.path(create_tables_figures, "eiv_table_panels.R"))
 source(file.path(create_tables_figures, "eiv_table_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_bivariate.R"))
+source(file.path(create_tables_figures, "cross_sample_signal_corr.R"))
 
 message("🎃 Tables and figures complete")
 
