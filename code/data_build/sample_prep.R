@@ -168,7 +168,8 @@ restricted_sample_analysis <- restricted_sample %>%
 
 restricted_sample_analysis <- restricted_sample_analysis %>%
   mutate(educ = educ_0_1,
-         age = age_gt40)
+         age = age_gt40,
+         log_dif_gender_sq = log_dif_gener^2 - log_dif_gender_se^2)
 
 # --- export analysis-ready version (NO -1s) ---
 write.csv(restricted_sample_analysis,
