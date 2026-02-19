@@ -53,31 +53,32 @@ subset_value <- NULL
 output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
 
 # Function Call Female
-# system.time({
-#   run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-#                         subset_var = subset_var, subset_value = subset_value,
-#                         firms97 = firms97,
-#                         output_path = output_path,
-#                         industry_map_path = industry_map_path,
-#                         generate_wide = TRUE,
-#                         process_outcomes = TRUE,
-#                         run_bootstrap = TRUE,
-#                         run_bs_eiv = TRUE,
-#                         eiv_summary = TRUE,
-#                         eiv_bivariate = TRUE,
-#                         run_pairwise_process = TRUE,
-#                         borda_score = TRUE,
-#                         borda_bs_w = TRUE,
-#                         run_borda_eiv = TRUE,
-#                         borda_eiv_summary = TRUE,
-#                         run_pairwise_process_borda = TRUE,
-#                         borda_eiv_bivariate = TRUE,
-#                         sum_signal_noise = TRUE,
-#                         sim_pl_to_borda = FALSE,
-#                         exact_pl_to_borda = FALSE,
-#                         diagnostic = FALSE,
-#                         B = 1)
-# })
+system.time({
+  run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
+                        subset_var = subset_var, subset_value = subset_value,
+                        firms97 = firms97,
+                        output_path = output_path,
+                        industry_map_path = industry_map_path,
+                        generate_wide = TRUE,
+                        ordered_logit = TRUE,
+                        process_outcomes = TRUE,
+                        run_bootstrap = TRUE,
+                        run_bs_eiv = TRUE,
+                        eiv_summary = TRUE,
+                        eiv_bivariate = TRUE,
+                        run_pairwise_process = TRUE,
+                        borda_score = TRUE,
+                        borda_bs_w = TRUE,
+                        run_borda_eiv = TRUE,
+                        borda_eiv_summary = TRUE,
+                        run_pairwise_process_borda = TRUE,
+                        borda_eiv_bivariate = TRUE,
+                        sum_signal_noise = TRUE,
+                        sim_pl_to_borda = FALSE,
+                        exact_pl_to_borda = FALSE,
+                        diagnostic = FALSE,
+                        B = 1)
+})
 
 
 #---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----

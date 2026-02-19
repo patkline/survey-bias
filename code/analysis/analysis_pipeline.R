@@ -6,7 +6,7 @@ source("code/globals.R")
 # -----------------------------------------------
 run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, experimental_vars,
                                   subset_var = NULL, subset_value = NULL, firms97 = NULL, 
-                                  output_path, industry_map_path, process_outcomes = FALSE, 
+                                  output_path, industry_map_path, ordered_logit = FALSE, process_outcomes = FALSE, 
                                   run_jackknife = FALSE, run_bootstrap = FALSE, sim_pl_to_borda = FALSE,
                                   exact_pl_to_borda = FALSE, sum_signal_noise = FALSE,
                                   run_bs_eiv = FALSE, eiv_bivariate = FALSE, eiv_summary = FALSE,
@@ -49,6 +49,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   if (generate_wide) {
     set.seed(seed)
     # empty lists to store results
+    data_long_list <- list()
     data_list <- list()
     id_map_list <- list()
     
@@ -63,6 +64,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
       )
       
       data_list[[outcome]]   <- prep$data_wide_pltree
+      data_long_list[[outcome]] <- prep$data_rating_long
       id_map_list[[outcome]] <- prep$id_map %>% dplyr::filter(!is.na(firm), firm!="nan")
     
     }
@@ -82,6 +84,279 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
   ################################################################################
   # Section I: Plackett Luce Model
   ################################################################################
+  
+  ################################################################################
+  # Section IB: Ordered Logit (ordinal::clm) on ratings (long), using firm_id
+  # Stores (per outcome):
+  #   - firm-level coefficients (firm_id FE, ref firm = first level)
+  #   - model-based SEs + clustered-robust SEs (cluster = respondent)
+  #   - score matrix S = estfun(fit) (observation-level scores; add resp_id & firm_id)
+  #   - covariance matrix (vcov) + clustered-robust covariance (vcovCL)
+  #   - bread matrix (bread)  (inverse information used by sandwich methods)
+  ################################################################################
+  
+  ################################################################################
+  # Section IB: Ordered Logit (ordinal::clm) on ratings (long), using firm_id
+  # CLEANED so that:
+  #   - S, bread, cov, rcov DROP threshold params and keep ONLY firm parameters
+  #   - firm parameter names are renamed from firm_id<lvl> -> firm<lvl>
+  #   - coefficient tables are firm-level (include ref firm as 0)
+  #
+  # Requires: ordinal, sandwich, dplyr, tidyr, openxlsx, rlang
+  ################################################################################
+  
+  ################################################################################
+  # Ordered Logit (ordinal::clm) with SUM-TO-ZERO firm effects (contr.sum)
+  # - firm_id is coded with sum-to-zero contrasts so firm effects sum to 0
+  # - S, bread, cov, rcov: threshold params dropped; keep ONLY firm params
+  # - firm param names renamed to firm<id> (instead of firm_id<id>) and (optionally)
+  #   expanded from J-1 contrast params to J firm-level effects (summing to 0)
+  #
+  # NOTE: With contr.sum, the MODEL ESTIMATES (J-1) independent parameters.
+  # To get a J-vector of firm effects that sums to 0, we transform:
+  #   eta_1..eta_(J-1) are estimated; eta_J = -sum_{j=1}^{J-1} eta_j
+  # And we transform covariances and scores via the same linear map.
+  ################################################################################
+  
+  if (ordered_logit) {
+    ol_coeff_df      <- data.frame()
+    ol_se_df         <- data.frame()
+    ol_rse_df        <- data.frame()
+    ol_fitstats_rows <- list()
+    
+    sanitize_sheet <- function(x) {
+      x <- gsub("[\\\\/*?:\\[\\]]", "_", x)
+      substr(x, 1, 31)
+    }
+    
+    get_resp_col <- function(df) {
+      if ("resp_id" %in% names(df)) return("resp_id")
+      if (respondent_col %in% names(df)) return(respondent_col)
+      stop("No respondent id column found in long data.")
+    }
+    
+    ensure_firm_id <- function(df, id_map) {
+      if ("firm_id" %in% names(df)) return(df)
+      if (!is.null(id_map) &&
+          all(c("firm","firm_id") %in% names(id_map)) &&
+          ("firm" %in% names(df))) {
+        return(dplyr::left_join(df, dplyr::distinct(id_map, firm, firm_id), by = "firm"))
+      }
+      stop("firm_id not found in long data and could not be constructed from id_map.")
+    }
+    
+    get_rating_col <- function(df, outcome) {
+      if (outcome %in% names(df)) return(outcome)
+      if ("rating" %in% names(df)) return("rating")
+      stop("No rating column found for outcome ", outcome, " (expected '", outcome, "' or 'rating').")
+    }
+    
+    # Rename helper for firm params
+    rename_to_firm <- function(nms) sub("^firm_id", "firm", nms)
+    
+    # Build transformation matrix from (J-1) sum-contrast params -> J firm effects
+    # If ordinal uses the standard contr.sum column ordering, this works:
+    #   eta_J = -sum_{j=1}^{J-1} eta_j
+    build_A_sum0 <- function(J) {
+      # maps theta (J-1) -> alpha (J)
+      A <- matrix(0, nrow = J, ncol = J - 1)
+      A[1:(J - 1), 1:(J - 1)] <- diag(J - 1)
+      A[J, ] <- -1
+      A
+    }
+    
+    for (outcome in survey_vars) {
+      cat("Ordered logit (clm, sum-to-zero) for outcome:", outcome, "\n")
+      
+      dat_long <- data_long_list[[outcome]]
+      if (is.null(dat_long) || nrow(dat_long) == 0L) {
+        warning("Skipping ordered logit for ", outcome, " (no long data).")
+        next
+      }
+      
+      resp_col   <- get_resp_col(dat_long)
+      rating_col <- get_rating_col(dat_long, outcome)
+      
+      id_map <- id_map_list[[outcome]]
+      dat_long <- ensure_firm_id(dat_long, id_map)
+      
+      dat_m <- dat_long %>%
+        dplyr::select(dplyr::all_of(c(resp_col, "firm_id", rating_col))) %>%
+        dplyr::filter(!is.na(.data[[resp_col]]),
+                      !is.na(.data[["firm_id"]]),
+                      !is.na(.data[[rating_col]]))
+      
+      dat_m[[resp_col]] <- factor(dat_m[[resp_col]])
+      dat_m$firm_id     <- factor(dat_m$firm_id)
+      
+      # IMPORTANT: sum-to-zero coding
+      contrasts(dat_m$firm_id) <- contr.sum(nlevels(dat_m$firm_id))
+      
+      # Ensure ordered factor outcome
+      if (!is.ordered(dat_m[[rating_col]])) {
+        if (is.numeric(dat_m[[rating_col]]) || is.integer(dat_m[[rating_col]])) {
+          levs <- sort(unique(dat_m[[rating_col]]))
+          dat_m[[rating_col]] <- ordered(dat_m[[rating_col]], levels = levs)
+        } else {
+          dat_m[[rating_col]] <- ordered(dat_m[[rating_col]])
+        }
+      }
+      
+      fml <- stats::as.formula(paste0(rating_col, " ~ firm_id"))
+      
+      fit <- try(
+        ordinal::clm(formula = fml, data = dat_m, link = "logit", Hess = TRUE),
+        silent = TRUE
+      )
+      
+      if (inherits(fit, "try-error")) {
+        warning("clm failed for ", outcome, ": ",
+                conditionMessage(attr(fit, "condition")))
+        next
+      }
+      
+      # --- Get full objects ---
+      V_all  <- tryCatch(as.matrix(stats::vcov(fit)),     error = function(e) NULL)
+      S_all  <- tryCatch(sandwich::estfun(fit),           error = function(e) NULL)
+      B_all  <- tryCatch(sandwich::bread(fit),            error = function(e) NULL)
+      Vr_all <- tryCatch(sandwich::vcovCL(fit, cluster = dat_m[[resp_col]]),
+                         error = function(e) NULL)
+      
+      # --- Identify firm parameter names (J-1 under contr.sum) ---
+      # Under contr.sum, ordinal typically names them firm_id1 ... firm_id(J-1)
+      # (NOT firm_id<level>). So we find firm terms by pattern "^firm_id".
+      firm_theta_names <- grep("^firm_id", names(stats::coef(fit)), value = TRUE)
+      
+      # Keep only the beta part (exclude thresholds)
+      # Threshold names typically include "|" or are "(Intercept)"-like; this guard keeps firm_id* only.
+      firm_theta_names <- firm_theta_names[!grepl("\\|", firm_theta_names)]
+      
+      J <- nlevels(dat_m$firm_id)
+      if (J < 2) {
+        warning("Not enough firm levels for ", outcome)
+        next
+      }
+      
+      # Subset to firm-theta blocks
+      V_th  <- if (!is.null(V_all)  && length(firm_theta_names)) V_all [firm_theta_names, firm_theta_names, drop = FALSE] else NULL
+      Vr_th <- if (!is.null(Vr_all) && length(firm_theta_names)) Vr_all[firm_theta_names, firm_theta_names, drop = FALSE] else NULL
+      B_th  <- if (!is.null(B_all)  && length(firm_theta_names)) B_all [firm_theta_names, firm_theta_names, drop = FALSE] else NULL
+      S_th  <- if (!is.null(S_all)  && length(firm_theta_names)) S_all [, firm_theta_names, drop = FALSE] else NULL
+      
+      # --- Transform (J-1) params -> J firm effects that sum to 0 ---
+      # alpha = A %*% theta
+      A <- build_A_sum0(J)
+      
+      theta_hat <- stats::coef(fit)[firm_theta_names]
+      theta_hat <- as.numeric(theta_hat)
+      
+      alpha_hat <- as.numeric(A %*% theta_hat)  # length J, sums to 0
+      
+      # Transform covariance / bread / score:
+      # Var(alpha) = A Var(theta) A'
+      # Bread(alpha) is not uniquely defined, but for your storage use we carry the
+      # transformed inverse-info analogue: B_alpha = A B_theta A'
+      # Scores: S_alpha = S_theta %*% t(A)
+      V_alpha  <- if (!is.null(V_th))  A %*% V_th  %*% t(A) else NULL
+      Vr_alpha <- if (!is.null(Vr_th)) A %*% Vr_th %*% t(A) else NULL
+      B_alpha  <- if (!is.null(B_th))  A %*% B_th  %*% t(A) else NULL
+      S_alpha  <- if (!is.null(S_th))  S_th %*% t(A) else NULL
+      
+      # Name firm effects by actual firm_id levels: firm<id>
+      firm_levels <- levels(dat_m$firm_id)
+      firm_ids_chr <- as.character(firm_levels)
+      firm_colnames <- paste0("firm", firm_ids_chr)
+      
+      if (!is.null(V_alpha))  { colnames(V_alpha)  <- firm_colnames; rownames(V_alpha)  <- firm_colnames }
+      if (!is.null(Vr_alpha)) { colnames(Vr_alpha) <- firm_colnames; rownames(Vr_alpha) <- firm_colnames }
+      if (!is.null(B_alpha))  { colnames(B_alpha)  <- firm_colnames; rownames(B_alpha)  <- firm_colnames }
+      if (!is.null(S_alpha))  { colnames(S_alpha)  <- firm_colnames }
+      
+      # --- Firm-level SEs (model + robust) from transformed covariances ---
+      firm_se  <- rep(NA_real_, J)
+      firm_rse <- rep(NA_real_, J)
+      if (!is.null(V_alpha))  firm_se  <- sqrt(diag(V_alpha))
+      if (!is.null(Vr_alpha)) firm_rse <- sqrt(diag(Vr_alpha))
+      
+      # firm lookup for merging like your other tables
+      firm_tbl <- data.frame(firm_id = as.integer(firm_ids_chr), stringsAsFactors = FALSE)
+      if (!is.null(id_map) && all(c("firm_id","firm") %in% names(id_map))) {
+        firm_tbl <- firm_tbl %>%
+          dplyr::left_join(dplyr::distinct(id_map, firm_id, firm), by = "firm_id") %>%
+          dplyr::arrange(match(as.character(firm_id), firm_ids_chr))
+      } else {
+        firm_tbl$firm <- NA_character_
+      }
+      
+      out_coef <- firm_tbl %>%
+        dplyr::mutate(
+          !!outcome := alpha_hat,
+          se  = firm_se,
+          rse = firm_rse
+        )
+      
+      out_coef_only <- out_coef %>% dplyr::select(firm_id, firm, !!rlang::sym(outcome))
+      out_se_only   <- out_coef %>% dplyr::select(firm_id, firm, !!rlang::sym(outcome) := se)
+      out_rse_only  <- out_coef %>% dplyr::select(firm_id, firm, !!rlang::sym(outcome) := rse)
+      
+      if (nrow(ol_coeff_df) == 0) {
+        ol_coeff_df <- out_coef_only
+        ol_se_df    <- out_se_only
+        ol_rse_df   <- out_rse_only
+      } else {
+        ol_coeff_df <- dplyr::left_join(ol_coeff_df, out_coef_only, by = c("firm_id","firm"))
+        ol_se_df    <- dplyr::left_join(ol_se_df,    out_se_only,   by = c("firm_id","firm"))
+        ol_rse_df   <- dplyr::left_join(ol_rse_df,   out_rse_only,  by = c("firm_id","firm"))
+      }
+      
+      # --- Write per-outcome objects to Excel (firm-only; sum-to-zero; named firm<id>) ---
+      sheet_cov   <- sanitize_sheet(paste0("cov_ol_", outcome))
+      sheet_rcov  <- sanitize_sheet(paste0("rcov_ol_", outcome))
+      sheet_bread <- sanitize_sheet(paste0("Binv_ol_", outcome))
+      sheet_S     <- sanitize_sheet(paste0("S_ol_", outcome))
+      
+      remove_sheet_safely(wb, sheet_cov);   addWorksheet(wb, sheet_cov);   writeData(wb, sheet_cov,  V_alpha)
+      remove_sheet_safely(wb, sheet_rcov);  addWorksheet(wb, sheet_rcov);  writeData(wb, sheet_rcov, Vr_alpha)
+      remove_sheet_safely(wb, sheet_bread); addWorksheet(wb, sheet_bread); writeData(wb, sheet_bread, B_alpha)
+      
+      if (!is.null(S_alpha)) {
+        S_df <- as.data.frame(S_alpha)
+        S_df <- cbind(
+          resp_id = dat_m[[resp_col]],
+          firm_id = dat_m$firm_id,
+          S_df
+        )
+        remove_sheet_safely(wb, sheet_S)
+        addWorksheet(wb, sheet_S)
+        writeData(wb, sheet_S, S_df)
+      }
+      
+      # fit stats
+      ol_fitstats_rows[[length(ol_fitstats_rows) + 1L]] <- data.frame(
+        Outcome = outcome,
+        logLik  = as.numeric(stats::logLik(fit)),
+        nobs    = stats::nobs(fit),
+        J       = J,
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    # combined tables
+    remove_sheet_safely(wb, "OL_Coefficients");      addWorksheet(wb, "OL_Coefficients");      writeData(wb, "OL_Coefficients", ol_coeff_df)
+    remove_sheet_safely(wb, "OL_Standard_Errors");   addWorksheet(wb, "OL_Standard_Errors");   writeData(wb, "OL_Standard_Errors", ol_se_df)
+    remove_sheet_safely(wb, "OL_Robust_SEs");        addWorksheet(wb, "OL_Robust_SEs");        writeData(wb, "OL_Robust_SEs", ol_rse_df)
+    
+    if (length(ol_fitstats_rows)) {
+      remove_sheet_safely(wb, "OL_FitStats")
+      addWorksheet(wb, "OL_FitStats")
+      writeData(wb, "OL_FitStats", dplyr::bind_rows(ol_fitstats_rows))
+    }
+    
+    cat("✅ Ordered logit (clm, sum-to-zero) saved with firm effects summing to 0.\n")
+  }
+  
+  
+  
   
   if (process_outcomes) {
     set.seed(seed)
