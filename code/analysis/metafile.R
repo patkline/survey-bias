@@ -41,7 +41,7 @@ survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
                  "discretion", "FirmSelective", "FirmDesire",
                  "pooled_favor_white","pooled_favor_male")
 
-experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "cb_central_full")
+experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "cb_central_full")
 respondent_col <- "ResponseId"
 firm_col <- "firm"
 
@@ -126,6 +126,7 @@ for (i in seq_len(nrow(runs))) {
                           output_path = output_path,
                           industry_map_path = industry_map_path,
                           generate_wide = TRUE,
+                          ordered_logit = TRUE,
                           process_outcomes = TRUE,
                           run_bootstrap = TRUE,
                           run_bs_eiv = TRUE,

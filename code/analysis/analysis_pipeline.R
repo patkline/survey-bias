@@ -355,9 +355,6 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     cat("✅ Ordered logit (clm, sum-to-zero) saved with firm effects summing to 0.\n")
   }
   
-  
-  
-  
   if (process_outcomes) {
     set.seed(seed)
     

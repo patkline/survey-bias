@@ -1,3 +1,10 @@
+# New for cleaner pipeline
+source(file.path(analysis, "sheet_functions.R"))
+source(file.path(analysis, "run_model_pl.R"))
+source(file.path(analysis, "run_model_ol.R"))
+source(file.path(analysis, "run_model_borda.R"))
+source(file.path(analysis, "prep_outcomes.R"))
+
 ## Sample Prep
 source(file.path(analysis, "extra_functions.R"))
 source(file.path(analysis, "leave_in_connected.R"))
