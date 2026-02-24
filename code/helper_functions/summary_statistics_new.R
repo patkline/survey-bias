@@ -74,7 +74,7 @@ make_summary_table_components <- function(
 
   # ---- One row per respondent ----
   if (!"ResponseId" %in% names(df)) stop("ResponseId column is required.")
-  df_one <- df %>% group_by(.data$ResponseId) %>% slice(1) %>% ungroup()
+  df_one <- df %>% group_by(.data$ResponseId) %>% dplyr::slice(1) %>% ungroup()
 
   # ---- Order + sections ----
   order_levels <- c(
