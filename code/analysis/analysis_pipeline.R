@@ -11,6 +11,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
                                   exact_pl_to_borda = FALSE, sum_signal_noise = FALSE,
                                   run_bs_eiv = FALSE, eiv_bivariate = FALSE, eiv_summary = FALSE,
                                   run_pairwise_process = FALSE,
+                                  run_pairwise_process_ol = FALSE,
                                   diagnostic = FALSE, borda_score = FALSE,
                                   borda_bs_w = FALSE, borda_bs = FALSE,
                                   borda_eiv = FALSE,
@@ -848,6 +849,200 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
     
     message("✅ Pairwise summary saved to Excel")
+  }
+  
+  # Section IE: Ordered-logit pairwise process
+  # Mirrors run_pairwise_process, but pulls OL objects from Excel:
+  #   - coefficients: OL_Coefficients
+  #   - scores:       S_ol_<outcome>
+  #   - bread inv:    Binv_ol_<outcome>
+  #   - covariance:   rcov_ol_<outcome>  (robust covariance)
+  if (run_pairwise_process_ol) {
+    set.seed(seed)
+    
+    # Ensure latest in-memory workbook state is on disk before reading sheets.
+    openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+    
+    sanitize_sheet <- function(x) {
+      x <- gsub("[\\\\/*?:\\[\\]]", "_", x)
+      substr(x, 1, 31)
+    }
+    
+    read_square_firm_matrix <- function(path, sheet_name) {
+      if (!(sheet_name %in% openxlsx::getSheetNames(path))) return(NULL)
+      df <- openxlsx::read.xlsx(path, sheet = sheet_name)
+      if (is.null(df) || nrow(df) == 0L || ncol(df) == 0L) return(NULL)
+      
+      # If row names were written as first column, drop it.
+      if (ncol(df) > 1 &&
+          !grepl("^firm\\d+$", names(df)[1]) &&
+          all(grepl("^firm\\d+$", names(df)[-1]))) {
+        df <- df[, -1, drop = FALSE]
+      }
+      
+      keep_cols <- grep("^firm\\d+$", names(df), value = TRUE)
+      if (!length(keep_cols)) return(NULL)
+      df <- df[, keep_cols, drop = FALSE]
+      
+      m <- as.matrix(data.frame(lapply(df, as.numeric), check.names = FALSE))
+      colnames(m) <- keep_cols
+      rownames(m) <- keep_cols
+      m
+    }
+    
+    read_score_sheet <- function(path, sheet_name) {
+      if (!(sheet_name %in% openxlsx::getSheetNames(path))) return(NULL)
+      df <- openxlsx::read.xlsx(path, sheet = sheet_name)
+      if (is.null(df) || nrow(df) == 0L || !("resp_id" %in% names(df))) return(NULL)
+      
+      firm_cols <- grep("^firm\\d+$", names(df), value = TRUE)
+      if (!length(firm_cols)) return(NULL)
+      
+      out <- df[, c("resp_id", firm_cols), drop = FALSE]
+      for (cc in firm_cols) out[[cc]] <- suppressWarnings(as.numeric(out[[cc]]))
+      out
+    }
+    
+    if (!("OL_Coefficients" %in% openxlsx::getSheetNames(output_path))) {
+      warning("Skipping run_pairwise_process_ol: OL_Coefficients sheet not found.")
+    } else {
+      coeff_df_ol <- openxlsx::read.xlsx(output_path, sheet = "OL_Coefficients")
+      if (is.null(coeff_df_ol) || nrow(coeff_df_ol) == 0L) {
+        warning("Skipping run_pairwise_process_ol: OL_Coefficients is empty.")
+      } else {
+        coeff_df_ol$firm_id <- suppressWarnings(as.integer(coeff_df_ol$firm_id))
+        
+        temp <- data %>% dplyr::filter(!is.na(dif))
+        unique_firms <- unique(temp$firm_id)
+        
+        # Keep only a fixed allowlist of opposite-valence pairs.
+        allowed_pairs <- list(
+          c("FirmCont_black", "FirmCont_white"),
+          c("FirmHire_black", "FirmHire_white"),
+          c("conduct_black", "conduct_white"),
+          c("FirmCont_male", "FirmCont_female"),
+          c("FirmHire_male", "FirmHire_female"),
+          c("conduct_male", "conduct_female"),
+          c("conduct_younger", "conduct_older")
+        )
+        
+        pair_key <- function(a, b) paste(sort(c(a, b)), collapse = "||")
+        allowed_pair_keys <- vapply(
+          allowed_pairs,
+          function(p) pair_key(p[[1]], p[[2]]),
+          FUN.VALUE = character(1)
+        )
+        
+        all_pairs <- combn(survey_vars, 2, simplify = FALSE)
+        pairs <- Filter(
+          function(p) pair_key(p[[1]], p[[2]]) %in% allowed_pair_keys,
+          all_pairs
+        )
+        
+        if (!length(pairs)) {
+          warning("No hard-coded OL pairs found in survey_vars; skipping run_pairwise_process_ol.")
+        }
+        
+        pairwise_rows <- vector("list", length(pairs) * 2)
+        i <- 1L
+        
+        for (pair in pairs) {
+          print(pair)
+          var1 <- pair[[1]]
+          var2 <- pair[[2]]
+          
+          if (!(var1 %in% names(coeff_df_ol)) || !(var2 %in% names(coeff_df_ol))) {
+            warning("Skipping OL pair ", var1, " vs ", var2, " (missing coefficient columns).")
+            next
+          }
+          
+          # retrieve OL objects from Excel
+          S1    <- read_score_sheet(output_path, sanitize_sheet(paste0("S_ol_", var1)))
+          S2    <- read_score_sheet(output_path, sanitize_sheet(paste0("S_ol_", var2)))
+          Binv1 <- read_square_firm_matrix(output_path, sanitize_sheet(paste0("Binv_ol_", var1)))
+          Binv2 <- read_square_firm_matrix(output_path, sanitize_sheet(paste0("Binv_ol_", var2)))
+          rcov1 <- read_square_firm_matrix(output_path, sanitize_sheet(paste0("rcov_ol_", var1)))
+          rcov2 <- read_square_firm_matrix(output_path, sanitize_sheet(paste0("rcov_ol_", var2)))
+          
+          if (is.null(S1) || is.null(S2) || is.null(Binv1) || is.null(Binv2) || is.null(rcov1) || is.null(rcov2)) {
+            warning("Skipping OL pair ", var1, " vs ", var2, " due to missing S/Binv/rcov sheet(s).")
+            next
+          }
+          
+          # -------------------------
+          # Restricted (unique firms)
+          # -------------------------
+          coeff_sub <- coeff_df_ol %>%
+            dplyr::filter(firm_id %in% unique_firms) %>%
+            dplyr::arrange(match(firm_id, unique_firms))
+          
+          firm_cols <- paste0("firm", coeff_sub$firm_id)
+          firm_cols1 <- intersect(firm_cols, names(S1))
+          firm_cols2 <- intersect(firm_cols, names(S2))
+          
+          S1_sub    <- S1[, c("resp_id", firm_cols1), drop = FALSE]
+          S2_sub    <- S2[, c("resp_id", firm_cols2), drop = FALSE]
+          Binv1_sub <- Binv1[firm_cols1, firm_cols1, drop = FALSE]
+          Binv2_sub <- Binv2[firm_cols2, firm_cols2, drop = FALSE]
+          rcov1_sub <- rcov1[firm_cols1, firm_cols1, drop = FALSE]
+          rcov2_sub <- rcov2[firm_cols2, firm_cols2, drop = FALSE]
+          
+          res_restricted <- pairwise_process(
+            S1 = S1_sub,
+            S2 = S2_sub,
+            Binv1 = Binv1_sub,
+            Binv2 = Binv2_sub,
+            robust_cov1 = rcov1_sub,
+            robust_cov2 = rcov2_sub,
+            coeff_df = coeff_sub,
+            var1 = var1,
+            var2 = var2
+          )
+          
+          pairwise_rows[[i]] <- tibble::as_tibble(res_restricted) %>%
+            dplyr::mutate(
+              lhs = var1,
+              rhs = var2,
+              all_firms = FALSE,
+              .before = 1
+            )
+          i <- i + 1L
+          
+          # -------------------------
+          # All firms
+          # -------------------------
+          res_all <- pairwise_process(
+            S1 = S1,
+            S2 = S2,
+            Binv1 = Binv1,
+            Binv2 = Binv2,
+            robust_cov1 = rcov1,
+            robust_cov2 = rcov2,
+            coeff_df = coeff_df_ol,
+            var1 = var1,
+            var2 = var2
+          )
+          
+          pairwise_rows[[i]] <- tibble::as_tibble(res_all) %>%
+            dplyr::mutate(
+              lhs = var1,
+              rhs = var2,
+              all_firms = TRUE,
+              .before = 1
+            )
+          i <- i + 1L
+        }
+        
+        pairwise_sum_ol <- dplyr::bind_rows(pairwise_rows)
+        
+        remove_sheet_safely(wb, "pairwise_summary_ol")
+        openxlsx::addWorksheet(wb, "pairwise_summary_ol")
+        openxlsx::writeData(wb, "pairwise_summary_ol", pairwise_sum_ol)
+        openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+        
+        message("✅ Ordered-logit pairwise summary saved to Excel")
+      }
+    }
   }
   
   # Section IC: This section runs the runs the EIV model for the full sample and
