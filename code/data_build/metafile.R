@@ -15,5 +15,8 @@ source("code/globals.R")
 system2(python_venv_installation,
         args = file.path(build, "clean_raw_qualtrics_data.py"))
 
+# Run script to output firm-industry sic code mapping from RefUSA 
+source(file.path(build, "create_firm_industry_crosswalk.R"))
+
 # Run sample preparation script
 source(file.path(build, "sample_prep.R"))
