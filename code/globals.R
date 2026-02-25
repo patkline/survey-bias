@@ -88,7 +88,8 @@ required_r_packages <- c(
   "ggpattern",
   "ragg",
   "rlang",
-  "ordinal"
+  "ordinal",
+  "readr"
 )
 
 # Identify missing R packages

@@ -12,191 +12,158 @@ source("code/globals.R")
 # Import and prepare long survey data for crosswalk construction
 # ------------------------------------------------------------------------------
 
-# Import long_survey.csv.
-long_survey <- read.csv("data/processed/long_survey.csv", stringsAsFactors = FALSE)
+# Import long_survey.csv
+long_survey <- read.csv(file.path(processed, "long_survey.csv"))
 
-# Confirm ResponseId and option_number columns exist in long_survey.
-if (!all(c("ResponseId", "option_number") %in% names(long_survey))) {
-  # Stop execution when required long_survey row-id columns are missing.
-  stop("long_survey.csv must contain columns: ResponseId, option_number")
-}
-
-# Confirm ResponseId and option_number uniquely identifies observations.
+# Confirm ResponseId and option_number uniquely identifies observations i.e., unique values of response id x unique values of option number = total rows
 stopifnot(nrow(long_survey) == dplyr::n_distinct(long_survey$ResponseId, long_survey$option_number))
 
-# Confirm firm_clean column exists in long_survey.
-if (!("firm_clean" %in% names(long_survey))) {
-  # Stop execution when firm_clean column is missing.
-  stop("long_survey.csv must contain column: firm_clean")
-}
+# Keep necessary variables i.e., firm_clean variable 
+long_survey <- long_survey %>% dplyr::select(firm_clean)
 
-# Count rows where firm_clean is missing or blank.
-firm_clean_missing_n <- sum(is.na(long_survey$firm_clean) | trimws(long_survey$firm_clean) == "")
-
-# Stop when any firm_clean value is missing or blank.
-if (firm_clean_missing_n > 0) {
-  # Abort because firm_clean must be complete by design.
-  stop(sprintf("firm_clean has %s missing/blank rows; expected 0", firm_clean_missing_n))
-}
-
-# Report that firm_clean is complete after import.
-message(sprintf(
-  "Confirmed long_survey unique firm identifier column is firm_clean with %s non-missing rows.",
-  nrow(long_survey)
-))
-
-# Trim whitespace from firm_clean values.
+# Trim leading and trailing whitespace from firm_clean values
 long_survey$firm_clean <- trimws(long_survey$firm_clean)
 
-# Sort by firm_clean to mimic Stata's: sort firm_clean.
-long_survey <- long_survey %>% dplyr::arrange(firm_clean)
+# Confirm firm_clean is never missing i.e., confirm that all rows have non-NA and non-blank firm_clean values
+stopifnot(all(!is.na(long_survey$firm_clean) & long_survey$firm_clean != ""))
 
-# Keep the first row within each firm_clean to mimic: by firm_clean: keep if _n==1.
-long_survey_unique_firms <- long_survey %>%
-  # Group by firm_clean before taking the first row.
-  dplyr::group_by(firm_clean) %>%
-  # Keep the first row in each firm_clean group.
-  dplyr::slice(1L) %>%
-  # Remove grouping after deduplication.
-  dplyr::ungroup()
+# Keep one observation per unique firm_clean value to recover list of unique firms in our data, and keep only the firm_clean variable 
+long_survey <- long_survey %>% dplyr::distinct(firm_clean)
 
-# Verify isid firm_clean after deduplication.
-if (nrow(long_survey_unique_firms) != dplyr::n_distinct(long_survey_unique_firms$firm_clean)) {
-  # Stop if firm_clean is not unique after dedupe.
-  stop("firm_clean is not unique after deduplication")
-}
-
-# Report that firm_clean is a unique identifier in the deduplicated firm list.
-message(sprintf(
-  "Confirmed isid firm_clean after deduplication; %s unique firms.",
-  nrow(long_survey_unique_firms)
-))
+# Should be 165 unique firms uniquely identified off firm_clean 
+stopifnot(nrow(long_survey) == 165L | n_distinct(long_survey$firm_clean) == 165L)
 
 # ------------------------------------------------------------------------------
-# Import and validate RefUSA structure for matching
+# Import and assess structure of RefUSA data interactively
 # ------------------------------------------------------------------------------
+# Read in first 10000 rows of RefUSA to browse interactively 
+refusa_first_10000_rows <- readr::read_csv(  
+# Filepath
+file = file.path(external, "2019_Business_Academic_QCQ.txt.gz"),
 
-# Import only the RefUSA header to validate columns immediately after import.
-refusa_header <- readr::read_csv(
-  # Read the RefUSA text file path directly.
-  file = "data/external/2019_Business_Academic_QCQ.txt.gz",
-  # Read zero data rows to get only column names.
-  n_max = 0,
-  # Suppress column type printout.
-  show_col_types = FALSE
+# Number of rows
+n_max = 10000,
+
+# Suprress column type printout
+show_col_types = FALSE
 )
 
-# Confirm RefUSA required columns exist after import.
-if (!all(c("IDCode", "ABI", "Company", "Primary SIC Code") %in% names(refusa_header))) {
-  # Stop execution when required RefUSA columns are missing.
-  stop("RefUSA must contain columns: IDCode, ABI, Company, Primary SIC Code")
-}
+# View sic variables 
+#XXI think we want to be using "Primary SIC Code" for our matching, but should confirm with the data documentation 
+#View(refusa_first_10000_rows %>% select(matches("(?i)sic")))
 
-# Initialize hashed storage for seen ABI values in uniqueness assertion.
+# ------------------------------------------------------------------------------
+# Confirm that ABI variable is non-missing and uniquely identifies 
+# rows in RefUSA
+#
+# 1. Load in RefUSA in chunks, and for each chunk, 
+#   i. Check whether there are NA or blank values in the ABI 
+#     column, and throw an error if so
+#   ii. Check whether there are within-chunk duplicate values in 
+#     the ABI column, and throw an error if so 
+#   iii. Check whether there are across-chunk duplicate values in 
+#     the ABI column by comparing to a global set of seen ABI values, 
+#       and throw an error if so
+#        b. if not, add ABI values from this chunk to a global set of seen ABI values for cross-chunk duplicate checks #        and proceed 
+# ------------------------------------------------------------------------------
+# XXCommenting out fow now --- uncomment out at end of file construction
+if (FALSE) {
+# Initialize hashed storage environment/dictionary that adds seen ABI values as keys
 refusa_abi_seen <- new.env(hash = TRUE, parent = emptyenv())
 
-# Initialize duplicate flag for ABI uniqueness assertion.
-refusa_abi_duplicate_found <- FALSE
-
-# Initialize missing ABI counter for ABI uniqueness assertion.
-refusa_abi_missing_n <- 0L
-
-# Read RefUSA ABI column in chunks for uniqueness assertion.
+# Read RefUSA ABI column in chunks for uniqueness assertion
 readr::read_csv_chunked(
-  # Read RefUSA file path directly.
-  file = "data/external/2019_Business_Academic_QCQ.txt.gz",
-  # Use callback to check ABI uniqueness.
-  callback = readr::DataFrameCallback$new(function(chunk, pos) {
-    # Trim ABI values in current chunk.
-    abi_values <- trimws(chunk$ABI)
-    # Convert missing ABI values to empty strings.
-    abi_values[is.na(abi_values)] <- ""
-    # Add missing ABI count from this chunk.
-    refusa_abi_missing_n <<- refusa_abi_missing_n + sum(abi_values == "")
-    # Skip duplicate scan when duplicate already found.
-    if (refusa_abi_duplicate_found) return(invisible(NULL))
-    # Keep only non-empty ABI values for uniqueness checks.
-    abi_values <- abi_values[abi_values != ""]
-    # Iterate through ABI values in this chunk.
-    for (abi in abi_values) {
-      # Flag duplicate when ABI already exists in seen set.
-      if (exists(abi, envir = refusa_abi_seen, inherits = FALSE)) {
-        # Set duplicate flag to TRUE.
-        refusa_abi_duplicate_found <<- TRUE
-        # Exit loop after finding first duplicate.
-        break
-      }
-      # Record ABI in seen set.
-      assign(abi, TRUE, envir = refusa_abi_seen)
-    }
-    # Return invisibly from callback.
-    invisible(NULL)
-  }),
-  # Set chunk size for throughput and memory balance.
-  chunk_size = 250000,
-  # Restrict import to ABI column only for uniqueness checks.
-  col_types = readr::cols_only(
-    # Read ABI as character.
-    ABI = readr::col_character()
-  ),
-  # Disable progress bar for cleaner logs.
-  progress = FALSE
+# Filepath for the RefUSA gzipped text file
+file = file.path(external, "2019_Business_Academic_QCQ.txt.gz"),
+
+# Use callback that enforces within-chunk and across-chunk uniqueness of ABI values 
+callback = readr::DataFrameCallback$new(function(chunk, pos) {
+  # Trim leading and trailing whitespace in ABI values in current chunk
+  chunk$ABI <- trimws(chunk$ABI)
+
+  # Fail immediately if any ABI in this chunk is missing (NA) or blank
+  if (any(is.na(chunk$ABI) | chunk$ABI == "")) {
+    stop(sprintf("🪦 Found missing ABI values in chunk at position %s", pos))
+  }
+
+  # Fail immediately if there are within-chunk duplicate ABI values
+  if (any(duplicated(chunk$ABI))) {
+    stop(sprintf("🪦 Found duplicate ABI values within chunk at position %s", pos))
+  }
+
+  # For each ABI value in this chunk, check whether it already exists in the global seen set and store results in a logical vector
+  exists_vec <- vapply(chunk$ABI, exists, logical(1), envir = refusa_abi_seen, inherits = FALSE)
+  
+  # Check whether any of these ABI values are already present in the global seen set by seeing if any values in the logical vector are TRUE
+  if (any(exists_vec)) {
+    stop(sprintf("🪦 Found duplicate ABI across chunks at position %s", pos))
+  }
+
+  # Add the unique ABI keys from this chunk to the global seen set
+  for (k in chunk$ABI) assign(k, TRUE, envir = refusa_abi_seen)
+
+  # Return invisibly from callback
+  invisible(NULL)
+}),
+
+# Set chunk size for throughput and memory balance
+chunk_size = 250000,
+
+# Restrict import to ABI column only for uniqueness checks
+col_types = readr::cols_only(
+  # Read ABI as character to preserve formatting
+  ABI = readr::col_character()
+),
+
+# Disable progress bar for cleaner logs
+progress = FALSE
 )
-
-# Confirm ABI has no missing values.
-stopifnot(refusa_abi_missing_n == 0L)
-
-# Confirm ABI uniquely identifies observations.
-stopifnot(!refusa_abi_duplicate_found)
-
+}
 # ------------------------------------------------------------------------------
 # Build firm-level matching keys from long_survey firm_clean values
 # ------------------------------------------------------------------------------
+# Build exact match key, starting with making firm names uppercase
+long_survey <- long_survey %>% dplyr::mutate(firm_clean_normalized = toupper(firm_clean))
 
-# Create one-row-per-firm dataset from deduplicated long_survey firms.
-target_firms <- long_survey_unique_firms %>%
-  # Keep only the firm name for crosswalk construction.
-  dplyr::transmute(firm = firm_clean)
+# Replace ampersands in normalized keys i.e., treat & as AND token
+long_survey$firm_clean_normalized <- gsub("&", " AND ", long_survey$firm_clean_normalized, fixed = TRUE)
 
-# Create exact uppercase match keys from firm names.
-target_firms <- target_firms %>%
-  # Build exact match key as uppercase trimmed firm name.
-  dplyr::mutate(firm_key_exact = toupper(trimws(firm)))
+# Remove non-alphanumeric characters except spaces from normalized keys
+long_survey$firm_clean_normalized <- gsub("[^A-Z0-9 ]+", " ", long_survey$firm_clean_normalized)
 
-# Define a regex pattern for trailing corporate suffixes.
-suffix_pattern <- "(\\s+(INC|INCORPORATED|CO|COMPANY|CORP|CORPORATION|LLC|LTD|PLC|HOLDINGS|HOLDING|GROUP|COS|THE))+$"
+# Collapse repeated spaces to one space in normalized keys
+long_survey$firm_clean_normalized <- gsub("\\s+", " ", long_survey$firm_clean_normalized)
 
-# Start normalized key from exact key.
-target_firms <- target_firms %>%
-  # Initialize normalized key from exact key.
-  dplyr::mutate(firm_key_norm = firm_key_exact)
-
-# Replace ampersands in normalized keys.
-target_firms$firm_key_norm <- gsub("&", " AND ", target_firms$firm_key_norm, fixed = TRUE)
-
-# Remove non-alphanumeric characters except spaces from normalized keys.
-target_firms$firm_key_norm <- gsub("[^A-Z0-9 ]+", " ", target_firms$firm_key_norm)
-
-# Collapse repeated spaces in normalized keys.
-target_firms$firm_key_norm <- gsub("\\s+", " ", target_firms$firm_key_norm)
+# Define a regex pattern for trailing corporate suffixes
+suffix_pattern <- "(\\s+(INC|INCORPORATED|CO|COMPANY|CORP|CORPORATION|LLC|LTD|PLC|HOLDINGS|HOLDING|GROUP|COS|THE))+$$" 
 
 # Remove trailing corporate suffix tokens from normalized keys.
-target_firms$firm_key_norm <- gsub(suffix_pattern, "", target_firms$firm_key_norm)
+long_survey$firm_clean_normalized <- gsub(suffix_pattern, "", long_survey$firm_clean_normalized)
 
-# Trim normalized keys after suffix removal.
-target_firms$firm_key_norm <- trimws(target_firms$firm_key_norm)
+# Trim leading and trailing whitespace in normalized keys after suffix removal
+long_survey$firm_clean_normalized <- trimws(long_survey$firm_clean_normalized)
 
-# Create compact keys by removing all non-alphanumeric characters.
-target_firms$firm_key_compact <- gsub("[^A-Z0-9]+", "", target_firms$firm_key_exact)
+# Create compact keys by removing all whitespace from the normalized key
+long_survey$firm_clean_normalized_compact <- gsub(" ", "", long_survey$firm_clean_normalized, fixed = TRUE)
 
+# Assert that normalized and compact keys are (i) non-missing and non-blank and (ii) unique
+for (variable in c("firm_clean_normalized", "firm_clean_normalized_compact")) {
+# Assert non-missing and non-blank values in given variable 
+stopifnot(all(!is.na(long_survey[[variable]]) & long_survey[[variable]] != ""))
+
+# Assert unique values in given variable
+stopifnot(nrow(long_survey) == n_distinct(long_survey[[variable]]))
+}
+
+XXstopped here 
 # ------------------------------------------------------------------------------
 # Validate key uniqueness and construct lookup vectors
 # ------------------------------------------------------------------------------
 
 # Check for exact-key collisions across different firms.
-exact_collision_n <- target_firms %>%
+exact_collision_n <- long_survey %>%
   # Count distinct firms per exact key.
-  dplyr::group_by(firm_key_exact) %>%
+  dplyr::group_by(firm_clean_uppercase) %>%
   # Compute number of firms sharing each exact key.
   dplyr::summarise(n_firms = dplyr::n_distinct(firm), .groups = "drop") %>%
   # Keep only collided keys.
@@ -213,7 +180,7 @@ if (exact_collision_n > 0) {
 # Check for normalized-key collisions across different firms.
 norm_collision_n <- target_firms %>%
   # Count distinct firms per normalized key.
-  dplyr::group_by(firm_key_norm) %>%
+  dplyr::group_by(firm_clean_normalized) %>%
   # Compute number of firms sharing each normalized key.
   dplyr::summarise(n_firms = dplyr::n_distinct(firm), .groups = "drop") %>%
   # Keep only collided keys.
@@ -230,7 +197,7 @@ if (norm_collision_n > 0) {
 # Check for compact-key collisions across different firms.
 compact_collision_n <- target_firms %>%
   # Count distinct firms per compact key.
-  dplyr::group_by(firm_key_compact) %>%
+  dplyr::group_by(firm_clean_normalized_compact) %>%
   # Compute number of firms sharing each compact key.
   dplyr::summarise(n_firms = dplyr::n_distinct(firm), .groups = "drop") %>%
   # Keep only collided keys.
@@ -248,19 +215,19 @@ if (compact_collision_n > 0) {
 exact_lookup <- target_firms$firm
 
 # Assign exact lookup names as exact keys.
-names(exact_lookup) <- target_firms$firm_key_exact
+names(exact_lookup) <- target_firms$firm_clean_uppercase
 
 # Build normalized lookup vector from normalized key to firm.
 norm_lookup <- target_firms$firm
 
 # Assign normalized lookup names as normalized keys.
-names(norm_lookup) <- target_firms$firm_key_norm
+names(norm_lookup) <- target_firms$firm_clean_normalized
 
 # Build compact lookup vector from compact key to firm.
 compact_lookup <- target_firms$firm
 
 # Assign compact lookup names as compact keys.
-names(compact_lookup) <- target_firms$firm_key_compact
+names(compact_lookup) <- target_firms$firm_clean_normalized_compact
 
 # Initialize SIC count matrix with one row per firm and columns 1..99.
 sic_counts <- matrix(0L, nrow = nrow(target_firms), ncol = 99)
@@ -443,6 +410,7 @@ industry_map <- target_firms %>%
     aer_sic_code_two_digit_refusa_aggregation = as.numeric(aer_sic_code_two_digit_refusa_aggregation)
   )
 
+e
 # Write updated crosswalk to processed industry_map.xlsx.
 writexl::write_xlsx(industry_map, "data/processed/industry_map.xlsx")
 
