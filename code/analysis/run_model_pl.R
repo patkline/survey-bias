@@ -93,15 +93,19 @@ run_model_pl <- function(data_wide, id_map, outcome, firms97 = NULL, npseudo = 0
       firm_tbl$eb[ok] <- eb_fit$theta_eb
     }
   }
+  # ... after computing S_full, V_full, Vr_full ...
+  
+  S_df <- as.data.frame(S_full)
+  S_df <- cbind(resp_id = data_wide$resp_id, S_df)
   
   list(
     fit = fit,
     firm_table = firm_tbl %>% dplyr::select(firm_id, firm, estimate, se, rse, eb),
     mats = list(
-      S     = S_full,
+      S     = S_df,     # <-- now has resp_id
       cov   = V_full,
       rcov  = Vr_full,
-      bread = V_full     # <-- ADD THIS
+      bread = V_full
     )
   )
 }

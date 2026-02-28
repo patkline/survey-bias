@@ -68,6 +68,6 @@ clean_experimental <- function(data, outcomes) {
     }
   }
   
-  print("Experimental Outcomes Completed.")
+  message("Experimental Outcomes Completed.")
   return(list(coefficients = coeff_df, standard_errors = se_df))
 }

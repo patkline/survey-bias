@@ -200,22 +200,23 @@ make_borda_bread_and_score <- function(
   resid  <- B_indiv[[b_var]] - mu_vec[j_idx]
   Psi_raw[cbind(i_idx, j_idx)] <- B_indiv[[w_var]] * resid
   
+  
+  
   # ---- Robust covariance in raw parameterization ----
   meat_raw <- crossprod(Psi_raw)
-  cov_raw  <- bread_raw %*% meat_raw %*% bread_raw
-  dimnames(cov_raw) <- list(firm_cols, firm_cols)
+  rcov_raw  <- bread_raw %*% meat_raw %*% bread_raw
+  dimnames(rcov_raw) <- list(firm_cols, firm_cols)
+  
+  cov_raw <- diag(firm_means$se^2)
   
   # ==========================================================
   # 5) RECENTER INSIDE: apply C = I - 11'/J to everything
   # ==========================================================
-  # recenter_objects expects (beta, Binv, cov, S_full)
-  # Here: beta = firm means, cov = robust covariance, S_full = Psi
-  Binv_placeholder <- diag(J)
   rec <- recenter_objects(
     beta   = mu_vec,               # length J, in firm_ids order
-    Binv   = Binv_placeholder,
-    cov    = cov_raw,
-    S_full = Psi_raw
+    Binv   = bread_raw,
+    S_full = Psi_raw,
+    cov = cov_raw
   )
   
   beta_c <- as.numeric(rec$beta)
@@ -228,33 +229,32 @@ make_borda_bread_and_score <- function(
   colnames(Psi_c) <- firm_cols
   rownames(Psi_c) <- resp_ids
   
-  # After recentering, robust SE should come from recentered cov
-  rse_vec <- sqrt(diag(cov_c))
+  B_c <- rec$Binv
+  dimnames(B_c) <- list(firm_cols, firm_cols)
   
-  # naive SE is NOT invariant to linear transforms; transform its covariance too:
-  # Var_c = C Var_raw C'  where Var_raw (naive) is diag(se^2)
-  se_raw_vec <- firm_means$se
-  V_naive_raw <- diag(se_raw_vec^2, nrow = J, ncol = J)
-  dimnames(V_naive_raw) <- list(firm_cols, firm_cols)
-  # apply same C as inside recenter_objects
-  C <- diag(J) - matrix(1 / J, J, J)
-  V_naive_c <- C %*% V_naive_raw %*% t(C)
-  se_c_vec <- sqrt(diag(V_naive_c))
+  # Robust 
+  rcov_c <- B_c %*% crossprod(Psi_c) %*% B_c
+  
+  # After recentering, robust SE should come from recentered cov
+  se_vec_c <- sqrt(diag(cov_c))
+  rse_vec_c <- sqrt(diag(rcov_c))
+  
   
   firm_scores_df <- data.frame(
     firm_id     = firm_ids,
     borda_score = beta_c,
-    se          = se_c_vec,
-    rse         = rse_vec,
+    se          = se_vec_c,
+    rse         = rse_vec_c,
     stringsAsFactors = FALSE
   )
-  
+
   list(
     firm_scores = firm_scores_df,  # centered
     W     = W,
-    bread = bread_raw,             # bread_raw is still useful; covariance returned is centered
+    bread = B_c,               # <-- NOW has row/col names
     score = Psi_c,                 # centered score
-    cov   = cov_c                  # centered robust covariance
+    cov   = cov_c,                  # centered robust covariance
+    rcov  = rcov_c
   )
 }
 

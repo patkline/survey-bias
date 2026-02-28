@@ -4,7 +4,9 @@ sanitize_sheet <- function(x) {
 }
 
 remove_sheet_safely <- function(wb, sheet) {
-  if (sheet %in% openxlsx::names(wb)) openxlsx::removeWorksheet(wb, sheet)
+  if (sheet %in% openxlsx::sheets(wb)) {
+    openxlsx::removeWorksheet(wb, sheet)
+  }
 }
 
 write_matrix_sheet <- function(wb, sheet, x) {

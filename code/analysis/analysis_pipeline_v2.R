@@ -1,138 +1,190 @@
+
+# ------------------------------------------------------------------------------
+# PIPELINE
+# ------------------------------------------------------------------------------
 run_analysis_pipeline_v2 <- function(
-    data, respondent_col, survey_vars,
+    data, respondent_col, survey_vars, experimental_vars = NULL,
     output_path, industry_map_path,
     run_ol = TRUE, run_pl = TRUE, run_borda = TRUE,
     firms97 = NULL,
     seed = 123
 ) {
-  set.seed(seed)
   
-  # map, workbook
+  
+################################################################################
+## Step 0: Preliminaries
+################################################################################
+  set.seed(seed)
+  prefix_map <- list(OL = "ol", PL = "pl", Borda = "b")
+  
+  # load workbook
+  wb <- if (file.exists(output_path)) openxlsx::loadWorkbook(output_path) else openxlsx::createWorkbook()
+  
+  # (still read industry_map here if other functions expect it in scope)
   industry_map <- openxlsx::read.xlsx(industry_map_path, sheet = 1) %>%
     dplyr::select(firm_id, aer_naics2) %>%
     dplyr::mutate(firm_id = as.integer(firm_id))
   
-  wb <- if (file.exists(output_path)) openxlsx::loadWorkbook(output_path) else openxlsx::createWorkbook()
-  
-  # prep once
+  # Prepare Outcomes for Analysis
   prep <- prep_outcomes(data, survey_vars)
   data_wide_list <- prep$wide
   data_long_list <- prep$long
   id_map_list    <- prep$id_map
   
-  # store in R
-  results <- list(OL = list(), PL = list(), Borda = list())
   
-  # stacked master tables (long)
-  coef_long <- list()
-  se_long   <- list()
-  rse_long  <- list()
-  eb_long   <- list()
+################################################################################
+## Step 1: Run Models
+################################################################################ 
+  results <- run_models(
+    wb = wb,
+    output_path = output_path,
+    survey_vars = survey_vars,
+    respondent_col = respondent_col,
+    data_wide_list = data_wide_list,
+    data_long_list = data_long_list,
+    id_map_list    = id_map_list,
+    experimental_vars = experimental_vars,
+    data_for_experimental = data,   # only if your subset97 writer needs it
+    run_ol = run_ol,
+    run_pl = run_pl,
+    run_borda = run_borda,
+    firms97 = firms97,
+    seed = seed,
+    build_subset97 = TRUE
+  )
   
-  add_flags <- function(df, is_borda, is_pl, is_ol) {
-    df %>%
-      dplyr::mutate(
-        Borda = is_borda,
-        PL    = is_pl,
-        OL    = is_ol
-      )
-  }
-  
-  for (outcome in survey_vars) {
-    cat("Outcome:", outcome, "\n")
-    
-    id_map <- id_map_list[[outcome]]
-    d_wide <- data_wide_list[[outcome]]
-    d_long <- data_long_list[[outcome]]
-    
-    # ---------- OL ----------
-    if (isTRUE(run_ol)) {
-      ol_res <- run_model_ol(d_long, outcome, respondent_col, id_map)
-      results$OL[[outcome]] <- ol_res
-      
-      ft <- ol_res$firm_table %>% dplyr::mutate(outcome = outcome)
-      coef_long[[length(coef_long)+1]] <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = estimate), FALSE, FALSE, TRUE)
-      se_long[[length(se_long)+1]]     <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = se),       FALSE, FALSE, TRUE)
-      rse_long[[length(rse_long)+1]]   <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = rse),      FALSE, FALSE, TRUE)
-      eb_long[[length(eb_long)+1]]     <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = eb),       FALSE, FALSE, TRUE)
-      
-      write_matrix_sheet(wb, paste0("S_ol_", outcome),    ol_res$mats$S)
-      write_matrix_sheet(wb, paste0("Binv_ol_", outcome), ol_res$mats$bread)
-      write_matrix_sheet(wb, paste0("cov_ol_", outcome),  ol_res$mats$cov)
-      write_matrix_sheet(wb, paste0("rcov_ol_", outcome), ol_res$mats$rcov)
-    }
-    
-    # ---------- PL ----------
-    if (isTRUE(run_pl)) {
-      pl_res <- run_model_pl(d_wide, id_map, outcome, firms97 = firms97)
-      results$PL[[outcome]] <- pl_res
-      
-      ft <- pl_res$firm_table %>% dplyr::mutate(outcome = outcome)
-      coef_long[[length(coef_long)+1]] <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = estimate), FALSE, TRUE, FALSE)
-      se_long[[length(se_long)+1]]     <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = se),       FALSE, TRUE, FALSE)
-      rse_long[[length(rse_long)+1]]   <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = rse),      FALSE, TRUE, FALSE)
-      eb_long[[length(eb_long)+1]]     <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = eb),       FALSE, TRUE, FALSE)
-      
-      write_matrix_sheet(wb, paste0("S_pl_", outcome),    pl_res$mats$S)
-      write_matrix_sheet(wb, paste0("Binv_pl_", outcome), pl_res$mats$bread)
-      write_matrix_sheet(wb, paste0("cov_pl_", outcome),  pl_res$mats$cov)
-      write_matrix_sheet(wb, paste0("rcov_pl_", outcome), pl_res$mats$rcov)
-    }
-    
-    # ---------- Borda ----------
-    if (isTRUE(run_borda)) {
-      borda_res <- run_model_borda(
-        data_wide        = d_wide,
-        id_map           = id_map,
-        outcome          = outcome,
-        higher_is_better = FALSE,
-        normalize        = TRUE,
-        ref_firm_ids     = c(38, 76, 90),
-        do_eb            = TRUE
-      )
-      results$Borda[[outcome]] <- borda_res
-      
-      ft <- borda_res$firm_table %>% dplyr::mutate(outcome = outcome)
-      coef_long[[length(coef_long)+1]] <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = estimate), TRUE, FALSE, FALSE)
-      se_long[[length(se_long)+1]]     <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = se),       TRUE, FALSE, FALSE)
-      rse_long[[length(rse_long)+1]]   <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = rse),      TRUE, FALSE, FALSE)
-      eb_long[[length(eb_long)+1]]     <- add_flags(ft %>% dplyr::transmute(firm_id, firm, outcome, value = eb),       TRUE, FALSE, FALSE)
-      
-      write_matrix_sheet(wb, paste0("S_b_", outcome),    borda_res$mats$S)
-      write_matrix_sheet(wb, paste0("Binv_b_", outcome), borda_res$mats$bread)
-      write_matrix_sheet(wb, paste0("cov_b_", outcome),  borda_res$mats$cov)
-      write_matrix_sheet(wb, paste0("rcov_b_", outcome), borda_res$mats$rcov)
-    }
-  }
-  
-  # Build stacked master sheets
-  coef_df <- dplyr::bind_rows(coef_long)
-  se_df   <- dplyr::bind_rows(se_long)
-  rse_df  <- dplyr::bind_rows(rse_long)
-  eb_df   <- dplyr::bind_rows(eb_long)
-  
-  # Write master sheets (vertical stacked)
-  remove_sheet_safely(wb, "Coefficients")
-  openxlsx::addWorksheet(wb, "Coefficients")
-  openxlsx::writeData(wb, "Coefficients", coef_df)
-  
-  remove_sheet_safely(wb, "Standard_Errors")
-  openxlsx::addWorksheet(wb, "Standard_Errors")
-  openxlsx::writeData(wb, "Standard_Errors", se_df)
-  
-  remove_sheet_safely(wb, "Robust SEs")
-  openxlsx::addWorksheet(wb, "Robust SEs")
-  openxlsx::writeData(wb, "Robust SEs", rse_df)
-  
-  remove_sheet_safely(wb, "EB Coefficients")
-  openxlsx::addWorksheet(wb, "EB Coefficients")
-  openxlsx::writeData(wb, "EB Coefficients", eb_df)
-  
+  # Save once at end
   openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  cat("✅ Done. Saved:", output_path, "\n")
+  message("✅ Step 1 Complete. Saved: ", output_path)
   
-  invisible(results)
+################################################################################
+## Step 2: Variance, Noise, Signal Variance
+################################################################################
+  ## See functions in "variance_functions.R"
+  message("Variance Denoising")
+  variance_df <- write_variance_sheet(results, wb, sheet_name = "variance")
+  
+  # Save once at end
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 2 Complete. Saved: ", output_path)
+  
+################################################################################
+## Step 3: Covariance, Noise, Signal Covariance
+################################################################################  
+  # Step 3: Covariance + noise12
+  message("Covariance Denoising")
+  covariance_df <- write_covariance_sheet(results, wb, sheet_name = "covariance")
+  
+  # Save once at end
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 3 Complete. Saved: ", output_path)
+
+################################################################################
+## Step 4: Correlation
+################################################################################
+  message("Correlation Calculations")
+  corr_df <- build_correlation_from_varcov(variance_df, covariance_df)
+
+  remove_sheet_safely(wb, "correlation")
+  openxlsx::addWorksheet(wb, "correlation")
+  openxlsx::writeData(wb, "correlation", corr_df)
+  
+  # Save once at end
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 4 Complete. Saved: ", output_path)
+  
+################################################################################
+## Step 5: EIV
+################################################################################
+  message("Building Noise Matrices for EIV")
+  
+  # which models were run?
+  models_to_build <- character(0)
+  if (isTRUE(run_pl))    models_to_build <- c(models_to_build, "PL")
+  if (isTRUE(run_borda)) models_to_build <- c(models_to_build, "Borda")
+  if (isTRUE(run_ol))    models_to_build <- c(models_to_build, "OL")
+  
+  # build one noise matrix per model (subset97)
+  noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
+  
+  for (m in models_to_build) {
+    noise_mats_97[[m]] <- build_noise_matrix(
+      variance_df   = variance_df,
+      covariance_df = covariance_df,
+      outcomes      = survey_vars,
+      subset_value  = "subset97",
+      model_value   = m
+    )
+  }
+  
+  # Optional convenience objects if you still want them:
+  N97_PL    <- if ("PL"    %in% names(noise_mats_97)) noise_mats_97[["PL"]]    else NULL
+  N97_Borda <- if ("Borda" %in% names(noise_mats_97)) noise_mats_97[["Borda"]] else NULL
+  N97_OL    <- if ("OL"    %in% names(noise_mats_97)) noise_mats_97[["OL"]]    else NULL
+  
+  # List of Specifications
+  regs_uni <- list(
+    list(lhs = "cb_central_full",   rhs = c("discretion")),
+    list(lhs = "log_dif",           rhs = c("FirmCont_favor_white")),
+    list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
+    list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
+    list(lhs = "log_dif",           rhs = c("FirmSelective")),
+    list(lhs = "log_dif",           rhs = c("discretion")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmSelective")),
+    list(lhs = "log_dif_gender",    rhs = c("discretion")),
+    list(lhs = "log_dif_gender_sq", rhs = c("FirmCont_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("conduct_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("pooled_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("FirmSelective")),
+    list(lhs = "log_dif_gender_sq", rhs = c("discretion")),
+    list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger")),
+    list(lhs = "log_dif_age",       rhs = c("FirmSelective")),
+    list(lhs = "log_dif_age",       rhs = c("discretion"))
+  )
+  
+  regs_bi <- list(
+    list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
+    list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),
+    list(lhs = "log_dif_age",    rhs = c("FirmSelective", "discretion"))
+  )
+  
+  regs_all <- c(regs_uni, regs_bi)
+  
+  message("Running EIV")
+
+  # weights (optional)
+  weights <- data %>%
+    dplyr::select(firm_id, njobs) %>%
+    dplyr::distinct() %>%
+    dplyr::rename(weights = njobs)
+  
+  coef97_df <- openxlsx::read.xlsx(output_path, sheet = "Coefficients (97)")
+  
+  models_to_run_eiv <- intersect(c("PL", "Borda", "OL"), names(noise_mats_97))
+  
+  eiv_df <- write_eiv_sheet(
+    wb            = wb,
+    sheet_name    = "EIV",
+    regs          = regs_all,
+    coef97_df     = coef97_df,
+    industry_map  = industry_map,
+    noise_mats_97 = noise_mats_97,
+    models        = models_to_run_eiv,
+    weights_df    = weights,      # set to NULL for equal weights
+    weights_col   = "weights"
+  )
+  
+  # Save once at end
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 5 Complete. Saved: ", output_path)
+
 }
+
+
+
 
 # Run globals
 source("code/globals.R")
@@ -161,7 +213,15 @@ file_path <- file.path(processed, "long_survey_final.csv")
 data <- read.csv(file_path, stringsAsFactors = FALSE)
 
 # Define outcomes and relevant columns
-survey_vars <- c("FirmCont_favor_white")
+survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white", 
+                 "FirmHire_favor_white", "FirmHire_black", "FirmHire_white",
+                 "conduct_favor_white", "conduct_black", "conduct_white",
+                 "FirmCont_favor_male", "FirmCont_male", "FirmCont_female", 
+                 "FirmHire_favor_male", "FirmHire_male", "FirmHire_female", 
+                 "conduct_favor_male", "conduct_male", "conduct_female",
+                 "conduct_favor_younger", "conduct_younger", "conduct_older", 
+                 "discretion", "FirmSelective", "FirmDesire",
+                 "pooled_favor_white","pooled_favor_male")
 
 experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "cb_central_full")
 respondent_col <- "ResponseId"
@@ -175,9 +235,9 @@ subset_value <- NULL
 output_path <- file.path(excel,"Plackett_Luce_Full_Sample_test.xlsx")
 
 run_analysis_pipeline_v2(
-    data, respondent_col, survey_vars,
+    data, respondent_col, survey_vars, experimental_vars,
     output_path, industry_map_path,
     run_ol = TRUE, run_pl = TRUE, run_borda = TRUE,
-    firms97 = NULL,
+    firms97 = firms97,
     seed = 123
 ) 

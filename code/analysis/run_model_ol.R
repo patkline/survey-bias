@@ -156,9 +156,10 @@ run_model_ol <- function(dat_long, outcome, respondent_col, id_map = NULL) {
     firm_table = firm_tbl %>% dplyr::select(firm_id, firm, estimate, se, rse, eb),
     mats = list(
       S     = S_df,
-      cov   = cov_alpha,
-      rcov  = rcov_alpha,
-      bread = cov_alpha   # <-- ADD THIS
+      cov   = cov_c,
+      rcov  = rcov_c,
+      bread = cov_c
     )
+    
   )
 }
