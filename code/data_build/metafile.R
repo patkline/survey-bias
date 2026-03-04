@@ -15,8 +15,18 @@ source("code/globals.R")
 system2(python_venv_installation,
         args = file.path(build, "clean_raw_qualtrics_data.py"))
 
-# Run script to output firm-industry sic code mapping from RefUSA 
-source(file.path(build, "create_firm_industry_crosswalk.R"))
+# Run script to output firm-industry sic code mapping from aer paper replication package  
+system2(python_venv_installation,
+        args = file.path(build, "create_firm_industry_crosswalk_aer_replication_package.py"))
 
+# Run script to output firm-industry sic code mapping from RefUSA and aer paper replication package 
+system2(python_venv_installation,
+        args = file.path(build, "create_firm_industry_crosswalk_refusa.py"))
+
+# Run script that harmonizes industry codes across data sources and creates final crosswalk of firms to industries for use in analysis
+system2(python_venv_installation,
+        args = file.path(build, "create_firm_industry_crosswalk_industry_map.py"))
+
+# Create final 
 # Run sample preparation script
 source(file.path(build, "sample_prep.R"))
