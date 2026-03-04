@@ -125,6 +125,61 @@ build_two_panel_eiv_table <- function(cfg_pl, cfg_borda, out_tex) {
   message("✓ LaTeX two-panel table saved to: ", out_tex)
 }
 
+# ---------- BUILD A FOUR-PANEL (PL + BORDA + OL + OLS) LATEX TABULAR ----------
+
+build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ol, cfg_ols, out_tex) {
+
+  # Build one data frame per model panel
+
+  df_pl    <- build_eiv_df(cfg_pl)    # Plackett-Luce panel
+  df_borda <- build_eiv_df(cfg_borda) # Borda panel
+  df_ol    <- build_eiv_df(cfg_ol)    # Ordered Logit panel
+  df_ols   <- build_eiv_df(cfg_ols)   # OLS panel
+
+  # Force same column order/labels across all panels (use PL as reference)
+  common_cols <- colnames(df_pl)
+  df_pl    <- df_pl[, common_cols]
+  df_borda <- df_borda[, common_cols]
+  df_ol    <- df_ol[, common_cols]
+  df_ols   <- df_ols[, common_cols]
+
+  # Stack all four panels into one data frame
+
+  combined_df <- bind_rows(df_pl, df_borda, df_ol, df_ols)
+
+  # Row counts for each panel (used by pack_rows)
+  n_pl    <- nrow(df_pl)
+  n_borda <- nrow(df_borda)
+  n_ol    <- nrow(df_ol)
+  n_ols   <- nrow(df_ols)
+
+  # Running row index for panel boundaries
+  end_pl    <- n_pl                        # last row of PL panel
+  end_borda <- end_pl + n_borda            # last row of Borda panel
+  end_ol    <- end_borda + n_ol            # last row of OL panel
+  end_ols   <- end_ol + n_ols              # last row of OLS panel
+
+  # Build LaTeX tabular with four grouped panels
+  tex_code <- kable(
+    combined_df,
+    format    = "latex",
+    booktabs  = TRUE,
+    align     = c("l", rep("c", ncol(combined_df) - 1)),
+    col.names = common_cols,
+    linesep   = "",
+    escape    = FALSE
+  ) %>%
+    pack_rows("Panel A: Plackett--Luce",  1,              end_pl) %>%
+    pack_rows("Panel B: Borda",           end_pl + 1,     end_borda) %>%
+    pack_rows("Panel C: Ordered Logit",   end_borda + 1,  end_ol) %>%
+    pack_rows("Panel D: OLS",             end_ol + 1,     end_ols)
+
+  # Write the LaTeX code to file
+  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
+  writeLines(tex_code, out_tex)
+  message("✓ LaTeX four-panel table saved to: ", out_tex)
+}
+
 # ---------- CONFIGS FOR ALL SIX RUNS ----------
 
 root_dir <- excel
@@ -351,4 +406,250 @@ build_two_panel_eiv_table(
   cfg_pl    = runs_wt[[3]],
   cfg_borda = runs_wt[[6]],
   out_tex   = file.path(tables, "EIV_age_two_panel_wt.tex")
+)
+
+# ---------- OL CONFIGS (UNWEIGHTED) ----------
+
+runs_ol <- list(
+  # 1. RACE – OL
+  list(
+    root        = root_dir,       # same Excel directory as PL/Borda
+    sheet_name  = "EIV_OL",       # OL EIV summary sheet
+    lhs         = "log_dif",      # experimental LHS: log callback ratio (race)
+    rhs_contact = "FirmCont_favor_white",   # survey RHS: contact bias
+    rhs_conduct = "conduct_favor_white",    # survey RHS: conduct bias
+    rhs_extra   = "pooled_favor_white",     # survey RHS: pooled bias
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,                   # unweighted, no industry FE
+    coef2 = 2L                    # unweighted, with industry FE
+  ),
+  # 2. GENDER – OL
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OL",
+    lhs         = "log_dif_gender",
+    rhs_contact = "FirmCont_favor_male",
+    rhs_conduct = "conduct_favor_male",
+    rhs_extra   = "pooled_favor_male",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
+  ),
+  # 3. AGE – OL
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OL",
+    lhs         = "log_dif_age",
+    rhs_contact = "FirmCont_favor_younger",
+    rhs_conduct = "conduct_favor_younger",
+    rhs_extra   = "pooled_favor_younger",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
+  )
+)
+
+# ---------- OLS CONFIGS (UNWEIGHTED) ----------
+
+runs_ols <- list(
+  # 1. RACE – OLS
+  list(
+    root        = root_dir,       # same Excel directory as PL/Borda
+    sheet_name  = "EIV_OLS",      # OLS EIV summary sheet
+    lhs         = "log_dif",      # experimental LHS: log callback ratio (race)
+    rhs_contact = "FirmCont_favor_white",
+    rhs_conduct = "conduct_favor_white",
+    rhs_extra   = "pooled_favor_white",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
+  ),
+  # 2. GENDER – OLS
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OLS",
+    lhs         = "log_dif_gender",
+    rhs_contact = "FirmCont_favor_male",
+    rhs_conduct = "conduct_favor_male",
+    rhs_extra   = "pooled_favor_male",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
+  ),
+  # 3. AGE – OLS
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OLS",
+    lhs         = "log_dif_age",
+    rhs_contact = "FirmCont_favor_younger",
+    rhs_conduct = "conduct_favor_younger",
+    rhs_extra   = "pooled_favor_younger",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 1L,
+    coef2 = 2L
+  )
+)
+
+# ---------- OL CONFIGS (WEIGHTED) ----------
+
+runs_ol_wt <- list(
+  # 1. RACE – OL weighted
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OL",
+    lhs         = "log_dif",
+    rhs_contact = "FirmCont_favor_white",
+    rhs_conduct = "conduct_favor_white",
+    rhs_extra   = "pooled_favor_white",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,                   # weighted, no industry FE
+    coef2 = 4L                    # weighted, with industry FE
+  ),
+  # 2. GENDER – OL weighted
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OL",
+    lhs         = "log_dif_gender",
+    rhs_contact = "FirmCont_favor_male",
+    rhs_conduct = "conduct_favor_male",
+    rhs_extra   = "pooled_favor_male",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 3. AGE – OL weighted
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OL",
+    lhs         = "log_dif_age",
+    rhs_contact = "FirmCont_favor_younger",
+    rhs_conduct = "conduct_favor_younger",
+    rhs_extra   = "pooled_favor_younger",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  )
+)
+
+# ---------- OLS CONFIGS (WEIGHTED) ----------
+
+runs_ols_wt <- list(
+  # 1. RACE – OLS weighted
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OLS",
+    lhs         = "log_dif",
+    rhs_contact = "FirmCont_favor_white",
+    rhs_conduct = "conduct_favor_white",
+    rhs_extra   = "pooled_favor_white",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 2. GENDER – OLS weighted
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OLS",
+    lhs         = "log_dif_gender",
+    rhs_contact = "FirmCont_favor_male",
+    rhs_conduct = "conduct_favor_male",
+    rhs_extra   = "pooled_favor_male",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  ),
+  # 3. AGE – OLS weighted
+  list(
+    root        = root_dir,
+    sheet_name  = "EIV_OLS",
+    lhs         = "log_dif_age",
+    rhs_contact = "FirmCont_favor_younger",
+    rhs_conduct = "conduct_favor_younger",
+    rhs_extra   = "pooled_favor_younger",
+    scale_by_100 = FALSE,
+    col5_label  = "(5) Pooled",
+    col6_label  = "(6) Pooled (Industry FE)",
+    coef1 = 3L,
+    coef2 = 4L
+  )
+)
+
+# ---------- BUILD THE THREE FOUR-PANEL TABLES (UNWEIGHTED) ----------
+
+# Race: PL + Borda + OL + OLS
+build_four_panel_eiv_table(
+  cfg_pl    = runs[[1]],          # PL race config
+  cfg_borda = runs[[4]],          # Borda race config
+  cfg_ol    = runs_ol[[1]],       # OL race config
+  cfg_ols   = runs_ols[[1]],      # OLS race config
+  out_tex   = file.path(tables, "EIV_race_four_panel.tex")
+)
+
+# Gender: PL + Borda + OL + OLS
+build_four_panel_eiv_table(
+  cfg_pl    = runs[[2]],
+  cfg_borda = runs[[5]],
+  cfg_ol    = runs_ol[[2]],
+  cfg_ols   = runs_ols[[2]],
+  out_tex   = file.path(tables, "EIV_gender_four_panel.tex")
+)
+
+# Age: PL + Borda + OL + OLS
+build_four_panel_eiv_table(
+  cfg_pl    = runs[[3]],
+  cfg_borda = runs[[6]],
+  cfg_ol    = runs_ol[[3]],
+  cfg_ols   = runs_ols[[3]],
+  out_tex   = file.path(tables, "EIV_age_four_panel.tex")
+)
+
+# ---------- BUILD THE THREE FOUR-PANEL TABLES (WEIGHTED) ----------
+
+# Race: PL + Borda + OL + OLS (weighted)
+build_four_panel_eiv_table(
+  cfg_pl    = runs_wt[[1]],
+  cfg_borda = runs_wt[[4]],
+  cfg_ol    = runs_ol_wt[[1]],
+  cfg_ols   = runs_ols_wt[[1]],
+  out_tex   = file.path(tables, "EIV_race_four_panel_wt.tex")
+)
+
+# Gender (weighted)
+build_four_panel_eiv_table(
+  cfg_pl    = runs_wt[[2]],
+  cfg_borda = runs_wt[[5]],
+  cfg_ol    = runs_ol_wt[[2]],
+  cfg_ols   = runs_ols_wt[[2]],
+  out_tex   = file.path(tables, "EIV_gender_four_panel_wt.tex")
+)
+
+# Age (weighted)
+build_four_panel_eiv_table(
+  cfg_pl    = runs_wt[[3]],
+  cfg_borda = runs_wt[[6]],
+  cfg_ol    = runs_ol_wt[[3]],
+  cfg_ols   = runs_ols_wt[[3]],
+  out_tex   = file.path(tables, "EIV_age_four_panel_wt.tex")
 )

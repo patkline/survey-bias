@@ -19,6 +19,9 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
                                   borda_eiv_summary = FALSE,
                                   borda_eiv_bivariate = FALSE,
                                   run_pairwise_process_borda = FALSE,
+                                  run_ols = FALSE,
+                                  run_ol_eiv = FALSE,
+                                  run_ols_eiv = FALSE,
                                   generate_wide = TRUE,
                                   seed = 123,
                                   B = 200) {
@@ -355,10 +358,243 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     
     cat("✅ Ordered logit (clm, sum-to-zero) saved with firm effects summing to 0.\n")
   }
-  
-  
-  
-  
+
+
+  ################################################################################
+  # Section I-B: OLS Firm Fixed Effects Model
+  #
+  # Estimates firm fixed effects via OLS on within-question globally standardized
+
+  # Likert scores (mean 0, std 1). Uses contr.sum so that firm effects sum to 0.
+  # Constructs heteroskedastic-robust (HC3) covariance matrices.
+  # Writes: OLS_Coefficients, OLS_Standard_Errors, OLS_Robust_SEs,
+  #         cov_ols_<outcome>, rcov_ols_<outcome>
+  ################################################################################
+
+  if (run_ols) {
+    # Initialize empty data frames to accumulate results across outcomes
+    ols_coeff_df      <- data.frame()
+    ols_se_df         <- data.frame()
+    ols_rse_df        <- data.frame()
+    ols_fitstats_rows <- list()
+
+    # Sheet name sanitizer: remove illegal Excel characters, truncate to 31 chars
+    sanitize_sheet <- function(x) {
+      x <- gsub("[\\\\/*?:\\[\\]]", "_", x)
+      substr(x, 1, 31)
+    }
+
+    # Helper: find respondent id column in the long data
+    get_resp_col <- function(df) {
+      if ("resp_id" %in% names(df)) return("resp_id")
+      if (respondent_col %in% names(df)) return(respondent_col)
+      stop("No respondent id column found in long data.")
+    }
+
+    # Helper: ensure firm_id exists in the data frame, join from id_map if needed
+    ensure_firm_id <- function(df, id_map) {
+      if ("firm_id" %in% names(df)) return(df)
+      if (!is.null(id_map) &&
+          all(c("firm","firm_id") %in% names(id_map)) &&
+          ("firm" %in% names(df))) {
+        return(dplyr::left_join(df, dplyr::distinct(id_map, firm, firm_id), by = "firm"))
+      }
+      stop("firm_id not found in long data and could not be constructed from id_map.")
+    }
+
+    # Helper: find the rating column for a given outcome
+    get_rating_col <- function(df, outcome) {
+      if (outcome %in% names(df)) return(outcome)
+      if ("rating" %in% names(df)) return("rating")
+      stop("No rating column found for outcome ", outcome, " (expected '", outcome, "' or 'rating').")
+    }
+
+    # Build transformation matrix: maps (J-1) sum-contrast params -> J firm effects summing to 0
+    build_A_sum0 <- function(J) {
+      A <- matrix(0, nrow = J, ncol = J - 1)           # J rows, J-1 columns
+      A[1:(J - 1), 1:(J - 1)] <- diag(J - 1)           # top block is identity
+      A[J, ] <- -1                                       # last row is all -1
+      A
+    }
+
+    # Loop over each survey variable (one OLS model per outcome)
+    for (outcome in survey_vars) {
+      cat("OLS (lm, sum-to-zero, HC3) for outcome:", outcome, "\n")
+
+      # Get the long-format data for this outcome
+      dat_long <- data_long_list[[outcome]]
+      # Skip if no data available
+      if (is.null(dat_long) || nrow(dat_long) == 0L) {
+        warning("Skipping OLS for ", outcome, " (no long data).")
+        next
+      }
+
+      # Identify the respondent and rating columns
+      resp_col   <- get_resp_col(dat_long)
+      rating_col <- get_rating_col(dat_long, outcome)
+
+      # Get the firm id mapping for this outcome
+      id_map <- id_map_list[[outcome]]
+      # Ensure firm_id column exists in the data
+      dat_long <- ensure_firm_id(dat_long, id_map)
+
+      # Select only the columns we need and drop rows with missing values
+      dat_m <- dat_long %>%
+        dplyr::select(dplyr::all_of(c(resp_col, "firm_id", rating_col))) %>%
+        dplyr::filter(!is.na(.data[[resp_col]]),
+                      !is.na(.data[["firm_id"]]),
+                      !is.na(.data[[rating_col]]))
+
+      # Convert respondent id and firm id to factors
+      dat_m[[resp_col]] <- factor(dat_m[[resp_col]])
+      dat_m$firm_id     <- factor(dat_m$firm_id)
+
+      # Globally standardize the Likert score: subtract mean, divide by sd
+      # This makes the DV have mean 0 and standard deviation 1
+      raw_ratings <- dat_m[[rating_col]]
+      global_mean <- mean(raw_ratings, na.rm = TRUE)     # overall mean for this question
+      global_sd   <- sd(raw_ratings, na.rm = TRUE)       # overall sd for this question
+      dat_m$std_rating <- (raw_ratings - global_mean) / global_sd  # standardized score
+
+      # Set sum-to-zero contrasts on firm_id so coefficients sum to 0
+      contrasts(dat_m$firm_id) <- contr.sum(nlevels(dat_m$firm_id))
+
+      # Fit OLS regression: standardized rating on firm fixed effects
+      fml <- stats::as.formula("std_rating ~ firm_id")
+      fit <- try(
+        stats::lm(formula = fml, data = dat_m),
+        silent = TRUE
+      )
+
+      # Skip this outcome if the model failed to converge
+      if (inherits(fit, "try-error")) {
+        warning("lm failed for ", outcome, ": ",
+                conditionMessage(attr(fit, "condition")))
+        next
+      }
+
+      # Extract model-based (OLS) covariance of firm coefficients
+      V_all  <- tryCatch(stats::vcov(fit), error = function(e) NULL)
+      # Compute HC3 heteroskedasticity-robust covariance matrix
+      Vr_all <- tryCatch(sandwich::vcovHC(fit, type = "HC3"), error = function(e) NULL)
+
+      # Identify the firm parameter names (J-1 under contr.sum)
+      # Under contr.sum, lm names them firm_id1, firm_id2, ..., firm_id(J-1)
+      firm_theta_names <- grep("^firm_id", names(stats::coef(fit)), value = TRUE)
+
+      # Count number of firm levels
+      J <- nlevels(dat_m$firm_id)
+      if (J < 2) {
+        warning("Not enough firm levels for ", outcome)
+        next
+      }
+
+      # Subset covariance matrices to only the firm parameters (exclude intercept)
+      V_th  <- if (!is.null(V_all)  && length(firm_theta_names)) V_all [firm_theta_names, firm_theta_names, drop = FALSE] else NULL
+      Vr_th <- if (!is.null(Vr_all) && length(firm_theta_names)) Vr_all[firm_theta_names, firm_theta_names, drop = FALSE] else NULL
+
+      # Build the (J x J-1) transformation matrix to go from J-1 params to J firm effects
+      A <- build_A_sum0(J)
+
+      # Extract the J-1 estimated firm coefficients
+      theta_hat <- stats::coef(fit)[firm_theta_names]
+      theta_hat <- as.numeric(theta_hat)
+
+      # Transform to J firm effects that sum to 0: alpha = A * theta
+      alpha_hat <- as.numeric(A %*% theta_hat)
+
+      # Transform covariance matrices: Var(alpha) = A * Var(theta) * A'
+      V_alpha  <- if (!is.null(V_th))  A %*% V_th  %*% t(A) else NULL
+      Vr_alpha <- if (!is.null(Vr_th)) A %*% Vr_th %*% t(A) else NULL
+
+      # Create firm-level column names (e.g., "firm1", "firm2", ...)
+      firm_levels <- levels(dat_m$firm_id)
+      firm_ids_chr <- as.character(firm_levels)
+      firm_colnames <- paste0("firm", firm_ids_chr)
+
+      # Label rows and columns of covariance matrices with firm names
+      if (!is.null(V_alpha))  { colnames(V_alpha)  <- firm_colnames; rownames(V_alpha)  <- firm_colnames }
+      if (!is.null(Vr_alpha)) { colnames(Vr_alpha) <- firm_colnames; rownames(Vr_alpha) <- firm_colnames }
+
+      # Compute standard errors from diagonal of covariance matrices
+      firm_se  <- rep(NA_real_, J)                        # model-based SEs
+      firm_rse <- rep(NA_real_, J)                        # robust SEs
+      if (!is.null(V_alpha))  firm_se  <- sqrt(diag(V_alpha))
+      if (!is.null(Vr_alpha)) firm_rse <- sqrt(diag(Vr_alpha))
+
+      # Build a firm lookup table for merging (matches OL block pattern)
+      firm_tbl <- data.frame(firm_id = as.integer(firm_ids_chr), stringsAsFactors = FALSE)
+      if (!is.null(id_map) && all(c("firm_id","firm") %in% names(id_map))) {
+        firm_tbl <- firm_tbl %>%
+          dplyr::left_join(dplyr::distinct(id_map, firm_id, firm), by = "firm_id") %>%
+          dplyr::arrange(match(as.character(firm_id), firm_ids_chr))
+      } else {
+        firm_tbl$firm <- NA_character_
+      }
+
+      # Combine firm info with coefficients and SEs into one data frame
+      out_coef <- firm_tbl %>%
+        dplyr::mutate(
+          !!outcome := alpha_hat,
+          se  = firm_se,
+          rse = firm_rse
+        )
+
+      # Create separate data frames for coefficients, model SEs, and robust SEs
+      out_coef_only <- out_coef %>% dplyr::select(firm_id, firm, !!rlang::sym(outcome))
+      out_se_only   <- out_coef %>% dplyr::select(firm_id, firm, !!rlang::sym(outcome) := se)
+      out_rse_only  <- out_coef %>% dplyr::select(firm_id, firm, !!rlang::sym(outcome) := rse)
+
+      # Accumulate results across outcomes (first outcome initializes, rest join)
+      if (nrow(ols_coeff_df) == 0) {
+        ols_coeff_df <- out_coef_only
+        ols_se_df    <- out_se_only
+        ols_rse_df   <- out_rse_only
+      } else {
+        ols_coeff_df <- dplyr::left_join(ols_coeff_df, out_coef_only, by = c("firm_id","firm"))
+        ols_se_df    <- dplyr::left_join(ols_se_df,    out_se_only,   by = c("firm_id","firm"))
+        ols_rse_df   <- dplyr::left_join(ols_rse_df,   out_rse_only,  by = c("firm_id","firm"))
+      }
+
+      # Write per-outcome covariance matrices to Excel
+      sheet_cov   <- sanitize_sheet(paste0("cov_ols_", outcome))    # model-based covariance
+      sheet_rcov  <- sanitize_sheet(paste0("rcov_ols_", outcome))   # robust covariance
+
+      # Write model-based covariance matrix
+      remove_sheet_safely(wb, sheet_cov);   addWorksheet(wb, sheet_cov);   writeData(wb, sheet_cov,  V_alpha)
+      # Write robust covariance matrix
+      remove_sheet_safely(wb, sheet_rcov);  addWorksheet(wb, sheet_rcov);  writeData(wb, sheet_rcov, Vr_alpha)
+
+      # Record fit statistics for this outcome
+      ols_fitstats_rows[[length(ols_fitstats_rows) + 1L]] <- data.frame(
+        Outcome   = outcome,
+        R_squared = summary(fit)$r.squared,           # R-squared from OLS
+        nobs      = stats::nobs(fit),                   # number of observations
+        J         = J,                                  # number of firms
+        global_mean = global_mean,                      # mean used for standardization
+        global_sd   = global_sd,                        # sd used for standardization
+        stringsAsFactors = FALSE
+      )
+    }
+
+    # Write combined summary sheets across all outcomes
+    remove_sheet_safely(wb, "OLS_Coefficients");      addWorksheet(wb, "OLS_Coefficients");      writeData(wb, "OLS_Coefficients", ols_coeff_df)
+    remove_sheet_safely(wb, "OLS_Standard_Errors");   addWorksheet(wb, "OLS_Standard_Errors");   writeData(wb, "OLS_Standard_Errors", ols_se_df)
+    remove_sheet_safely(wb, "OLS_Robust_SEs");        addWorksheet(wb, "OLS_Robust_SEs");        writeData(wb, "OLS_Robust_SEs", ols_rse_df)
+
+    # Write fit statistics if any outcomes were processed
+    if (length(ols_fitstats_rows)) {
+      remove_sheet_safely(wb, "OLS_FitStats")
+      addWorksheet(wb, "OLS_FitStats")
+      writeData(wb, "OLS_FitStats", dplyr::bind_rows(ols_fitstats_rows))
+    }
+
+    # Save the workbook to disk
+    saveWorkbook(wb, output_path, overwrite = TRUE)
+    cat("✅ OLS firm FE (lm, sum-to-zero, HC3) saved with firm effects summing to 0.\n")
+  }
+
+
   if (process_outcomes) {
     set.seed(seed)
     
@@ -1116,9 +1352,429 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     writeData(wb, "EIV_BS", eiv_all)
     
     saveWorkbook(wb, output_path, overwrite = TRUE)
-    message("✅  Combined EIV / BS Summary saved in sheet “EIV_BS")
+    message("Combined EIV / BS Summary saved in sheet EIV_BS")
   }
-  
+
+  ################################################################################
+  # Section IC-OL: EIV for the Ordered Logit model
+  #
+  # Reads OL item worths and robust SEs from Excel (not R environment).
+  # Computes signal on-the-fly from the robust covariance matrix (rcov_ol_*).
+  # Uses normal perturbation bootstrap for both LHS and RHS.
+  # Runs 4 eivreg specs per pair: unweighted/weighted x no-FE/FE.
+  # Writes per-pair sheets (EIVol_*) and combined summary sheet (EIV_OL).
+  ################################################################################
+
+  if (run_ol_eiv) {
+    set.seed(seed)
+
+    # Define the same 19 LHS-RHS pairs as the PL EIV block
+    pairs_ol <- list(
+      c("cb_central_full",              "discretion", "EIVol_central_discretion"),
+      c("log_dif",        "FirmCont_favor_white", "EIVol_logdif_cont_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVol_logdif_cond_white"),
+      c("log_dif",        "pooled_favor_white",   "EIVol_logdif_pool_white"),
+      c("log_dif",        "FirmSelective", "EIVol_logdifbw_select"),
+      c("log_dif",        "discretion", "EIVol_logdifbw_discret"),
+      c("log_dif_gender", "FirmCont_favor_male",  "EIVol_logdif_cont_male"),
+      c("log_dif_gender", "conduct_favor_male",   "EIVol_logdif_cond_male"),
+      c("log_dif_gender", "pooled_favor_male",    "EIVol_logdif_pool_male"),
+      c("log_dif_gender",        "FirmSelective", "EIVol_logdifmf_select"),
+      c("log_dif_gender",        "discretion", "EIVol_logdifmf_discret"),
+      c("log_dif_gender_sq", "FirmCont_favor_male",  "EIVol_logdif2_cont_male"),
+      c("log_dif_gender_sq", "conduct_favor_male",   "EIVol_logdif2_cond_male"),
+      c("log_dif_gender_sq", "pooled_favor_male",    "EIVol_logdif2_pool_male"),
+      c("log_dif_gender_sq",        "FirmSelective", "EIVol_logdifmf2_select"),
+      c("log_dif_gender_sq",        "discretion", "EIVol_logdifmf2_discret"),
+      c("log_dif_age",    "conduct_favor_younger","EIVol_logdif_cond_young"),
+      c("log_dif_age",        "FirmSelective", "EIVol_logdifyo_select"),
+      c("log_dif_age",        "discretion", "EIVol_logdifyo_discret")
+    )
+
+    # List to accumulate per-pair summary rows
+    eiv_ol_rows <- list()
+
+    for (pair in pairs_ol) {
+      lhs_var  <- pair[1]  # experimental outcome (e.g., "log_dif")
+      rhs_var  <- pair[2]  # survey variable (e.g., "pooled_favor_white")
+      sheet_nm <- pair[3]  # output sheet name (e.g., "EIVol_logdif_pool_white")
+
+      print(paste0("Running OL EIV: ", lhs_var, " ~ ", rhs_var))
+
+      # Wrap in tryCatch so missing LHS/RHS columns are skipped gracefully
+      tryCatch({
+
+      # --- Read LHS: experimental coefficients and SEs from PL sheets ---
+      # (same LHS as PL EIV — read from "Coefficients" and "Standard_Errors")
+      lhs_df <- read.xlsx(output_path, sheet = "Coefficients") %>%
+        dplyr::select(firm, firm_id, !!rlang::sym(lhs_var))
+      lhs_vec <- lhs_df %>% dplyr::pull(!!rlang::sym(lhs_var))  # point estimates
+
+      lhs_se_col <- paste0(lhs_var, "_se")  # SE column name in Standard_Errors sheet
+      lhs_ses <- read.xlsx(output_path, sheet = "Standard_Errors") %>%
+        dplyr::select(firm, firm_id, !!rlang::sym(lhs_se_col)) %>%
+        dplyr::pull(!!rlang::sym(lhs_se_col))  # standard errors for LHS
+
+      # --- Read RHS: OL item worths and robust SEs ---
+      rhs_df <- read.xlsx(output_path, sheet = "OL_Coefficients") %>%
+        dplyr::select(firm_id, !!rlang::sym(rhs_var))
+      rhs_vec <- rhs_df %>% dplyr::pull(!!rlang::sym(rhs_var))  # OL point estimates
+
+      rhs_rse_df <- read.xlsx(output_path, sheet = "OL_Robust_SEs") %>%
+        dplyr::select(firm_id, !!rlang::sym(rhs_var))
+      rhs_rses <- rhs_rse_df %>% dplyr::pull(!!rlang::sym(rhs_var))  # OL robust SEs
+
+      # --- Compute signal for the RHS variable from rcov_ol_<rhs_var> ---
+      rcov_sheet <- paste0("rcov_ol_", rhs_var)  # robust covariance matrix sheet
+      rcov_mat <- tryCatch({
+        tmp <- read.xlsx(output_path, sheet = rcov_sheet)
+        as.matrix(tmp)  # convert to numeric matrix
+      }, error = function(e) NULL)
+
+      # Compute variance component and Katz correction for signal
+      sigma2_dot <- 0  # default: no signal (conservative)
+      if (!is.null(rcov_mat)) {
+        vc <- var_component_with_var(rhs_vec, rcov_mat)  # sigma2_hat + Vhat
+        sigma2_dot <- katz_correct(vc$sigma2_hat, vc$Vhat)  # bias-corrected signal
+      }
+
+      # --- Generate normal bootstrap draws for LHS ---
+      n_firms <- length(lhs_vec)  # number of firms
+      set.seed(123)  # reproducible bootstrap draws
+      lhs_draws <- matrix(stats::rnorm(n_firms * B), nrow = n_firms, ncol = B)
+      # Each column is one bootstrap draw: point_est + se * z
+      lhs_boot <- matrix(lhs_vec, nrow = n_firms, ncol = B) +
+        matrix(lhs_ses, nrow = n_firms, ncol = B) * lhs_draws
+
+      # --- Generate normal bootstrap draws for RHS (OL) ---
+      rhs_draws <- matrix(stats::rnorm(n_firms * B), nrow = n_firms, ncol = B)
+      # Each column is one bootstrap draw: point_est + robust_se * z
+      rhs_boot <- matrix(rhs_vec, nrow = n_firms, ncol = B) +
+        matrix(rhs_rses, nrow = n_firms, ncol = B) * rhs_draws
+
+      # --- Build regression data frame ---
+      # Merge LHS, RHS, and industry map for fixed effects
+      weights_df <- data %>% select(firm_id, njobs) %>%
+        rename(weights = njobs) %>% select(firm_id, weights) %>% distinct()
+      reg_data <- lhs_df %>%
+        dplyr::left_join(rhs_df, by = "firm_id") %>%
+        dplyr::left_join(industry_map, by = "firm_id") %>%
+        dplyr::left_join(weights_df, by = "firm_id") %>%
+        dplyr::filter(!is.na(.data[[lhs_var]]), !is.na(.data[[rhs_var]]),
+                      !is.na(.data[["aer_naics2"]]))
+
+      # Create industry dummy variables for fixed effects specifications
+      fe_mat <- stats::model.matrix(~ factor(reg_data$aer_naics2) - 1)
+      colnames(fe_mat) <- paste0("dummy", seq_len(ncol(fe_mat)))
+      reg_data <- dplyr::bind_cols(reg_data, as.data.frame(fe_mat))
+      dummies <- colnames(fe_mat)
+
+      # Define formulas: f1 = no FE, f2 = with industry FE
+      f1 <- stats::as.formula(paste(lhs_var, "~", rhs_var))
+      rhs_and_fe <- paste(rhs_var, "+", paste(dummies, collapse = " + "))
+      f2 <- stats::as.formula(paste(lhs_var, "~ 0 +", rhs_and_fe))
+
+      # --- Run EIV for each bootstrap iteration ---
+      eiv_iter_list <- list()
+
+      for (i in 0:B) {
+        # Iteration 0 uses point estimates; iterations 1..B use bootstrap draws
+        if (i == 0) {
+          iter_lhs <- lhs_vec   # original LHS point estimates
+          iter_rhs <- rhs_vec   # original RHS point estimates
+        } else {
+          iter_lhs <- lhs_boot[, i]  # bootstrap draw i for LHS
+          iter_rhs <- rhs_boot[, i]  # bootstrap draw i for RHS
+        }
+
+        # Update regression data with this iteration's values
+        reg_data[[lhs_var]] <- iter_lhs[match(reg_data$firm_id, lhs_df$firm_id)]
+        reg_data[[rhs_var]] <- iter_rhs[match(reg_data$firm_id, rhs_df$firm_id)]
+
+        # Total variance of RHS in this iteration
+        tot_var <- stats::var(reg_data[[rhs_var]], na.rm = TRUE)
+
+        # Measurement error variance = total variance - signal variance
+        sigma_error <- tot_var - sigma2_dot
+        if (is.na(sigma_error) || sigma_error < 0) sigma_error <- 0
+
+        # Build Sigma_error matrices for eivreg (scalar for RHS variable)
+        Sigma1 <- matrix(sigma_error, 1, 1, dimnames = list(rhs_var, rhs_var))
+        p2 <- 1 + length(dummies)  # number of RHS variables including dummies
+        Sigma2 <- matrix(0, p2, p2,
+                         dimnames = list(c(rhs_var, dummies), c(rhs_var, dummies)))
+        Sigma2[1, 1] <- sigma_error  # only the survey variable has measurement error
+
+        # Run 4 eivreg specifications: unweighted/weighted x no-FE/FE
+        m1_vals <- tryCatch({
+          m1 <- eivreg(f1, data = reg_data, Sigma_error = Sigma1)
+          list(coef = coef(m1)[rhs_var], se = sqrt(m1$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        m2_vals <- tryCatch({
+          m2 <- eivreg(f2, data = reg_data, Sigma_error = Sigma2)
+          list(coef = coef(m2)[rhs_var], se = sqrt(m2$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        m1_vals_w <- tryCatch({
+          m1w <- eivreg(f1, data = reg_data, Sigma_error = Sigma1,
+                        weights = reg_data$weights)
+          list(coef = coef(m1w)[rhs_var], se = sqrt(m1w$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        m2_vals_w <- tryCatch({
+          m2w <- eivreg(f2, data = reg_data, Sigma_error = Sigma2,
+                        weights = reg_data$weights)
+          list(coef = coef(m2w)[rhs_var], se = sqrt(m2w$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        # Store results for this iteration
+        eiv_iter_list[[i + 1]] <- data.frame(
+          lhs = lhs_var, rhs = rhs_var, iter = i,
+          total_var = tot_var, sigma2_dot = sigma2_dot, sigma_error = sigma_error,
+          check_lhs = mean(reg_data[[lhs_var]], na.rm = TRUE),
+          check_rhs = mean(reg_data[[rhs_var]], na.rm = TRUE),
+          coef1 = m1_vals$coef, se1 = m1_vals$se,
+          coef2 = m2_vals$coef, se2 = m2_vals$se,
+          coef3 = m1_vals_w$coef, se3 = m1_vals_w$se,
+          coef4 = m2_vals_w$coef, se4 = m2_vals_w$se,
+          stringsAsFactors = FALSE
+        )
+      }
+
+      # Combine all iterations into one data frame for this pair
+      eiv_pair <- dplyr::bind_rows(eiv_iter_list)
+
+      # Write per-pair results to Excel
+      remove_sheet_safely(wb, sheet_nm)
+      addWorksheet(wb, sheet_nm)
+      writeData(wb, sheet_nm, eiv_pair)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      print(paste0("OL EIV Results Saved: ", lhs_var, " ~ ", rhs_var))
+
+      # Summarize: compute bootstrap SE from iterations 1..B
+      jk <- bs_summary(output_path, sheet_nm, lhs = lhs_var, rhs = rhs_var)
+      eiv_ol_rows[[sheet_nm]] <- jk
+
+      }, error = function(e) {
+        warning("Skipping OL EIV pair ", lhs_var, " ~ ", rhs_var, ": ", conditionMessage(e))
+      }) # end tryCatch
+    }
+
+    # Combine all pair summaries into one sheet
+    eiv_ol_all <- dplyr::bind_rows(eiv_ol_rows)
+    print(eiv_ol_all)
+
+    # Write combined OL EIV summary
+    remove_sheet_safely(wb, "EIV_OL")
+    addWorksheet(wb, "EIV_OL")
+    writeData(wb, "EIV_OL", eiv_ol_all)
+
+    saveWorkbook(wb, output_path, overwrite = TRUE)
+    message("✅  Combined OL EIV Summary saved in sheet 'EIV_OL'")
+  }
+
+
+  ################################################################################
+  # Section IC-OLS: EIV for the OLS model
+  #
+  # Same structure as OL EIV but reads from OLS sheets instead.
+  # Reads OLS item worths and robust SEs from Excel (not R environment).
+  # Computes signal on-the-fly from the robust covariance matrix (rcov_ols_*).
+  # Uses normal perturbation bootstrap for both LHS and RHS.
+  # Runs 4 eivreg specs per pair: unweighted/weighted x no-FE/FE.
+  # Writes per-pair sheets (EIVols_*) and combined summary sheet (EIV_OLS).
+  ################################################################################
+
+  if (run_ols_eiv) {
+    set.seed(seed)
+
+    # Define the same 19 LHS-RHS pairs as the PL EIV block
+    pairs_ols <- list(
+      c("cb_central_full",              "discretion", "EIVols_central_discretion"),
+      c("log_dif",        "FirmCont_favor_white", "EIVols_logdif_cont_white"),
+      c("log_dif",        "conduct_favor_white",        "EIVols_logdif_cond_white"),
+      c("log_dif",        "pooled_favor_white",   "EIVols_logdif_pool_white"),
+      c("log_dif",        "FirmSelective", "EIVols_logdifbw_select"),
+      c("log_dif",        "discretion", "EIVols_logdifbw_discret"),
+      c("log_dif_gender", "FirmCont_favor_male",  "EIVols_logdif_cont_male"),
+      c("log_dif_gender", "conduct_favor_male",   "EIVols_logdif_cond_male"),
+      c("log_dif_gender", "pooled_favor_male",    "EIVols_logdif_pool_male"),
+      c("log_dif_gender",        "FirmSelective", "EIVols_logdifmf_select"),
+      c("log_dif_gender",        "discretion", "EIVols_logdifmf_discret"),
+      c("log_dif_gender_sq", "FirmCont_favor_male",  "EIVols_logdif2_cont_male"),
+      c("log_dif_gender_sq", "conduct_favor_male",   "EIVols_logdif2_cond_male"),
+      c("log_dif_gender_sq", "pooled_favor_male",    "EIVols_logdif2_pool_male"),
+      c("log_dif_gender_sq",        "FirmSelective", "EIVols_logdifmf2_select"),
+      c("log_dif_gender_sq",        "discretion", "EIVols_logdifmf2_discret"),
+      c("log_dif_age",    "conduct_favor_younger","EIVols_logdif_cond_young"),
+      c("log_dif_age",        "FirmSelective", "EIVols_logdifyo_select"),
+      c("log_dif_age",        "discretion", "EIVols_logdifyo_discret")
+    )
+
+    # List to accumulate per-pair summary rows
+    eiv_ols_rows <- list()
+
+    for (pair in pairs_ols) {
+      lhs_var  <- pair[1]  # experimental outcome (e.g., "log_dif")
+      rhs_var  <- pair[2]  # survey variable (e.g., "pooled_favor_white")
+      sheet_nm <- pair[3]  # output sheet name (e.g., "EIVols_logdif_pool_white")
+
+      print(paste0("Running OLS EIV: ", lhs_var, " ~ ", rhs_var))
+
+      # Wrap in tryCatch so missing LHS/RHS columns are skipped gracefully
+      tryCatch({
+
+      # --- Read LHS: experimental coefficients and SEs from PL sheets ---
+      lhs_df <- read.xlsx(output_path, sheet = "Coefficients") %>%
+        dplyr::select(firm, firm_id, !!rlang::sym(lhs_var))
+      lhs_vec <- lhs_df %>% dplyr::pull(!!rlang::sym(lhs_var))
+
+      lhs_se_col <- paste0(lhs_var, "_se")
+      lhs_ses <- read.xlsx(output_path, sheet = "Standard_Errors") %>%
+        dplyr::select(firm, firm_id, !!rlang::sym(lhs_se_col)) %>%
+        dplyr::pull(!!rlang::sym(lhs_se_col))
+
+      # --- Read RHS: OLS item worths and robust SEs ---
+      rhs_df <- read.xlsx(output_path, sheet = "OLS_Coefficients") %>%
+        dplyr::select(firm_id, !!rlang::sym(rhs_var))
+      rhs_vec <- rhs_df %>% dplyr::pull(!!rlang::sym(rhs_var))
+
+      rhs_rse_df <- read.xlsx(output_path, sheet = "OLS_Robust_SEs") %>%
+        dplyr::select(firm_id, !!rlang::sym(rhs_var))
+      rhs_rses <- rhs_rse_df %>% dplyr::pull(!!rlang::sym(rhs_var))
+
+      # --- Compute signal from rcov_ols_<rhs_var> ---
+      rcov_sheet <- paste0("rcov_ols_", rhs_var)
+      rcov_mat <- tryCatch({
+        tmp <- read.xlsx(output_path, sheet = rcov_sheet)
+        as.matrix(tmp)
+      }, error = function(e) NULL)
+
+      sigma2_dot <- 0
+      if (!is.null(rcov_mat)) {
+        vc <- var_component_with_var(rhs_vec, rcov_mat)
+        sigma2_dot <- katz_correct(vc$sigma2_hat, vc$Vhat)
+      }
+
+      # --- Generate normal bootstrap draws for LHS ---
+      n_firms <- length(lhs_vec)
+      set.seed(123)
+      lhs_draws <- matrix(stats::rnorm(n_firms * B), nrow = n_firms, ncol = B)
+      lhs_boot <- matrix(lhs_vec, nrow = n_firms, ncol = B) +
+        matrix(lhs_ses, nrow = n_firms, ncol = B) * lhs_draws
+
+      # --- Generate normal bootstrap draws for RHS (OLS) ---
+      rhs_draws <- matrix(stats::rnorm(n_firms * B), nrow = n_firms, ncol = B)
+      rhs_boot <- matrix(rhs_vec, nrow = n_firms, ncol = B) +
+        matrix(rhs_rses, nrow = n_firms, ncol = B) * rhs_draws
+
+      # --- Build regression data ---
+      weights_df <- data %>% select(firm_id, njobs) %>%
+        rename(weights = njobs) %>% select(firm_id, weights) %>% distinct()
+      reg_data <- lhs_df %>%
+        dplyr::left_join(rhs_df, by = "firm_id") %>%
+        dplyr::left_join(industry_map, by = "firm_id") %>%
+        dplyr::left_join(weights_df, by = "firm_id") %>%
+        dplyr::filter(!is.na(.data[[lhs_var]]), !is.na(.data[[rhs_var]]),
+                      !is.na(.data[["aer_naics2"]]))
+
+      fe_mat <- stats::model.matrix(~ factor(reg_data$aer_naics2) - 1)
+      colnames(fe_mat) <- paste0("dummy", seq_len(ncol(fe_mat)))
+      reg_data <- dplyr::bind_cols(reg_data, as.data.frame(fe_mat))
+      dummies <- colnames(fe_mat)
+
+      f1 <- stats::as.formula(paste(lhs_var, "~", rhs_var))
+      rhs_and_fe <- paste(rhs_var, "+", paste(dummies, collapse = " + "))
+      f2 <- stats::as.formula(paste(lhs_var, "~ 0 +", rhs_and_fe))
+
+      # --- Run EIV for each bootstrap iteration ---
+      eiv_iter_list <- list()
+
+      for (i in 0:B) {
+        if (i == 0) {
+          iter_lhs <- lhs_vec
+          iter_rhs <- rhs_vec
+        } else {
+          iter_lhs <- lhs_boot[, i]
+          iter_rhs <- rhs_boot[, i]
+        }
+
+        reg_data[[lhs_var]] <- iter_lhs[match(reg_data$firm_id, lhs_df$firm_id)]
+        reg_data[[rhs_var]] <- iter_rhs[match(reg_data$firm_id, rhs_df$firm_id)]
+
+        tot_var <- stats::var(reg_data[[rhs_var]], na.rm = TRUE)
+        sigma_error <- tot_var - sigma2_dot
+        if (is.na(sigma_error) || sigma_error < 0) sigma_error <- 0
+
+        Sigma1 <- matrix(sigma_error, 1, 1, dimnames = list(rhs_var, rhs_var))
+        p2 <- 1 + length(dummies)
+        Sigma2 <- matrix(0, p2, p2,
+                         dimnames = list(c(rhs_var, dummies), c(rhs_var, dummies)))
+        Sigma2[1, 1] <- sigma_error
+
+        m1_vals <- tryCatch({
+          m1 <- eivreg(f1, data = reg_data, Sigma_error = Sigma1)
+          list(coef = coef(m1)[rhs_var], se = sqrt(m1$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        m2_vals <- tryCatch({
+          m2 <- eivreg(f2, data = reg_data, Sigma_error = Sigma2)
+          list(coef = coef(m2)[rhs_var], se = sqrt(m2$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        m1_vals_w <- tryCatch({
+          m1w <- eivreg(f1, data = reg_data, Sigma_error = Sigma1,
+                        weights = reg_data$weights)
+          list(coef = coef(m1w)[rhs_var], se = sqrt(m1w$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        m2_vals_w <- tryCatch({
+          m2w <- eivreg(f2, data = reg_data, Sigma_error = Sigma2,
+                        weights = reg_data$weights)
+          list(coef = coef(m2w)[rhs_var], se = sqrt(m2w$vcov[rhs_var, rhs_var]))
+        }, error = function(e) list(coef = NA_real_, se = NA_real_))
+
+        eiv_iter_list[[i + 1]] <- data.frame(
+          lhs = lhs_var, rhs = rhs_var, iter = i,
+          total_var = tot_var, sigma2_dot = sigma2_dot, sigma_error = sigma_error,
+          check_lhs = mean(reg_data[[lhs_var]], na.rm = TRUE),
+          check_rhs = mean(reg_data[[rhs_var]], na.rm = TRUE),
+          coef1 = m1_vals$coef, se1 = m1_vals$se,
+          coef2 = m2_vals$coef, se2 = m2_vals$se,
+          coef3 = m1_vals_w$coef, se3 = m1_vals_w$se,
+          coef4 = m2_vals_w$coef, se4 = m2_vals_w$se,
+          stringsAsFactors = FALSE
+        )
+      }
+
+      eiv_pair <- dplyr::bind_rows(eiv_iter_list)
+
+      remove_sheet_safely(wb, sheet_nm)
+      addWorksheet(wb, sheet_nm)
+      writeData(wb, sheet_nm, eiv_pair)
+      saveWorkbook(wb, output_path, overwrite = TRUE)
+      print(paste0("OLS EIV Results Saved: ", lhs_var, " ~ ", rhs_var))
+
+      jk <- bs_summary(output_path, sheet_nm, lhs = lhs_var, rhs = rhs_var)
+      eiv_ols_rows[[sheet_nm]] <- jk
+
+      }, error = function(e) {
+        warning("Skipping OLS EIV pair ", lhs_var, " ~ ", rhs_var, ": ", conditionMessage(e))
+      }) # end tryCatch
+    }
+
+    eiv_ols_all <- dplyr::bind_rows(eiv_ols_rows)
+    print(eiv_ols_all)
+
+    remove_sheet_safely(wb, "EIV_OLS")
+    addWorksheet(wb, "EIV_OLS")
+    writeData(wb, "EIV_OLS", eiv_ols_all)
+
+    saveWorkbook(wb, output_path, overwrite = TRUE)
+    message("✅  Combined OLS EIV Summary saved in sheet 'EIV_OLS'")
+  }
+
   if (eiv_summary) {
     # Only rebuild the combined summary from sheets written earlier by run_bs_eiv
     # (no recompute). Safe to run on its own.
@@ -1217,7 +1873,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     writeData(wb, "EIV_BIVARIATE", eiv_all)
     
     saveWorkbook(wb, output_path, overwrite = TRUE)
-    message("✅  Combined EIV / BS Summary saved in sheet “EIV_BS")
+    message("Combined EIV / BS Summary saved in sheet EIV_BS")
     
   }
   
@@ -2005,7 +2661,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     writeData(wb, "EIV_Bordaw", eiv_all)
     
     saveWorkbook(wb, output_path, overwrite = TRUE)
-    message("✅  Combined EIV / BS Summary saved in sheet “EIV_Bordaw")  
+    message("Combined EIV / BS Summary saved in sheet EIV_Bordaw")  
     }
   
   ##
@@ -2107,7 +2763,7 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     writeData(wb, "EIV_BORDA_BIVARIATE", eiv_all)
     
     saveWorkbook(wb, output_path, overwrite = TRUE)
-    message("✅  Combined EIV / BS Summary saved in sheet “EIV_BS")
+    message("Combined EIV / BS Summary saved in sheet EIV_BS")
     
   }
   
