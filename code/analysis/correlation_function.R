@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Calculate Correlations
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 # -------------------------------------------------------------------
 # Build correlations from variance + covariance sheets
 # - one output row per row in `cov_df`

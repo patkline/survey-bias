@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Calculate Covariance and Noise
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 compute_pairwise_cov_and_noise <- function(res1, res2) {
   stopifnot(!is.null(res1$mats$S), !is.null(res2$mats$S))
   stopifnot(!is.null(res1$mats$bread), !is.null(res2$mats$bread))
@@ -98,7 +103,7 @@ write_covariance_sheet <- function(results, wb, sheet_name = "covariance") {
   
   stopifnot(is.list(results), !is.null(results$all))
   
-  models <- intersect(c("OL", "PL", "Borda"), names(results$all))
+  models <- intersect(c("OL", "PL", "Borda", "OLS", "OLSC"), names(results$all))
   
   # infer survey_vars from what’s inside results$all
   # (assumes each model list has the same outcome names)

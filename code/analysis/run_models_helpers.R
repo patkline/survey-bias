@@ -1,12 +1,16 @@
-# ==============================================================================
-# Helpers (keep these with run_models)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# Purpose: Run Model Helper
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 
-should_run_model <- function(model, run_ol, run_pl, run_borda) {
+should_run_model <- function(model, run_ol, run_pl, run_borda, run_ols, run_ols_centered) {
   switch(model,
          "OL"    = isTRUE(run_ol),
          "PL"    = isTRUE(run_pl),
          "Borda" = isTRUE(run_borda),
+         "OLS"   = isTRUE(run_ols),
+         "OLSC" = isTRUE(run_ols_centered),
          FALSE)
 }
 
@@ -15,6 +19,8 @@ model_prefix <- function(model) {
          "OL"    = "ol",
          "PL"    = "pl",
          "Borda" = "b",
+         "OLS"   = "ols",
+         "OLSC" = "olsc",
          stop("Unknown model: ", model))
 }
 
@@ -61,6 +67,28 @@ run_model_dispatch <- function(model,
     ))
   }
   
+  if (model == "OLS") {
+    return(run_model_ols(
+      d_long,
+    id_map,
+    outcome,
+    scale_and_center = FALSE,
+    do_eb = TRUE,
+    seed = seed
+    ))
+  }
+  
+  if (model == "OLSC") {
+    return(run_model_ols(
+      d_long,
+      id_map,
+      outcome,
+      scale_and_center = TRUE,
+      do_eb = TRUE,
+      seed = seed
+    ))
+  }
+  
   stop("Unknown model: ", model)
 }
 
@@ -90,6 +118,8 @@ run_models <- function(
     run_ol = TRUE,
     run_pl = TRUE,
     run_borda = TRUE,
+    run_ols = TRUE,
+    run_ols_centered = TRUE,
     
     firms97 = NULL,
     seed = 123,
@@ -106,12 +136,12 @@ run_models <- function(
 ) {
   set.seed(seed)
   
-  models <- c("OL", "PL", "Borda")
+  models <- c("OL", "PL", "Borda", "OLS", "OLSC")
   
   # results containers
   results <- list(
-    all = list(OL = list(), PL = list(), Borda = list()),
-    subset97 = list(OL = list(), PL = list(), Borda = list())
+    all = list(OL = list(), PL = list(), Borda = list(), OLS = list(), OLSC = list()),
+    subset97 = list(OL = list(), PL = list(), Borda = list(), OLS = list(), OLSC = list())
   )
   
   # collectors (long; to_wide later)
@@ -131,7 +161,7 @@ run_models <- function(
     d_long <- data_long_list[[outcome]]
     
     for (model in models) {
-      if (!should_run_model(model, run_ol, run_pl, run_borda)) next
+      if (!should_run_model(model, run_ol, run_pl, run_borda, run_ols, run_ols_centered)) next
       
       message("Running ", model, " (all): ", outcome)
       
@@ -197,7 +227,7 @@ run_models <- function(
   # - writes "Coefficients (97)" and stores results$subset97
   # ----------------------------
   if (isTRUE(build_subset97) && !is.null(firms97) && length(firms97) > 0) {
-    prefix_map <- list(OL = "ol", PL = "pl", Borda = "b")
+    prefix_map <- list(OL = "ol", PL = "pl", Borda = "b", OLS = "ols", OLSC = "olsc")
     
     results <- build_subset97_and_write(
       results           = results,
@@ -215,8 +245,8 @@ run_models <- function(
 
 collect_and_write <- function(
     res, outcome, wb,
-    prefix,      # "b", "pl", "ol"
-    model,       # "OL" / "PL" / "Borda"
+    prefix,      # "b", "pl", "ol", "ols", "olsc"
+    model,       # "OL" / "PL" / "Borda" / "OLS" / "OLSC"
     coef_long, se_long, rse_long, eb_long
 ) {
   ft <- res$firm_table %>% dplyr::mutate(outcome = outcome)
@@ -244,14 +274,6 @@ collect_and_write <- function(
   write_matrix_sheet(wb, paste0("rcov_", prefix, "_", outcome), res$mats$rcov)
   
   list(coef_long = coef_long, se_long = se_long, rse_long = rse_long, eb_long = eb_long)
-}
-
-model_flags <- function(model) {
-  list(
-    Borda = identical(model, "Borda"),
-    PL    = identical(model, "PL"),
-    OL    = identical(model, "OL")
-  )
 }
 
 

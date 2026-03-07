@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: EB Procedure
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 # Precision-dependent Empirical Bayes (two-step)
 # Inputs:
 #   theta_hat : numeric vector of estimates \hat{theta}_j

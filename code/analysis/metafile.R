@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # Purpose: Metafile for analysis
 #
-# Created: Nico Rotundo 2026-01-11
+# Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
 
 # Run globals
@@ -9,7 +9,6 @@ source("code/globals.R")
 
 # Load Necessary Functions
 source(file.path(analysis, "load_all.R"))
-source(file.path(analysis, "analysis_pipeline.R"))
 
 # 
 # ## 0) parse args -------------------------------------------------------------
@@ -54,30 +53,13 @@ output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
 
 # Function Call Female
 system.time({
-  run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                        subset_var = subset_var, subset_value = subset_value,
-                        firms97 = firms97,
-                        output_path = output_path,
-                        industry_map_path = industry_map_path,
-                        generate_wide = TRUE,
-                        ordered_logit = TRUE,
-                        process_outcomes = TRUE,
-                        run_bootstrap = TRUE,
-                        run_bs_eiv = TRUE,
-                        eiv_summary = TRUE,
-                        eiv_bivariate = TRUE,
-                        run_pairwise_process = TRUE,
-                        borda_score = TRUE,
-                        borda_bs_w = TRUE,
-                        run_borda_eiv = TRUE,
-                        borda_eiv_summary = TRUE,
-                        run_pairwise_process_borda = TRUE,
-                        borda_eiv_bivariate = TRUE,
-                        sum_signal_noise = TRUE,
-                        sim_pl_to_borda = FALSE,
-                        exact_pl_to_borda = FALSE,
-                        diagnostic = FALSE,
-                        B = 1)
+  run_analysis_pipeline(
+    data, respondent_col, survey_vars, experimental_vars,
+    subset_var = subset_var, subset_value = subset_value,
+    output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
+    run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+    seed = 123
+  ) 
 })
 
 
@@ -120,30 +102,13 @@ for (i in seq_len(nrow(runs))) {
       "===\n")
 
   results[[i]] <- system.time({
-    run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                          subset_var = subset_var, subset_value = subset_value,
-                          firms97 = firms97,
-                          output_path = output_path,
-                          industry_map_path = industry_map_path,
-                          generate_wide = TRUE,
-                          ordered_logit = TRUE,
-                          process_outcomes = TRUE,
-                          run_bootstrap = TRUE,
-                          run_bs_eiv = TRUE,
-                          eiv_summary = TRUE,
-                          eiv_bivariate = TRUE,
-                          run_pairwise_process = TRUE,
-                          borda_score = TRUE,
-                          borda_bs_w = TRUE,
-                          run_borda_eiv = TRUE,
-                          borda_eiv_summary = TRUE,
-                          run_pairwise_process_borda = TRUE,
-                          borda_eiv_bivariate = TRUE,
-                          sum_signal_noise = TRUE,
-                          sim_pl_to_borda = FALSE,
-                          exact_pl_to_borda = FALSE,
-                          diagnostic = FALSE,
-                          B = 1)
+    run_analysis_pipeline(
+      data, respondent_col, survey_vars, experimental_vars,
+      subset_var = subset_var, subset_value = subset_value,
+      output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
+      run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+      seed = 123
+    ) 
   })
 }
 

@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Clean Experimental outcomes
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 clean_experimental <- function(data, outcomes) {
   
   # Initialize dataframes to store coefficients and standard errors

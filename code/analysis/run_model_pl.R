@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Run Model Helper
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 run_model_pl <- function(data_wide, id_map, outcome, firms97 = NULL, npseudo = 0.5) {
   
   # Expect: data_wide = resp_id + firm<id> columns with ranks (1..K); 0/NA = unranked

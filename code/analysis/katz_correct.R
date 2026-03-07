@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Katz Correction
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 katz_correct <- function(sigma2_hat, Vhat) {
   # Guard against tiny negative variance from rounding
   se <- sqrt(pmax(Vhat, 0))

@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Run EIV (univariate or bivariate)
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 run_eiv_one <- function(
     coef97_df,
     industry_map,

@@ -1,7 +1,8 @@
-# ==============================================================================
-# variance_functions.R  (UPDATED for `model` column; no OL/PL/Borda booleans)
-# ==============================================================================
-
+# ------------------------------------------------------------------------------
+# Purpose: Variance and Noise Calculations
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 compute_variance_noise_signal <- function(res) {
   # res: single model result object, e.g. results$all$OL[[outcome]]
   # expects:
@@ -41,7 +42,7 @@ write_variance_sheet <- function(results, wb, sheet_name = "variance") {
   # results: list(all=..., subset97=...)
   stopifnot(is.list(results), !is.null(results$all))
   
-  models <- intersect(c("OL", "PL", "Borda"), names(results$all))
+  models <- intersect(c("OL", "PL", "Borda", "OLS", "OLSC"), names(results$all))
   
   # infer outcomes present (union over models)
   survey_vars <- unique(unlist(lapply(models, function(m) names(results$all[[m]]))))

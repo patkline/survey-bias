@@ -3,40 +3,36 @@
 #
 # Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
-run_model_borda <- function(
-    data_wide,
+run_model_ols <- function(
+    data_long,
     id_map,
     outcome,
-    higher_is_better = FALSE,
-    normalize = TRUE,
-    ref_firm_ids = NULL,
+    scale_and_center = FALSE,
     do_eb = TRUE,
     seed = 123
 ) {
   set.seed(seed)
   
-  stopifnot("resp_id" %in% names(data_wide))
-  
-  # 1) Individual-level Borda (long: resp_id x firm_id with B)
-  B_indiv <- compute_borda_individual_wide(
-    data_wide        = data_wide,
-    id_map           = id_map,
-    id_var           = "resp_id",
-    higher_is_better = higher_is_better,
-    normalize        = normalize,
-    ref_firm_ids     = ref_firm_ids
-  )
-  
+  stopifnot("resp_id" %in% names(data_long))
+
   # Ensure weights exist (default 1)
-  if (!("w" %in% names(B_indiv))) B_indiv$w <- 1
+  if (!("w" %in% names(data_long))) data_long$w <- 1
+  
+  if (scale_and_center) {
+    # --- NEW: Center + scale ratings (global) ---
+    mu <- mean(data_long$rating, na.rm = TRUE)
+    sdv <- stats::sd(data_long$rating, na.rm = TRUE)
+    
+    data_long$rating <- (data_long$rating - mu)/sdv
+  }
   
   # 2) Build centered firm scores + naive SE + robust SE + centered bread/score/cov
   #    Assumes your mean_esimator_bread_and_score() performs sum-to-zero centering internally
   out <- mean_estimator_bread_and_score(
-    B_indiv,
+    data_long,
     id_var   = "resp_id",
     firm_var = "firm_id",
-    b_var    = "B",
+    b_var    = "rating",
     w_var    = "w"
   )
   
@@ -101,9 +97,6 @@ run_model_borda <- function(
       cov   = cov_mat,  # naive covariance (diag(se^2))
       rcov  = rcov_mat, # robust covariance (sandwich, centered)
       bread = bread_mat # optional but often useful
-    ),
-    extras = list(
-      B_indiv = B_indiv
     )
   )
 }

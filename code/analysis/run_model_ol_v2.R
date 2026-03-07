@@ -1,8 +1,3 @@
-# ------------------------------------------------------------------------------
-# Purpose: Run Model Helper
-#
-# Created: Jordan Cammarota 03-06-2026
-# ------------------------------------------------------------------------------
 run_model_ol <- function(dat_long, outcome, respondent_col, id_map = NULL) {
   
   sanitize_resp_col <- function(df) {
