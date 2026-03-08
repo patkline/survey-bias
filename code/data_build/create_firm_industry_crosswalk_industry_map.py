@@ -357,6 +357,9 @@ assert len(aer_replication_package_row_indices_with_non_missing_two_digit_sic_un
     f"{firm_industry_crosswalk_aer_replication_package.loc[aer_replication_package_row_indices_with_non_missing_two_digit_sic_unmatched, 'firm_name_aer_replication_package'].astype('string').to_list()}"
 )
 
+# Flag firms not matched to AER or matched but with missing AER two-digit SIC
+industry_map["new_firm"] = (industry_map["merge_status"] != "both") | (industry_map["sic_code_two_digit_aer_replication_package"].isna())
+
 # ------------------------------------------------------------------------------
 # Keep and order output variables
 # ------------------------------------------------------------------------------
@@ -388,6 +391,7 @@ industry_map = industry_map[
 
         # Merge variables
         "merge_status",
+        "new_firm",
 
         # Other RefUSA variables
         "refusa_firm_match_key_type",
@@ -469,7 +473,11 @@ industry_map = industry_map[
         # Harmonized SIC code variables
         "sic_code_two_digit_harmonized",
         "sic_code_aggregated_two_digit_harmonized",
-        "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+        "sic_code_aggregated_two_digit_harmonized_numeric_aer",
+
+        # Merge status to output file for Evan to check
+        "merge_status",
+        "new_firm",
     ]
 ]
 
@@ -521,6 +529,21 @@ industry_map.to_csv(dump / "industry_map.csv", index=False)
 
 # Write one version of industry map to the processed folder as an excel file for use in analysis
 industry_map.to_excel(processed / "industry_map.xlsx", index=False)
+
+# ------------------------------------------------------------------------------
+# Restrict to just the 67 new firms not in the aer paper so Evan 
+# can inspect the industry classifications for these firms 
+# ------------------------------------------------------------------------------ 
+# Merge 
+industry_map_new_firms = industry_map[industry_map["new_firm"]]
+
+# Output to my scratch folder for inspection
+industry_map_new_firms.to_csv(code / "scratch_nico" / "temp_industry_map_new_firms.csv", index=False)
+
+# Confirm same set of firms as in temp_industry_map_non_matches.csv
+assert set(industry_map_new_firms["firm_clean"].astype("string").str.strip()) == set(
+    pd.read_csv(code / "scratch_nico" / "temp_industry_map_non_matches.csv")["firm_clean"].astype("string").str.strip()
+)
 
 # ------------------------------------------------------------------------------
 # Cursory diagnostics
