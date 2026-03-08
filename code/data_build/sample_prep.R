@@ -69,10 +69,29 @@ data <- data %>%
                                   na_if(conduct_favor_male,   -1))
   )
 
+# Read industry map and keep firm-name key and archived aer_naics2 variable
 industry_map <- read_excel(file.path(processed, "industry_map.xlsx")) %>% 
-  select(firm_id, aer_naics2)
+  select(firm_clean, aer_naics2)
 
-data <- left_join(data, industry_map, by="firm_id")
+# Merge aer_naics2 onto sample data by firm name
+data <- left_join(data, industry_map, by = c("firm" = "firm_clean"))
+
+# Keep observations with non-missing and non-literal-"nan" firm values for merge and non-missing aer_naics2 checks
+data_non_missing_firm <- data %>% filter(!is.na(firm) & firm != "nan")
+
+# Assert all observations with non-missing firm values match to industry map by firm name
+stopifnot(
+  nrow(
+    anti_join(
+      data_non_missing_firm %>% distinct(firm),
+      industry_map %>% distinct(firm_clean),
+      by = c("firm" = "firm_clean")
+    )
+  ) == 0
+)
+
+# Assert all observations with non-missing firm values have non-missing aer_naics2 after merge
+stopifnot(sum(is.na(data_non_missing_firm$aer_naics2)) == 0)
 
 temp <- data %>% select(resp_id, response_duration) %>%
 unique()

@@ -32,10 +32,20 @@ run_analysis_pipeline <- function(data, respondent_col, firm_col, survey_vars, e
     data <- data %>% dplyr::filter(!!sym(subset_var) == subset_value)
   }
   
-  # Map from firms to industries
-  industry_map <- openxlsx::read.xlsx(industry_map_path, sheet = 1) %>%
+  # Map from firms to industries using aer_naics2 already merged into analysis data
+  industry_map <- data %>%
     dplyr::select(firm_id, aer_naics2) %>%
+    dplyr::distinct() %>%
     dplyr::mutate(firm_id = as.integer(firm_id))
+
+  # Assert firm_id and aer_naics2 variables exist in analysis data
+  stopifnot(all(c("firm_id", "aer_naics2") %in% names(data)))
+
+  # Assert there is one unique aer_naics2 value per firm_id in industry map
+  stopifnot(nrow(industry_map) == dplyr::n_distinct(industry_map$firm_id))
+
+  # Assert aer_naics2 is non-missing for all firm_id values in industry map
+  stopifnot(sum(is.na(industry_map$aer_naics2)) == 0)
   
   # Check if the workbook already exists
   if (file.exists(output_path)) {

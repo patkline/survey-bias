@@ -24,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Import path globals
 from globals import dump, code, external, processed
 
+# Import tabulate_variable function to tabulate variable distributions in diagnostics
+from tools.define_tabulate_variable import tabulate_variable 
+ 
 # ------------------------------------------------------------------------------
 # Import aer replication package and RefUSA firm-industry
 # crosswalks and assign to dataframes
@@ -33,6 +36,30 @@ firm_industry_crosswalk_aer_replication_package = pd.read_csv(dump / "firm_indus
 
 # Assign RefUSA firm-industry crosswalk csv to dataframe
 industry_map = pd.read_csv(dump / "firm_industry_crosswalk_refusa.csv")
+
+# ------------------------------------------------------------------------------
+# Build aer replication package firm-name aliases used only for matching
+# ------------------------------------------------------------------------------
+# Define aer replication package to survey/RefUSA firm-name aliases for deterministic matching since these three firms are named differently in the aer replication package than in our data
+aer_replication_package_firm_name_aliases_for_matching = {
+    "Lab Corp": "Laboratory Corp. of America",
+    "US Bank": "U.S. Bancorp",
+    "VFC (North Face / Vans)": "VF",
+}
+
+# Build aer replication package firm-name variable used only for matching
+firm_industry_crosswalk_aer_replication_package[
+    "firm_name_aer_replication_package_for_matching"
+] = (
+    pd.Series(
+        firm_industry_crosswalk_aer_replication_package[
+            "firm_name_aer_replication_package"
+        ],
+        dtype="string",
+    )
+    .str.strip()
+    .replace(aer_replication_package_firm_name_aliases_for_matching)
+)
 
 # ------------------------------------------------------------------------------
 # Build staged match keys for aer replication package and RefUSA names
@@ -60,9 +87,11 @@ for crosswalk_dataset in ["firm_industry_crosswalk_aer_replication_package", "in
         firm_industry_crosswalk_dataset = industry_map
 
     ## Set locals for firm_name_series for current dataset in loop
-    # Set local firm_name_series to aer replication package firm-name variable
+    # Set local firm_name_series to aer replication package firm-name variable used only for matching
     if crosswalk_dataset == "firm_industry_crosswalk_aer_replication_package":
-        firm_name_series = firm_industry_crosswalk_dataset["firm_name_aer_replication_package"]
+        firm_name_series = firm_industry_crosswalk_dataset[
+            "firm_name_aer_replication_package_for_matching"
+        ]
 
     # Set local firm_name_series to RefUSA firm-name variable
     if crosswalk_dataset == "industry_map":
@@ -161,6 +190,11 @@ for crosswalk_dataset in ["firm_industry_crosswalk_aer_replication_package", "in
 
 # Assert aer replication package firm names are unique
 assert not firm_industry_crosswalk_aer_replication_package["firm_name_aer_replication_package"].duplicated().any()
+
+# Assert aer replication package aliased firm names used for matching are unique
+assert not firm_industry_crosswalk_aer_replication_package[
+    "firm_name_aer_replication_package_for_matching"
+].duplicated().any()
 
 # Assert RefUSA firm names are unique
 assert not industry_map["firm_clean"].duplicated().any()
@@ -305,6 +339,24 @@ for merge_match_method, merge_match_key_column in merge_match_methods_and_key_co
 # Assert merge status values are right_only or both i.e., that there are only unmatched rows from RefUSA and no unmatched rows from aer replication package
 assert industry_map["merge_status"].isin(["right_only", "both"]).all()
 
+# Assert all aer replication package firms with non-missing two-digit SIC are matched to our data
+aer_replication_package_row_indices_with_non_missing_two_digit_sic = set(
+    firm_industry_crosswalk_aer_replication_package.index[
+        firm_industry_crosswalk_aer_replication_package[
+            "sic_code_two_digit_aer_replication_package"
+        ].notna()
+    ].to_list()
+)
+aer_replication_package_row_indices_with_non_missing_two_digit_sic_unmatched = sorted(
+    aer_replication_package_row_indices_with_non_missing_two_digit_sic
+    - aer_replication_package_row_indices_already_matched_to_refusa
+)
+assert len(aer_replication_package_row_indices_with_non_missing_two_digit_sic_unmatched) == 0, (
+    "The following aer replication package firms have non-missing two-digit SIC codes "
+    "but do not match to our data: "
+    f"{firm_industry_crosswalk_aer_replication_package.loc[aer_replication_package_row_indices_with_non_missing_two_digit_sic_unmatched, 'firm_name_aer_replication_package'].astype('string').to_list()}"
+)
+
 # ------------------------------------------------------------------------------
 # Keep and order output variables
 # ------------------------------------------------------------------------------
@@ -346,8 +398,8 @@ industry_map = industry_map[
 # ------------------------------------------------------------------------------
 # Export merged firm-industry crosswalk diagnostics
 # ------------------------------------------------------------------------------
-# Output non-matching rows csv to scratch folder for inspection
-industry_map[industry_map["merge_status"] != "both"].to_csv(code / "scratch_nico" / "temp_industry_map_non_matches.csv", index=False)
+# Output non-matched rows or those that were matched but still do not have a sic_code_two_digit_aer_replication_package to csv to scratch folder for inspection
+industry_map[(industry_map["merge_status"] != "both") | (industry_map["sic_code_two_digit_aer_replication_package"].isna())].to_csv(code / "scratch_nico" / "temp_industry_map_non_matches.csv", index=False)
 
 # Output rows that were matched but not with uppercase name to scratch folder for inspection
 industry_map[
@@ -408,6 +460,43 @@ industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"] = pd.to_num
     errors="coerce",
 )
 
+#  Subset industry map to necessary variables for analysis
+industry_map = industry_map[
+    [
+        # Firm name 
+        "firm_clean",
+
+        # Harmonized SIC code variables
+        "sic_code_two_digit_harmonized",
+        "sic_code_aggregated_two_digit_harmonized",
+        "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+    ]
+]
+
+# Write one version of industry map with just observations missing sic_code_aggregated_two_digit_harmonized_numeric_aer to my scratch folder as a csv for inspection
+industry_map[industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna()].to_csv(code / "scratch_nico" / "temp_industry_map_missing_harmonized_aggregated_sic_numeric_aer.csv", index=False)
+
+# Manually impute manufacturing sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 24)
+industry_map.loc[
+    industry_map["firm_clean"].isin(["DowDuPont", "Jabil", "Whirlpool", "Lear", "Lockheed Martin", "Amphenol", "General Motors", "Boeing", "Carrier", "Otis", "General Electric", "General Dynamics"]) & industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna(),
+    "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+] = 24
+
+# Manually impute banking sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 61)
+industry_map.loc[
+    industry_map["firm_clean"].isin(["BB&T Corp.", "Wells Fargo", "Bank of America Corp."]) & industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna(),
+    "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+] = 61
+
+# Manually impute freight/transportation sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 42)
+industry_map.loc[
+    industry_map["firm_clean"].isin(["BNSF Railway"]) & industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna(),
+    "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+] = 42
+
+# Assert no missing values remain in harmonized aggregated SIC numeric variable
+assert industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].notna().all()
+
 ## Merge on sic names from aer replication package as sic_code_aggregated_two_digit_harmonized_names_aer
 # Build key-value lookup from numeric SIC key to SIC name
 sic_name_by_sic_combined = (
@@ -422,25 +511,19 @@ industry_map["sic_code_aggregated_two_digit_harmonized_names_aer"] = (
     industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].map(sic_name_by_sic_combined)
 )
 
-#  Subset industry map to necessary variables for analysis
-industry_map = industry_map[
-    [
-        # Firm name 
-        "firm_clean",
-
-        # Harmonized SIC code variables
-        "sic_code_two_digit_harmonized",
-        "sic_code_aggregated_two_digit_harmonized",
-        "sic_code_aggregated_two_digit_harmonized_numeric_aer",
-        "sic_code_aggregated_two_digit_harmonized_names_aer"
-    ]
-]
+# Add a column called "aer_naics2"  corresponding to sic_code_aggregated_two_digit_harmonized_numeric_aer --- since Jordan is redeveloping the pipeline, do not want to break the code by deleting this column right now 
+industry_map["aer_naics2"] = industry_map[
+    "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+].copy()
 
 # Write one version of industry map to the dump folder as a csv 
 industry_map.to_csv(dump / "industry_map.csv", index=False)
 
-# Write one version of industry map with just observations missing sic_code_aggregated_two_digit_harmonized_numeric_aer to my scratch folder as a csv for inspection
-industry_map[industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna()].to_csv(code / "scratch_nico" / "temp_industry_map_missing_harmonized_aggregated_sic_numeric.csv", index=False)
-
 # Write one version of industry map to the processed folder as an excel file for use in analysis
 industry_map.to_excel(processed / "industry_map.xlsx", index=False)
+
+# ------------------------------------------------------------------------------
+# Cursory diagnostics
+# ------------------------------------------------------------------------------
+# Number of firms per two-digit SIC code bin 
+tabulate_variable(industry_map, "sic_code_aggregated_two_digit_harmonized_names_aer")

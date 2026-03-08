@@ -498,6 +498,9 @@ if len(primary_sic_code_refusa_count_by_firm) > 0:
         r"[0-9]+"
     ).all()
 
+# Output firm-by-SIC count table to scratch folder for inspection
+primary_sic_code_refusa_count_by_firm.to_csv(code / "scratch_nico" / "temp_refusa_firm_by_sic_counts.csv", index=False)
+
 # Count number of firms where ties in modal SIC code are being broken
 if len(primary_sic_code_refusa_count_by_firm) == 0:
     # Keep tie count as zero when there are no matched firm-by-SIC rows
