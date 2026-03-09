@@ -486,21 +486,27 @@ industry_map[industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"
 
 # Manually impute manufacturing sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 24)
 industry_map.loc[
-    industry_map["firm_clean"].isin(["DowDuPont", "Jabil", "Whirlpool", "Lear", "Lockheed Martin", "Amphenol", "General Motors", "Boeing", "Carrier", "Otis", "General Electric", "General Dynamics"]) & industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna(),
+    industry_map["firm_clean"].isin(["DowDuPont", "Jabil", "Whirlpool", "Lear", "Lockheed Martin", "Amphenol", "General Motors", "Boeing", "Carrier", "Otis", "General Electric", "General Dynamics", "Pratt & Whitney", "Ford Motor", "Northrop Grumman"]),
     "sic_code_aggregated_two_digit_harmonized_numeric_aer"
 ] = 24
 
 # Manually impute banking sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 61)
 industry_map.loc[
-    industry_map["firm_clean"].isin(["BB&T Corp.", "Wells Fargo", "Bank of America Corp."]) & industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna(),
+    industry_map["firm_clean"].isin(["BB&T Corp.", "Wells Fargo", "Bank of America Corp."]),
     "sic_code_aggregated_two_digit_harmonized_numeric_aer"
 ] = 61
 
 # Manually impute freight/transportation sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 42)
 industry_map.loc[
-    industry_map["firm_clean"].isin(["BNSF Railway"]) & industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna(),
+    industry_map["firm_clean"].isin(["BNSF Railway", "American Airlines Group", "Delta Air Lines"]),
     "sic_code_aggregated_two_digit_harmonized_numeric_aer"
 ] = 42
+
+# Manually impute personal/businesss services sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 72)
+industry_map.loc[
+    industry_map["firm_clean"].isin(["Apple", "Dell Technologies"]),
+    "sic_code_aggregated_two_digit_harmonized_numeric_aer"
+] = 72
 
 # Assert no missing values remain in harmonized aggregated SIC numeric variable
 assert industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].notna().all()
