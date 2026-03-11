@@ -54,6 +54,8 @@ data_and_output_storage_location = "dropbox"  # "github"
 
 # If switch is set to github, set data and output paths to github paths
 if data_and_output_storage_location == "github":
+    
+    # Data and output paths within GitHub repository
     data = git_survey_bias_root / "data"
     output = git_survey_bias_root / "output"
 
@@ -65,6 +67,8 @@ elif data_and_output_storage_location == "dropbox":
 
     # Path to the data and output mirror on Dropbox
     db_survey_bias_data_and_output_mirror = Path(dropbox_survey_bias_root) / "github_data_and_output_mirrors"
+    
+    # Data and output paths on Dropbox mirror
     data = db_survey_bias_data_and_output_mirror / "data"
     output = db_survey_bias_data_and_output_mirror / "output"
 
