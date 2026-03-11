@@ -7,11 +7,55 @@
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+# Define user-specific Dropbox root path
+# ------------------------------------------------------------------------------
+# Map system user -> Dropbox consolidated_code root
+dropbox_roots_by_user <- c(
+  nicorotundo    = "/Users/nicorotundo/Opportunity Insights Dropbox/Nico Rotundo/Survey/consolidated_code",
+  monicahea      = "/Users/monicahea/Dropbox/Survey/consolidated_code",
+  jordancammarota = "/Users/jordancammarota/Dropbox/consolidated_code"
+)
+
+# Get current system user
+user <- tolower(Sys.info()[["user"]])
+
+# Assign Dropbox root for current user
+dropbox_survey_bias_root <- unname(dropbox_roots_by_user[user])
+
+# ------------------------------------------------------------------------------
 # Define project paths (no need to modify these)
 # ------------------------------------------------------------------------------
-
 # Path to GitHub root directory
 git_survey_bias_root <- here::here()
+
+# Select storage location for data and output --- options are "github" and "dropbox"
+data_and_output_storage_location <- "dropbox" #"github"
+
+# If switch is set to Github, set data and output paths to github paths
+if (data_and_output_storage_location == "github") {
+
+  # Data and output paths within GitHub repository
+  data <- file.path(git_survey_bias_root, "data")
+  output <- file.path(git_survey_bias_root, "output")
+
+# If switch is set to dropbox, set data and output paths to Dropbox mirror
+} else if (data_and_output_storage_location == "dropbox") {
+  
+  # Path to the data and output mirror on Dropbox
+  db_survey_bias_data_and_output_mirror <- file.path(dropbox_survey_bias_root, "github_data_and_output_mirrors")
+
+  # Throw error if Dropbox path is not configured for current user
+    if (is.na(dropbox_survey_bias_root) || !nzchar(dropbox_survey_bias_root)) {
+    stop("🧌 No Dropbox path configured for user: ", user)
+  }
+
+  # Data and output paths on Dropbox mirror
+  data <- file.path(db_survey_bias_data_and_output_mirror, "data")
+  output <- file.path(db_survey_bias_data_and_output_mirror, "output")
+
+} else {
+  stop("🧌 Invalid value for `data_and_output_storage_location`. Must be 'github' or 'dropbox'")
+}
 
 # GitHub code paths
 code <- file.path(git_survey_bias_root, "code")
@@ -21,29 +65,15 @@ create_tables_figures <- file.path(code, "create_tables_figures")
 helper_functions <- file.path(code, "helper_functions")
 
 # Github data paths
-data <- file.path(git_survey_bias_root, "data")
 raw <- file.path(data, "raw")
 processed <- file.path(data, "processed")
 external <- file.path(data, "external")
 dump <- file.path(data, "dump")
 
 # Github output paths
-excel <- file.path(git_survey_bias_root,"output/excel")
-figures <- file.path(git_survey_bias_root,"output/figures")
-tables <- file.path(git_survey_bias_root,"output/tables")
-
-# Dropbox data paths
-#db_survey_bias <- file.path(dropbox, "Survey Bias")
-#data <- file.path(db_survey_bias, "data")
-#raw <- file.path(data, "raw")
-#processed <- file.path(data, "processed")
-#scratch <- file.path(data, "scratch")
-
-# Dropbox results paths
-#results <- file.path(db_survey_bias, "results")
-#results_figures <- file.path(results, "figures")
-#results_tables <- file.path(results, "tables")
-#results_scratch <- file.path(results, "scratch")
+excel <- file.path(output, "excel")
+figures <- file.path(output, "figures")
+tables <- file.path(output, "tables")
 
 # Define path to Python virtual environment
 python_venv_directory <- file.path(git_survey_bias_root, ".venv")

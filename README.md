@@ -26,14 +26,21 @@ Repository for the code used to version-control the data build, analysis, and re
 2. Download the actual data files by running `git lfs pull` in the `/survey-bias` directory in your terminal
 
 ### Final setup (all users),
-1. Open an R terminal in VScode in the project directory and the `.Rprofile` will automatically,
+1. Add your Dropbox folder path to `globals.R` and `globals.py`
+   1. Run `whoami` in your terminal to get your username
+   1. in `globals.R`,
+      1. Under the `Define user-specific Dropbox root path` section, add an analagous set of lines for your username and Dropbox path as the existing ones for Nico, Monica, and Jordan (i.e., `"your_username" =  "your_dropbox_path"`)
+   2. in `globals.py`, 
+      1. Do the same as in `globals.R`
+      
+2. Open an R terminal in VScode in the project directory and the `.Rprofile` will automatically,
    - Activate `renv` for package management
    - Set the working directory
    - Install necessary R packages
 
-2. Confirm the following message displayed in your terminal "🎃 .Rprofile was successfully sourced" 
+3. Confirm the following message displayed in your terminal "🎃 .Rprofile was successfully sourced" 
 
-3. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
+4. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
 
 ## For code you write, 
 1. For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages

@@ -2,10 +2,11 @@
 # Purpose: Rerun results and generate a compact before/after comparison bundle.
 #
 # Baseline definition:
-# - Baseline is the git-tracked contents of output/ (i.e., what a fresh clone sees)
+# - Default baseline is git-tracked output/ from `main`
+# - Use --baseline current to compare against git-tracked output/ on the current branch
 #
 # What it does:
-# 1) Ensures output/ matches git baseline (prompting to revert if needed)
+# 1) Ensures output/ is clean when needed for reproducible reruns/baseline snapshots
 # 2) Copies baseline output/{tables,figures,excel} into a run folder (fast clone on macOS when available)
 # 3) Reruns results via code/create_tables_figures/metafile.R (overwriting output/)
 # 4) Compares baseline vs new output and writes:
@@ -68,11 +69,49 @@ reset_output_to_git_baseline <- function(baseline_dirs) {
   invisible(TRUE)
 }
 
+git_ref_exists <- function(ref) {
+  res <- suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "rev-parse", "--verify", "--quiet", ref), stdout = FALSE, stderr = FALSE))
+  isTRUE(res == 0)
+}
+
+resolve_baseline <- function(baseline_opt, current_branch) {
+  if (identical(baseline_opt, "current")) {
+    branch_label <- ifelse(nzchar(current_branch), current_branch, "HEAD")
+    return(list(mode = "current", ref = "HEAD", label = paste0("current branch (", branch_label, ")")))
+  }
+
+  if (!identical(baseline_opt, "main")) {
+    stop_quietly("Invalid --baseline value. Use --baseline main (default) or --baseline current.")
+  }
+
+  if (git_ref_exists("main")) return(list(mode = "ref", ref = "main", label = "main"))
+  if (git_ref_exists("origin/main")) return(list(mode = "ref", ref = "origin/main", label = "origin/main"))
+
+  stop_quietly("Could not resolve baseline ref: neither `main` nor `origin/main` exists. Use --baseline current.")
+}
+
+add_temp_worktree <- function(ref) {
+  wt_dir <- tempfile(pattern = "results_compare_baseline_")
+  res <- suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "worktree", "add", "--detach", wt_dir, ref)))
+  if (!isTRUE(res == 0)) {
+    stop_quietly(paste0("Failed to create temporary worktree for baseline ref `", ref, "`."))
+  }
+  wt_dir
+}
+
+remove_temp_worktree <- function(path) {
+  if (is.null(path) || !nzchar(path)) return(invisible(NULL))
+  suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "worktree", "remove", "--force", path)))
+  if (dir.exists(path)) unlink(path, recursive = TRUE, force = TRUE)
+  invisible(NULL)
+}
+
 parse_args <- function(argv) {
   opts <- list(
     `run-name` = NULL,
     `skip-rerun` = FALSE,
-    `confirm-reset` = NULL
+    `confirm-reset` = NULL,
+    baseline = "main"
   )
 
   i <- 1
@@ -92,6 +131,11 @@ parse_args <- function(argv) {
     if (i == length(argv)) stop_quietly(paste0("Missing value for ", tok))
     opts[[key]] <- argv[[i + 1]]
     i <- i + 2
+  }
+
+  opts[["baseline"]] <- tolower(trimws(as.character(opts[["baseline"]] %||% "main")))
+  if (!(opts[["baseline"]] %in% c("main", "current"))) {
+    stop_quietly("Invalid --baseline value. Use --baseline main (default) or --baseline current.")
   }
 
   opts
@@ -863,12 +907,16 @@ main <- function() {
   message("🎃 Run folder: ", run_dir)
 
   output_root <- file.path(git_survey_bias_root, "output")
+  current_branch <- trimws(safe_system(paste("git -C", shQuote(git_survey_bias_root), "branch --show-current")) %||% "")
+  baseline_cfg <- resolve_baseline(opts[["baseline"]], current_branch)
+  message("🎃 Comparison baseline: ", baseline_cfg$label)
 
-  # 1) Establish baseline snapshot (old_full) = git-tracked output/{tables,figures,excel}
-  #    - If --skip-rerun and output is dirty, back up current outputs to new_full,
-  #      temporarily reset output/ to baseline to snapshot old_full, then restore outputs.
+  # 1) Optionally clean output/ when needed for baseline snapshot or reproducible reruns.
   out_status <- safe_system(paste("git -C", shQuote(git_survey_bias_root), "status --porcelain", paste(baseline_dirs, collapse = " ")))
   is_dirty_out <- !is.na(out_status) && nzchar(trimws(out_status))
+  needs_reset_for_baseline <- identical(baseline_cfg$mode, "current")
+  needs_reset_for_rerun <- !isTRUE(opts[["skip-rerun"]])
+  needs_reset_if_dirty <- is_dirty_out && (needs_reset_for_baseline || needs_reset_for_rerun)
 
   new_full <- if (isTRUE(opts[["skip-rerun"]])) file.path(run_dir, "new_full") else NULL
   if (isTRUE(opts[["skip-rerun"]])) {
@@ -877,14 +925,14 @@ main <- function() {
     copy_outputs_subdirs(output_root, new_full)
   }
 
-  if (is_dirty_out) {
+  if (needs_reset_if_dirty) {
     ok <- confirm_or_prompt_yes(
       paste0(
-        "Some files in output/{tables,figures,excel} differ from the git baseline.\n",
-        if (isTRUE(opts[["skip-rerun"]])) {
-          "To compute baseline='old' safely, this tool will TEMPORARILY reset output/{tables,figures,excel} to baseline, snapshot it, then restore your current outputs.\n"
+        "Some files in output/{tables,figures,excel} differ from the current-branch git baseline.\n",
+        if (isTRUE(opts[["skip-rerun"]]) && needs_reset_for_baseline) {
+          "To compute baseline='old' from the current branch safely, this tool will TEMPORARILY reset output/{tables,figures,excel} to baseline, snapshot it, then restore your current outputs.\n"
         } else {
-          "🧌 To rerun from a clean baseline (fresh-clone behavior), this tool will reset output/{tables,figures,excel} before rerunning.\n"
+          "🧌 To rerun from a clean baseline (fresh-clone behavior for this branch), this tool will reset output/{tables,figures,excel} before rerunning.\n"
         },
         "This will run: git restore output/tables output/figures output/excel  AND  git clean -fd output/tables output/figures output/excel\n"
       ),
@@ -901,13 +949,22 @@ main <- function() {
     }
   }
 
+  baseline_output_root <- output_root
+  baseline_worktree_dir <- NULL
+  if (!identical(baseline_cfg$mode, "current")) {
+    message("🎃 Preparing baseline outputs from ref: ", baseline_cfg$ref)
+    baseline_worktree_dir <- add_temp_worktree(baseline_cfg$ref)
+    on.exit(remove_temp_worktree(baseline_worktree_dir), add = TRUE)
+    baseline_output_root <- file.path(baseline_worktree_dir, "output")
+  }
+
   old_full <- file.path(run_dir, "old_full")
   ensure_dir(old_full)
   message("🎃 Snapshotting baseline output/ as 'old'...")
-  copy_outputs_subdirs(output_root, old_full)
+  copy_outputs_subdirs(baseline_output_root, old_full)
 
-  # If we were in --skip-rerun mode and output was dirty, restore the user's output now.
-  if (isTRUE(opts[["skip-rerun"]]) && is_dirty_out) {
+  # If we were in --skip-rerun mode and reset for current-branch baseline snapshot, restore outputs.
+  if (isTRUE(opts[["skip-rerun"]]) && is_dirty_out && needs_reset_for_baseline) {
     message("🎃 Restoring your pre-existing output/ (skip-rerun mode)...")
     for (sd in c("tables", "figures", "excel")) {
       tgt <- file.path(output_root, sd)
@@ -1052,6 +1109,9 @@ main <- function() {
     created_at = as.character(Sys.time()),
     git_sha_short = gi$sha,
     git_dirty = gi$dirty,
+    baseline_mode = opts[["baseline"]],
+    baseline_label = baseline_cfg$label,
+    baseline_ref = baseline_cfg$ref,
     n_changed = n_changed,
     n_added = n_added,
     n_removed = n_removed
