@@ -10,16 +10,16 @@ ensure_symmetry <- function(df) {
   
   # Make a flipped copy
   flipped <- df %>%
-    mutate(lhs_new = rhs, rhs_new = lhs) %>%
-    select(-lhs, -rhs) %>%
-    rename(lhs = lhs_new, rhs = rhs_new)
+    dplyr::mutate(lhs_new = .data$rhs, rhs_new = .data$lhs) %>%
+    dplyr::select(-lhs, -rhs) %>%
+    dplyr::rename(lhs = lhs_new, rhs = rhs_new)
   
   # Match column order to original
   flipped <- flipped[names(df)]
   
   # Bind original + flipped; drop duplicate diagonal/duplicates if any
-  bind_rows(df, flipped) %>%
-    distinct(lhs, rhs, .keep_all = TRUE)
+  dplyr::bind_rows(df, flipped) %>%
+    dplyr::distinct(.data$lhs, .data$rhs, .keep_all = TRUE)
 }
 
 create_lower_left_heatmap <- function(data, title, filename, label_mapping, custom_order, lower_triangle, custom_order2 = NULL) {
@@ -27,11 +27,11 @@ create_lower_left_heatmap <- function(data, title, filename, label_mapping, cust
   
   # Map lhs/rhs -> pretty labels (keep everything inside `data$...`)
   data <- data %>%
-    mutate(
-      out1 = unname(label_mapping[as.character(lhs)]),
-      out2 = unname(label_mapping[as.character(rhs)]),
-      corr_c = as.numeric(corr_c)
-    ) 
+    dplyr::mutate(
+      out1 = unname(label_mapping[as.character(.data$lhs)]),
+      out2 = unname(label_mapping[as.character(.data$rhs)]),
+      corr_c = as.numeric(.data$corr_c)
+    )
   
   # Warn if anything isn't mapped
   missing <- unique(c(
@@ -50,23 +50,21 @@ create_lower_left_heatmap <- function(data, title, filename, label_mapping, cust
     r_idx <- match(data$out2, custom_order)   # rows (top->bottom)
     
     data_plot <- data %>%
-      mutate(c_idx = c_idx, r_idx = r_idx) %>%
-      filter(!is.na(c_idx), !is.na(r_idx), !is.na(corr_c)) %>%
-      # keep LOWER-LEFT (row index >= col index) + diagonal
-      filter(r_idx >= c_idx) %>%
-      # now set factors for plotting:
-      mutate(
-        Outcome1 = factor(out1, levels = custom_order),         # x left->right
-        Outcome2 = factor(out2, levels = rev(custom_order))     # y TOP->BOTTOM
+      dplyr::mutate(c_idx = c_idx, r_idx = r_idx) %>%
+      dplyr::filter(!is.na(.data$c_idx), !is.na(.data$r_idx), !is.na(.data$corr_c)) %>%
+      dplyr::filter(.data$r_idx >= .data$c_idx) %>%
+      dplyr::mutate(
+        Outcome1 = factor(.data$out1, levels = custom_order),
+        Outcome2 = factor(.data$out2, levels = rev(custom_order))
       )
   } else {
     stopifnot(!is.null(custom_order2))
     data_plot <- data %>%
-      mutate(
-        Outcome1 = factor(out1, levels = custom_order),
-        Outcome2 = factor(out2, levels = custom_order2)
+      dplyr::mutate(
+        Outcome1 = factor(.data$out1, levels = custom_order),
+        Outcome2 = factor(.data$out2, levels = custom_order2)
       ) %>%
-      filter(!is.na(Outcome1), !is.na(Outcome2), !is.na(corr_c))
+      dplyr::filter(!is.na(.data$Outcome1), !is.na(.data$Outcome2), !is.na(.data$corr_c))
   }
   
   plot <- ggplot(data_plot, aes(x = Outcome1, y = Outcome2, fill = corr_c)) +
@@ -89,11 +87,21 @@ create_lower_left_heatmap <- function(data, title, filename, label_mapping, cust
 # ----------------------------------------------- 
 # Define Wrapper Function for Heatmap Generation 
 # ----------------------------------------------- 
-generate_heatmaps <- function(file_path, prefix, suffix, sheet, all) {  
-  
-  # Read Data  
-  sheet_name <- sheet
-  results_df <- read.xlsx(file_path, sheet = sheet_name)  
+generate_heatmaps <- function(file_path, prefix, suffix, sheet, all,
+                              model_filter = NULL) {
+
+  # Try new pipeline "correlation" sheet with model filter
+  corr_sheet <- tryCatch(read.xlsx(file_path, sheet = "correlation"), error = function(e) NULL)
+  use_new <- !is.null(corr_sheet) && "model" %in% names(corr_sheet) && !is.null(model_filter)
+
+  if (use_new) {
+    results_df <- corr_sheet %>%
+      dplyr::filter(.data$model == model_filter) %>%
+      dplyr::mutate(all_firms = (.data$subset == "all"))
+  } else {
+    # Old pipeline: read from specified sheet
+    results_df <- read.xlsx(file_path, sheet = sheet)
+  }
   
   # Outcome List  
   outcomes <- c(    
@@ -125,10 +133,11 @@ generate_heatmaps <- function(file_path, prefix, suffix, sheet, all) {
   
   # After you've created identity_rows and rbind'ed:
   results_df <- results_df %>%
-    mutate(lhs = as.character(lhs), rhs = as.character(rhs))
-  
+    dplyr::mutate(lhs = as.character(.data$lhs), rhs = as.character(.data$rhs))
+
+  all_firms_flag <- all
   results_df <- results_df %>%
-    filter(all_firms == all)
+    dplyr::filter(.data$all_firms == all_firms_flag)
   
   results_df <- ensure_symmetry(results_df)
   
@@ -152,10 +161,10 @@ generate_heatmaps <- function(file_path, prefix, suffix, sheet, all) {
     "FirmCont_favor_white" = "S: Discrimination Black (Contact)"
   )    
   
-  non_experimental_data <- results_df %>% 
-    filter(lhs %in% c("conduct_black", "conduct_favor_younger", "FirmHire_favor_white", "FirmHire_favor_male",
+  non_experimental_data <- results_df %>%
+    dplyr::filter(.data$lhs %in% c("conduct_black", "conduct_favor_younger", "FirmHire_favor_white", "FirmHire_favor_male",
                            "FirmCont_favor_white", "FirmCont_favor_male", "discretion", "FirmSelective", "FirmDesire")) %>%
-    filter(rhs %in% c("conduct_black", "conduct_favor_younger", "FirmHire_favor_white", "FirmHire_favor_male",
+    dplyr::filter(.data$rhs %in% c("conduct_black", "conduct_favor_younger", "FirmHire_favor_white", "FirmHire_favor_male",
                       "FirmCont_favor_white", "FirmCont_favor_male", "discretion", "FirmSelective", "FirmDesire"))
   
   # Custom order for the axes  
@@ -227,14 +236,32 @@ generate_heatmaps <- function(file_path, prefix, suffix, sheet, all) {
   cat("✅ Heatmaps generated and saved with prefix:", prefix, "\n")  
 }   
 
-# Example Usage  
-generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"),figures, "_full", "pairwise_summary", all = TRUE)
-generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"), 
-                  figures, "_full_overlap", "pairwise_summary", all = FALSE)
-generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"), 
-                  figures, "_full_borda", "pairwise_summary_borda", all = TRUE)
-generate_heatmaps(file.path(excel,"Plackett_Luce_Full_Sample.xlsx"), 
-                  figures, "_full_overlap_borda", "pairwise_summary_borda", all = FALSE)
+# Example Usage -- new pipeline (correlation sheet with model filter)
+fp <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+
+# PL
+generate_heatmaps(fp, figures, "_full_pl", "pairwise_summary",
+                  all = TRUE, model_filter = "PL")
+generate_heatmaps(fp, figures, "_full_overlap_pl", "pairwise_summary",
+                  all = FALSE, model_filter = "PL")
+
+# Borda
+generate_heatmaps(fp, figures, "_full_borda", "pairwise_summary_borda",
+                  all = TRUE, model_filter = "Borda")
+generate_heatmaps(fp, figures, "_full_overlap_borda", "pairwise_summary_borda",
+                  all = FALSE, model_filter = "Borda")
+
+# OLS
+generate_heatmaps(fp, figures, "_full_ols", "pairwise_summary",
+                  all = TRUE, model_filter = "OLS")
+generate_heatmaps(fp, figures, "_full_overlap_ols", "pairwise_summary",
+                  all = FALSE, model_filter = "OLS")
+
+# OLS Centered
+generate_heatmaps(fp, figures, "_full_olsc", "pairwise_summary",
+                  all = TRUE, model_filter = "OLSC")
+generate_heatmaps(fp, figures, "_full_overlap_olsc", "pairwise_summary",
+                  all = FALSE, model_filter = "OLSC")
 
 
 # 

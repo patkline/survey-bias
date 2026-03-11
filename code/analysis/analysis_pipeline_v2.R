@@ -104,91 +104,86 @@ run_analysis_pipeline <- function(
 ################################################################################
 ## Step 5: EIV
 ################################################################################
-  # message("Building Noise Matrices for EIV")
-  # 
-  # # which models were run?
-  # models_to_build <- character(0)
-  # if (isTRUE(run_pl))    models_to_build <- c(models_to_build, "PL")
-  # if (isTRUE(run_borda)) models_to_build <- c(models_to_build, "Borda")
-  # if (isTRUE(run_ol))    models_to_build <- c(models_to_build, "OL")
-  # 
-  # # build one noise matrix per model (subset97)
-  # noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
-  # 
-  # for (m in models_to_build) {
-  #   noise_mats_97[[m]] <- build_noise_matrix(
-  #     variance_df   = variance_df,
-  #     covariance_df = covariance_df,
-  #     outcomes      = survey_vars,
-  #     subset_value  = "subset97",
-  #     model_value   = m
-  #   )
-  # }
-  # 
-  # # Optional convenience objects if you still want them:
-  # N97_PL    <- if ("PL"    %in% names(noise_mats_97)) noise_mats_97[["PL"]]    else NULL
-  # N97_Borda <- if ("Borda" %in% names(noise_mats_97)) noise_mats_97[["Borda"]] else NULL
-  # N97_OL    <- if ("OL"    %in% names(noise_mats_97)) noise_mats_97[["OL"]]    else NULL
-  # N97_OLS    <- if ("OLS"    %in% names(noise_mats_97)) noise_mats_97[["OLS"]]    else NULL
-  # N97_OLSC    <- if ("OLSC"    %in% names(noise_mats_97)) noise_mats_97[["OLSC"]]    else NULL
-  # 
-  # # List of Specifications
-  # regs_uni <- list(
-  #   list(lhs = "cb_central_full",   rhs = c("discretion")),
-  #   list(lhs = "log_dif",           rhs = c("FirmCont_favor_white")),
-  #   list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
-  #   list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
-  #   list(lhs = "log_dif",           rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif",           rhs = c("discretion")),
-  #   list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male")),
-  #   list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male")),
-  #   list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male")),
-  #   list(lhs = "log_dif_gender",    rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif_gender",    rhs = c("discretion")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("FirmCont_favor_male")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("conduct_favor_male")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("pooled_favor_male")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("discretion")),
-  #   list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger")),
-  #   list(lhs = "log_dif_age",       rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif_age",       rhs = c("discretion"))
-  # )
-  # 
-  # regs_bi <- list(
-  #   list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
-  #   list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),
-  #   list(lhs = "log_dif_age",    rhs = c("FirmSelective", "discretion"))
-  # )
-  # 
-  # regs_all <- c(regs_uni, regs_bi)
-  # 
-  # message("Running EIV")
-  # 
-  # # weights (optional)
-  # weights <- data %>%
-  #   dplyr::select(firm_id, njobs) %>%
-  #   dplyr::distinct() %>%
-  #   dplyr::rename(weights = njobs)
-  # 
-  # coef97_df <- openxlsx::read.xlsx(output_path, sheet = "Coefficients (97)")
-  # 
-  # models_to_run_eiv <- intersect(c("PL", "Borda", "OL", "OLS", "OLSC"), names(noise_mats_97))
-  # 
-  # eiv_df <- write_eiv_sheet(
-  #   wb            = wb,
-  #   sheet_name    = "EIV",
-  #   regs          = regs_all,
-  #   coef97_df     = coef97_df,
-  #   industry_map  = industry_map,
-  #   noise_mats_97 = noise_mats_97,
-  #   models        = models_to_run_eiv,
-  #   weights_df    = weights,      # set to NULL for equal weights
-  #   weights_col   = "weights"
-  # )
-  # 
-  # # Save once at end
-  # openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  # message("✅ Step 5 Complete. Saved: ", output_path)
+  message("Building Noise Matrices for EIV")
+
+  # which models were run?
+  models_to_build <- character(0)
+  if (isTRUE(run_pl))             models_to_build <- c(models_to_build, "PL")
+  if (isTRUE(run_borda))          models_to_build <- c(models_to_build, "Borda")
+  if (isTRUE(run_ol))             models_to_build <- c(models_to_build, "OL")
+  if (isTRUE(run_ols))            models_to_build <- c(models_to_build, "OLS")
+  if (isTRUE(run_ols_centered))   models_to_build <- c(models_to_build, "OLSC")
+
+  # build one noise matrix per model (subset97)
+  noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
+
+  for (m in models_to_build) {
+    noise_mats_97[[m]] <- build_noise_matrix(
+      variance_df   = variance_df,
+      covariance_df = covariance_df,
+      outcomes      = survey_vars,
+      subset_value  = "subset97",
+      model_value   = m
+    )
+  }
+
+  # List of Specifications
+  regs_uni <- list(
+    list(lhs = "cb_central_full",   rhs = c("discretion")),
+    list(lhs = "log_dif",           rhs = c("FirmCont_favor_white")),
+    list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
+    list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
+    list(lhs = "log_dif",           rhs = c("FirmSelective")),
+    list(lhs = "log_dif",           rhs = c("discretion")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmSelective")),
+    list(lhs = "log_dif_gender",    rhs = c("discretion")),
+    list(lhs = "log_dif_gender_sq", rhs = c("FirmCont_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("conduct_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("pooled_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("FirmSelective")),
+    list(lhs = "log_dif_gender_sq", rhs = c("discretion")),
+    list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger")),
+    list(lhs = "log_dif_age",       rhs = c("FirmSelective")),
+    list(lhs = "log_dif_age",       rhs = c("discretion"))
+  )
+
+  regs_bi <- list(
+    list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
+    list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),
+    list(lhs = "log_dif_age",    rhs = c("FirmSelective", "discretion"))
+  )
+
+  regs_all <- c(regs_uni, regs_bi)
+
+  message("Running EIV")
+
+  # weights (optional)
+  weights <- data %>%
+    dplyr::select(firm_id, njobs) %>%
+    dplyr::distinct() %>%
+    dplyr::rename(weights = njobs)
+
+  coef97_df <- openxlsx::read.xlsx(output_path, sheet = "Coefficients (97)")
+
+  models_to_run_eiv <- intersect(c("PL", "Borda", "OL", "OLS", "OLSC"), names(noise_mats_97))
+
+  eiv_df <- write_eiv_sheet(
+    wb            = wb,
+    sheet_name    = "EIV",
+    regs          = regs_all,
+    coef97_df     = coef97_df,
+    industry_map  = industry_map,
+    noise_mats_97 = noise_mats_97,
+    models        = models_to_run_eiv,
+    weights_df    = weights,      # set to NULL for equal weights
+    weights_col   = "weights"
+  )
+
+  # Save once at end
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 5 Complete. Saved: ", output_path)
 
 }
