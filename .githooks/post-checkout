@@ -1,0 +1,113 @@
+#!/bin/sh
+
+# ------------------------------------------------------------------------------
+# Purpose: Keep local Git LFS behavior on checkouts aligned with storage mode
+#          in code/globals.R
+# Note: Runs after branch checkout/switch events
+#
+# Created: Nico Rotundo 2026-03-11
+# ------------------------------------------------------------------------------
+
+# Identify this hook in error messages.
+hook_name="post-checkout"
+
+# ------------------------------------------------------------------------------
+# Store repo root 
+# ------------------------------------------------------------------------------
+# Assign repository root to variable and block checkout if this cannot be determined
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  # Provide error message, identify action that is blocked, and indicate how to fix
+  printf >&2 "🪦 [%s] ERROR: Could not determine repository root.\n" "$hook_name"
+  printf >&2 "🧌 [%s] ACTION BLOCKED: checkout/switch operation is blocked.\n" "$hook_name"
+  printf >&2 "[%s] FIX: Run checkout from inside the repository and retry.\n" "$hook_name"
+  
+  # Exit with non-zero status to block checkout
+  exit 1
+}
+
+# ------------------------------------------------------------------------------
+# Store path to globals
+# ------------------------------------------------------------------------------
+# Assign globals.R, which is the source of truth for storage mode, path to a variable
+globals_r="$repo_root/code/globals.R"
+
+# Block checkout if globals.R is missing
+if [ ! -f "$globals_r" ]; then
+  # Provide error message, identify action that is blocked, and indicate how to fix
+  printf >&2 "🪦 [%s] ERROR: Missing file: %s\n" "$hook_name" "$globals_r"
+  printf >&2 "🧌 [%s] ACTION BLOCKED: checkout/switch operation is blocked.\n" "$hook_name"
+  printf >&2 "[%s] FIX: Restore code/globals.R and set data_and_output_storage_location to \"github\" or \"dropbox\".\n" "$hook_name"
+  
+  # Exit with non-zero status to block checkout
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Store storage mode from globals
+# ------------------------------------------------------------------------------
+# Read storage mode from globals.R and normalize to lowercase
+mode="$(sed -nE 's/^[[:space:]]*data_and_output_storage_location[[:space:]]*<-[[:space:]]*"([A-Za-z]+)".*/\1/p' "$globals_r" | head -n 1 | tr '[:upper:]' '[:lower:]')"
+
+# Block checkout if mode is invalid i.e., is missing or not dropbox or github
+if [ "$mode" != "dropbox" ] && [ "$mode" != "github" ]; then
+  # Provide error message, identify action that is blocked, and indicate how to fix
+  printf >&2 "🪦 [%s] ERROR: Missing or invalid data_and_output_storage_location in code/globals.R: '%s'\n" "$hook_name" "$mode"
+  printf >&2 "🧌 [%s] ACTION BLOCKED: checkout/switch operation is blocked.\n" "$hook_name"
+  printf >&2 "[%s] FIX: Set data_and_output_storage_location <- \"github\" or \"dropbox\" in code/globals.R.\n" "$hook_name"
+  
+  # Exit with non-zero status to block checkout
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Check git-lfs is installed 
+# ------------------------------------------------------------------------------
+# Require git-lfs for all mode enforcement
+if ! command -v git-lfs >/dev/null 2>&1; then
+  # Provide error message, identify action that is blocked, and indicate how to fix
+  printf >&2 "🪦 [%s] ERROR: git-lfs is not installed or not on PATH.\n" "$hook_name"
+  printf >&2 "🧌 [%s] ACTION BLOCKED: checkout/switch operation is blocked.\n" "$hook_name"
+  printf >&2 "[%s] FIX: Install Git LFS, then run: git lfs install --local --skip-repo\n" "$hook_name"
+  
+  # Exit with non-zero status to block checkout 
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# If storing data and output on Dropbox, set post-checkout settings
+# ------------------------------------------------------------------------------
+# Enforce dropbox mode by disabling automatic LFS downloads
+if [ "$mode" = "dropbox" ]; then
+  # Disable automatic LFS downloads to enforce dropbox mode, and block checkout if this fails
+  if ! git -C "$repo_root" lfs install --local --skip-smudge --skip-repo >/dev/null 2>&1; then
+    
+    # Provide error message, identify action that is blocked, and indicate how to fix
+    printf >&2 "🪦 [%s] ERROR: Failed to apply dropbox LFS mode.\n" "$hook_name"
+    printf >&2 "🧌 [%s] ACTION BLOCKED: checkout/switch operation is blocked.\n" "$hook_name"
+    printf >&2 "[%s] FIX: Run: git lfs install --local --skip-smudge --skip-repo\n" "$hook_name"
+    
+    # Exit with non-zero status to block checkout
+    exit 1
+  fi
+fi
+
+# ------------------------------------------------------------------------------
+# If storing data and output on Github, set post-checkout settings
+# ------------------------------------------------------------------------------
+# Enforce github mode by restoring normal LFS behavior.
+if [ "$mode" = "github" ]; then
+  # Restore normal LFS behavior to enforce github mode, and block checkout if this fails
+  if ! git -C "$repo_root" lfs install --local --skip-repo >/dev/null 2>&1; then
+    
+    # Provide error message, identify action that is blocked, and indicate how to fix
+    printf >&2 "🪦 [%s] ERROR: Failed to apply github LFS mode.\n" "$hook_name"
+    printf >&2 "🧌 [%s] ACTION BLOCKED: checkout/switch operation is blocked.\n" "$hook_name"
+    printf >&2 "[%s] FIX: Run: git lfs install --local --skip-repo\n" "$hook_name"
+    
+    # Exit with non-zero status to block checkout
+    exit 1
+  fi
+fi
+
+# Exit successfully only when all strict checks and mode enforcement pass
+exit 0

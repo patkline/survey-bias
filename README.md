@@ -42,6 +42,25 @@ Repository for the code used to version-control the data build, analysis, and re
 
 4. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
 
+## General check XXedit this documentation
+1. Make sure that the data_and_output_storage_location switch in `globals.R` and `globals.py` is set to the intended value (i.e., either "dropbox" or "github")
+
+## Git LFS hook policy (fail-closed)
+1. This repo uses fail-closed hooks in `.githooks/` for `post-checkout`, `post-merge`, and `pre-push`.
+2. If a hook cannot parse/validate `data_and_output_storage_location` in `code/globals.R` or cannot apply the expected LFS mode, the Git operation is blocked.
+3. Hook changes are repo-local (`git lfs install --local --skip-repo ...` and `git config --local ...`), so this does not modify global Git behavior on a machine.
+
+## Blocked action recovery
+1. Confirm storage mode is valid in `code/globals.R`:
+   - `data_and_output_storage_location <- "dropbox"` or
+   - `data_and_output_storage_location <- "github"`
+2. Re-apply expected local LFS mode:
+   - For dropbox mode: `git lfs install --local --skip-smudge --skip-repo`
+   - For github mode: `git lfs install --local --skip-repo`
+3. Re-register repo hook path (if needed): `git config --local core.hooksPath .githooks`
+4. Confirm Git LFS is installed: `git lfs version`
+5. Retry the blocked Git command.
+	 
 ## For code you write, 
 1. For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages
 

@@ -28,11 +28,27 @@ dropbox_survey_bias_root <- unname(dropbox_roots_by_user[user])
 # Path to GitHub root directory
 git_survey_bias_root <- here::here()
 
+# Tell Git to use this repo's auto-run scripts in `.githooks` when switching branches or merging
+suppressWarnings(system2(
+  "git",
+  args = c("-C", git_survey_bias_root, "config", "--local", "core.hooksPath", ".githooks"),
+  stdout = FALSE,
+  stderr = FALSE
+))
+
 # Select storage location for data and output --- options are "github" and "dropbox"
 data_and_output_storage_location <- "dropbox" #"github"
 
 # If switch is set to Github, set data and output paths to github paths
 if (data_and_output_storage_location == "github") {
+
+  # Configure Git LFS for GitHub mode (normal behavior with automatic downloads on checkout)
+  suppressWarnings(system2(
+      "git",
+      args = c("-C", git_survey_bias_root, "lfs", "install", "--local", "--skip-repo"),
+      stdout = FALSE,
+      stderr = FALSE
+    ))
 
   # Data and output paths within GitHub repository
   data <- file.path(git_survey_bias_root, "data")
@@ -41,6 +57,14 @@ if (data_and_output_storage_location == "github") {
 # If switch is set to dropbox, set data and output paths to Dropbox mirror
 } else if (data_and_output_storage_location == "dropbox") {
   
+  # Configure Git LFS for Dropbox mode to prevent automatic downloads of large files on checkout (since data is accessed via Dropbox, not GitHub)
+  suppressWarnings(system2(
+      "git",
+      args = c("-C", git_survey_bias_root, "lfs", "install", "--local", "--skip-smudge", "--skip-repo"),
+      stdout = FALSE,
+      stderr = FALSE
+    ))
+
   # Path to the data and output mirror on Dropbox
   db_survey_bias_data_and_output_mirror <- file.path(dropbox_survey_bias_root, "github_data_and_output_mirrors")
 
