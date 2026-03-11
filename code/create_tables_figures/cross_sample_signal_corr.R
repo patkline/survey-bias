@@ -89,7 +89,7 @@ cat("Identified", length(exp_firm_ids),
 # 1. Helper: read theta (no SEs needed now)
 # -------------------------------------------------------------------
 read_theta <- function(excel, file, outcome,
-                       model = c("pl", "borda", "ols", "olsc")) {
+                       model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
   path  <- file.path(excel, file)
 
@@ -97,6 +97,7 @@ read_theta <- function(excel, file, outcome,
   model_map <- list(
     pl    = list(filter = "PL",    old_sheet = "Coefficients"),
     borda = list(filter = "Borda", old_sheet = "borda_score"),
+    ol    = list(filter = "OL",    old_sheet = "Coefficients"),
     ols   = list(filter = "OLS",   old_sheet = "Coefficients"),
     olsc  = list(filter = "OLSC",  old_sheet = "Coefficients")
   )
@@ -122,11 +123,11 @@ read_theta <- function(excel, file, outcome,
 # 2. Helper: read signal & tot_var from pl_s_/b_s_ sheets
 # -------------------------------------------------------------------
 read_signal_info <- function(excel, file, outcome,
-                             model = c("pl", "borda", "ols", "olsc")) {
+                             model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
   path  <- file.path(excel, file)
 
-  model_filter_map <- c(pl = "PL", borda = "Borda", ols = "OLS", olsc = "OLSC")
+  model_filter_map <- c(pl = "PL", borda = "Borda", ol = "OL", ols = "OLS", olsc = "OLSC")
 
   # Try new pipeline "variance" sheet first
   var_df <- tryCatch(readxl::read_xlsx(path, sheet = "variance"),
@@ -295,7 +296,7 @@ compute_corr_row <- function(theta1, theta2,
 # -------------------------------------------------------------------
 # 5. Main loop: build tables for PL and Borda (with LR for PL)
 # -------------------------------------------------------------------
-build_corr_table <- function(model = c("pl", "borda", "ols", "olsc"),
+build_corr_table <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
                              excel,
                              sample_filemap,
                              sample_pairs,
@@ -394,6 +395,8 @@ pl_corr    <- build_corr_table("pl",    excel, sample_filemap, sample_pairs,
                                outcomes, exp_firm_ids, full_sample_file)
 borda_corr <- build_corr_table("borda", excel, sample_filemap, sample_pairs,
                                outcomes, exp_firm_ids, full_sample_file)
+ol_corr    <- build_corr_table("ol",    excel, sample_filemap, sample_pairs,
+                               outcomes, exp_firm_ids, full_sample_file)
 ols_corr   <- build_corr_table("ols",   excel, sample_filemap, sample_pairs,
                                outcomes, exp_firm_ids, full_sample_file)
 olsc_corr  <- build_corr_table("olsc",  excel, sample_filemap, sample_pairs,
@@ -405,6 +408,8 @@ openxlsx::addWorksheet(wb, "PL")
 openxlsx::writeData(wb, "PL", pl_corr)
 openxlsx::addWorksheet(wb, "Borda")
 openxlsx::writeData(wb, "Borda", borda_corr)
+openxlsx::addWorksheet(wb, "OL")
+openxlsx::writeData(wb, "OL", ol_corr)
 openxlsx::addWorksheet(wb, "OLS")
 openxlsx::writeData(wb, "OLS", ols_corr)
 openxlsx::addWorksheet(wb, "OLSC")
@@ -515,8 +520,9 @@ get_panel_matrix <- function(df_corr,
 # Use all_firms == TRUE in the LaTeX table
 panelA <- get_panel_matrix(pl_corr,    pl_corr,    all_firms_flag = TRUE, with_pvalues = TRUE)
 panelB <- get_panel_matrix(borda_corr, pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
-panelC <- get_panel_matrix(ols_corr,   pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
-panelD <- get_panel_matrix(olsc_corr,  pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+panelC <- get_panel_matrix(ol_corr,    pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+panelD <- get_panel_matrix(ols_corr,   pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+panelE <- get_panel_matrix(olsc_corr,  pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
 
 # Helper to emit panel rows
 panel_rows <- function(panel) {
@@ -541,11 +547,14 @@ latex_lines <- c(
   "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
   panel_rows(panelB),
   "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel C: OLS}}\\\\",
+  "    \\multicolumn{5}{l}{\\textbf{Panel C: Ordered Logit}}\\\\",
   panel_rows(panelC),
   "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel D: OLS Centered}}\\\\",
+  "    \\multicolumn{5}{l}{\\textbf{Panel D: OLS}}\\\\",
   panel_rows(panelD),
+  "    \\addlinespace",
+  "    \\multicolumn{5}{l}{\\textbf{Panel E: OLS Centered}}\\\\",
+  panel_rows(panelE),
   "    \\bottomrule",
   "  \\end{tabular}"
 )

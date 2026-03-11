@@ -40,7 +40,7 @@ weights <- data %>%
   dplyr::rename(weights = njobs)
 
 # --- Build noise matrices for all models ---
-models_to_build <- c("PL", "Borda", "OLS", "OLSC")
+models_to_build <- c("PL", "Borda", "OL", "OLS", "OLSC")
 
 message("Building noise matrices for: ", paste(models_to_build, collapse = ", "))
 noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)

@@ -101,12 +101,13 @@ build_eiv_df_two_cols <- function(cfg) {
 
 # ---------- BUILD A FOUR-PANEL LATEX TABLE ----------
 
-build_four_panel_eiv_table_two_cols <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc, out_tex) {
+build_four_panel_eiv_table_two_cols <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc, out_tex, cfg_ol = NULL) {
 
   df_pl    <- build_eiv_df_two_cols(cfg_pl)
   df_borda <- build_eiv_df_two_cols(cfg_borda)
   df_ols   <- build_eiv_df_two_cols(cfg_ols)
   df_olsc  <- build_eiv_df_two_cols(cfg_olsc)
+  df_ol    <- if (!is.null(cfg_ol)) build_eiv_df_two_cols(cfg_ol) else NULL
 
   # Force same column order/labels (use PL as reference)
   common_cols <- colnames(df_pl)
@@ -115,39 +116,66 @@ build_four_panel_eiv_table_two_cols <- function(cfg_pl, cfg_borda, cfg_ols, cfg_
   df_ols   <- df_ols[, common_cols]
   df_olsc  <- df_olsc[, common_cols]
 
-  combined_df <- bind_rows(df_pl, df_borda, df_ols, df_olsc)
+  if (!is.null(df_ol)) {
+    df_ol <- df_ol[, common_cols]
+    combined_df <- bind_rows(df_pl, df_borda, df_ol, df_ols, df_olsc)
+  } else {
+    combined_df <- bind_rows(df_pl, df_borda, df_ols, df_olsc)
+  }
 
   n_pl    <- nrow(df_pl)
   n_borda <- nrow(df_borda)
   n_ols   <- nrow(df_ols)
   n_olsc  <- nrow(df_olsc)
 
-  cum_pl    <- n_pl
-  cum_borda <- cum_pl + n_borda
-  cum_ols   <- cum_borda + n_ols
-  cum_olsc  <- cum_ols + n_olsc
+  if (!is.null(df_ol)) {
+    n_ol     <- nrow(df_ol)
+    cum_pl    <- n_pl
+    cum_borda <- cum_pl + n_borda
+    cum_ol    <- cum_borda + n_ol
+    cum_ols   <- cum_ol + n_ols
+    cum_olsc  <- cum_ols + n_olsc
 
-  tex_code <- kable(
-    combined_df,
-    format    = "latex",
-    booktabs  = TRUE,
-    align     = c("l", rep("c", ncol(combined_df) - 1)),
-    col.names = common_cols,
-    linesep   = "",
-    escape    = FALSE
-  ) %>%
-    kable_styling(
-      full_width = FALSE,
-      position   = "center"
+    tex_code <- kable(
+      combined_df,
+      format    = "latex",
+      booktabs  = TRUE,
+      align     = c("l", rep("c", ncol(combined_df) - 1)),
+      col.names = common_cols,
+      linesep   = "",
+      escape    = FALSE
     ) %>%
-    pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
-    pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
-    pack_rows("Panel C: OLS", cum_borda + 1, cum_ols) %>%
-    pack_rows("Panel D: OLS Centered", cum_ols + 1, cum_olsc)
+      kable_styling(full_width = FALSE, position = "center") %>%
+      pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
+      pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
+      pack_rows("Panel C: Ordered Logit", cum_borda + 1, cum_ol) %>%
+      pack_rows("Panel D: OLS", cum_ol + 1, cum_ols) %>%
+      pack_rows("Panel E: OLS Centered", cum_ols + 1, cum_olsc)
+  } else {
+    cum_pl    <- n_pl
+    cum_borda <- cum_pl + n_borda
+    cum_ols   <- cum_borda + n_ols
+    cum_olsc  <- cum_ols + n_olsc
+
+    tex_code <- kable(
+      combined_df,
+      format    = "latex",
+      booktabs  = TRUE,
+      align     = c("l", rep("c", ncol(combined_df) - 1)),
+      col.names = common_cols,
+      linesep   = "",
+      escape    = FALSE
+    ) %>%
+      kable_styling(full_width = FALSE, position = "center") %>%
+      pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
+      pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
+      pack_rows("Panel C: OLS", cum_borda + 1, cum_ols) %>%
+      pack_rows("Panel D: OLS Centered", cum_ols + 1, cum_olsc)
+  }
 
   dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
   writeLines(tex_code, out_tex)
-  message("✓ LaTeX four-panel table saved to: ", out_tex)
+  message("✓ LaTeX table saved to: ", out_tex)
 }
 
 # ---------- CONFIGS ----------
@@ -175,6 +203,7 @@ build_four_panel_eiv_table_two_cols(
   cfg_borda = make_disc_cfg(root_dir, "Borda"),
   cfg_ols   = make_disc_cfg(root_dir, "OLS"),
   cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
+  cfg_ol    = make_disc_cfg(root_dir, "OL"),
   out_tex   = file.path(tables, "EIV_discretion_four_panel.tex")
 )
 
@@ -184,5 +213,6 @@ build_four_panel_eiv_table_two_cols(
   cfg_borda = make_disc_cfg(root_dir, "Borda"),
   cfg_ols   = make_disc_cfg(root_dir, "OLS"),
   cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
+  cfg_ol    = make_disc_cfg(root_dir, "OL"),
   out_tex   = file.path(tables, "EIV_discretion_four_panel_wt.tex")
 )

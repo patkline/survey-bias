@@ -153,6 +153,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
 
       pl_df    <- build_model_cols(var_df, "PL", "PL")
       borda_df <- build_model_cols(var_df, "Borda", "Borda", mult = borda_mult)
+      ol_df    <- build_model_cols(var_df, "OL", "OL")
       ols_df   <- build_model_cols(var_df, "OLS", "OLS")
       olsc_df  <- build_model_cols(var_df, "OLSC", "OLSC")
 
@@ -178,6 +179,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       # Merge all models
       tab <- pl_df
       if (!is.null(borda_df)) tab <- dplyr::full_join(tab, borda_df, by = "outcome")
+      if (!is.null(ol_df))    tab <- dplyr::full_join(tab, ol_df, by = "outcome")
       if (!is.null(ols_df))   tab <- dplyr::full_join(tab, ols_df, by = "outcome")
       if (!is.null(olsc_df))  tab <- dplyr::full_join(tab, olsc_df, by = "outcome")
 
@@ -298,7 +300,12 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       `Borda: t-stat` = tab$Borda_t_stat,
       `Borda: normed variance` = tab$Borda_var_norm
     )
-    # Add OLS/OLSC columns if present
+    # Add OL/OLS/OLSC columns if present
+    if ("OL_sd" %in% names(tab)) {
+      csv_cols[["OL: sd"]] <- tab$OL_sd
+      csv_cols[["OL: bias corrected sd"]] <- tab$OL_sd_bias_corrected
+      csv_cols[["OL: t-stat"]] <- tab$OL_t_stat
+    }
     if ("OLS_sd" %in% names(tab)) {
       csv_cols[["OLS: sd"]] <- tab$OLS_sd
       csv_cols[["OLS: bias corrected sd"]] <- tab$OLS_sd_bias_corrected
@@ -322,10 +329,11 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     }
 
     # Build LaTeX table -- include OLS/OLSC if present
+    has_ol   <- "OL_sd" %in% names(tab)
     has_ols  <- "OLS_sd" %in% names(tab)
     has_olsc <- "OLSC_sd" %in% names(tab)
 
-    if (has_ols || has_olsc) {
+    if (has_ol || has_ols || has_olsc) {
       # Extended table with all four models
       latex_cols <- list(
         Outcome = tab$Outcome_display,
@@ -341,6 +349,13 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       ncol_base <- 9
       align_str <- c("l", "l", rep("c", 8))
 
+      if (has_ol) {
+        latex_cols[["OL SD"]] <- fmt_dec(tab$OL_sd, latex_decimals)
+        latex_cols[["OL Sig SD"]] <- fmt_dec(tab$OL_sd_bias_corrected, latex_decimals)
+        latex_cols[["OL t"]] <- fmt_dec(tab$OL_t_stat, latex_decimals)
+        ncol_base <- ncol_base + 3
+        align_str <- c(align_str, "c", "c", "c")
+      }
       if (has_ols) {
         latex_cols[["OLS SD"]] <- fmt_dec(tab$OLS_sd, latex_decimals)
         latex_cols[["OLS Sig SD"]] <- fmt_dec(tab$OLS_sd_bias_corrected, latex_decimals)
@@ -360,26 +375,32 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       xt <- xtable::xtable(latex_df, align = align_str)
 
       # Build header with cmidrules
-      ols_hdr <- ""
-      ols_col_hdr <- ""
+      extra_hdr <- ""
+      extra_col_hdr <- ""
       cmidrules <- "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}"
       col_idx <- 10
+      if (has_ol) {
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Ordered Logit}")
+        extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & ")
+        cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
+        col_idx <- col_idx + 3
+      }
       if (has_ols) {
-        ols_hdr <- paste0(" & \\multicolumn{3}{c}{OLS}")
-        ols_col_hdr <- paste0("Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & ")
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{OLS}")
+        extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & ")
         cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
         col_idx <- col_idx + 3
       }
       if (has_olsc) {
-        ols_hdr <- paste0(ols_hdr, " & \\multicolumn{3}{c}{OLS Centered}")
-        ols_col_hdr <- paste0(ols_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal}")
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{OLS Centered}")
+        extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal}")
         cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
       }
 
       header <- paste0(
         "\\toprule\n",
         " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{4}{c}{Borda}",
-        ols_hdr, " \\\\\n",
+        extra_hdr, " \\\\\n",
         cmidrules, "\n",
         "Outcome & Std Dev & ",
         "\\shortstack{Signal\\\\Std Dev} & ",
@@ -389,7 +410,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         "\\shortstack{Signal\\\\Std Dev} & ",
         "\\shortstack{T-stat\\\\no signal} & ",
         "\\shortstack{Normed\\\\Variance} & ",
-        ols_col_hdr, " \\\\\n",
+        extra_col_hdr, " \\\\\n",
         "\\midrule\n"
       )
     } else {

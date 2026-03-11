@@ -8,8 +8,8 @@ source("code/globals.R")
 
 # --- Config ---
 output_path <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
-models <- c("PL", "Borda", "OLS", "OLSC")
-model_labels <- c(PL = "Plackett--Luce", Borda = "Borda", OLS = "OLS", OLSC = "OLS Centered")
+models <- c("PL", "Borda", "OL", "OLS", "OLSC")
+model_labels <- c(PL = "Plackett--Luce", Borda = "Borda", OL = "Ordered Logit", OLS = "OLS", OLSC = "OLS Centered")
 pooled_vars <- c("pooled_favor_white", "pooled_favor_male")
 var_labels <- c(
   pooled_favor_white = "Pooled Favor White",
