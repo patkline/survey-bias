@@ -2,36 +2,48 @@
 # Purpose: Rerun results and generate a compact before/after comparison bundle.
 #
 # Baseline definition:
-# - Default baseline is git-tracked output/ from `main`
-# - Use --baseline current to compare against git-tracked output/ on the current branch
+# - Default baseline is git-tracked output/ from `origin/main`
+# - Use --baseline origin-current to compare against `origin/<current_branch>`
+# - Use --baseline current to compare against the local current branch
 #
 # What it does:
-# 1) Ensures output/ is clean when needed for reproducible reruns/baseline snapshots
-# 2) Copies baseline output/{tables,figures,excel} into a run folder (fast clone on macOS when available)
-# 3) Reruns results via code/create_tables_figures/metafile.R (overwriting output/)
-# 4) Compares baseline vs new output and writes:
-#    - changes.csv (file-level + cell-level diffs for .tex/.xlsx)
+# 1) Creates a run folder under output/results_build_runs (or Dropbox mirror output root).
+# 2) For origin-based baselines, verifies ref sync + baseline LFS availability before proceeding.
+# 3) Snapshots baseline output/{tables,figures,excel} into old_full
+#    (via temporary worktree for origin-based refs; direct copy for baseline=current).
+# 4) If --skip-rerun is set, snapshots current output as new_full.
+#    Otherwise runs code/create_tables_figures/metafile.R and uses active output/ as "new".
+# 5) Compares old vs new.
+#    If differences exist, writes:
+#    - changes.csv (file-level diffs; optional .xlsx cell-level diffs with --with-xlsx-cell-diffs)
 #    - comparison.tex (+ comparison.pdf if pdflatex is available) for changed tables/figures
 #    - old/ and new/ containing only the changed files needed for comparison
-# 5) If there are zero changes, deletes the run folder.
+# 6) If there are zero changes, deletes the run folder.
 # ------------------------------------------------------------------------------
 
 suppressWarnings(suppressMessages({
   source("code/globals.R")
 }))
 
+# ------------------------------------------------------------------------------
+# Utility helpers
+# ------------------------------------------------------------------------------
+# Return fallback value y when x is NULL/empty/NA.
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0 || is.na(x) || !nzchar(as.character(x))) y else x
 
+# Exit script immediately with a message and status code.
 stop_quietly <- function(message_text, status = 1) {
   message(message_text)
   quit(save = "no", status = status, runLast = FALSE)
 }
 
+# Create directory recursively iff missing.
 ensure_dir <- function(path) {
   if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
   invisible(path)
 }
 
+# Wrapper around system() that returns a single string and never throws.
 safe_system <- function(cmd, intern = TRUE) {
   out <- tryCatch(
     suppressWarnings(system(cmd, intern = intern)),
@@ -43,6 +55,10 @@ safe_system <- function(cmd, intern = TRUE) {
   paste(out, collapse = "\n")
 }
 
+# ------------------------------------------------------------------------------
+# Git helpers
+# ------------------------------------------------------------------------------
+# Collect short SHA and dirty status for metadata/run naming.
 git_info <- function() {
   sha <- safe_system("git rev-parse --short HEAD")
   dirty <- safe_system("git status --porcelain")
@@ -63,12 +79,7 @@ copy_outputs_subdirs <- function(src_root, dest_root, subdirs = c("tables", "fig
   invisible(TRUE)
 }
 
-reset_output_to_git_baseline <- function(baseline_dirs) {
-  suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "restore", baseline_dirs)))
-  suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "clean", "-fd", baseline_dirs)))
-  invisible(TRUE)
-}
-
+# Check whether a git ref exists locally/remotely.
 git_ref_exists <- function(ref) {
   res <- suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "rev-parse", "--verify", "--quiet", ref), stdout = FALSE, stderr = FALSE))
   isTRUE(res == 0)
@@ -80,23 +91,375 @@ resolve_baseline <- function(baseline_opt, current_branch) {
     return(list(mode = "current", ref = "HEAD", label = paste0("current branch (", branch_label, ")")))
   }
 
-  if (!identical(baseline_opt, "main")) {
-    stop_quietly("Invalid --baseline value. Use --baseline main (default) or --baseline current.")
+  if (identical(baseline_opt, "origin-current")) {
+    if (!nzchar(current_branch)) {
+      stop_quietly("🧌 Could not determine current branch name for --baseline origin-current. Switch to a branch and retry, or use --baseline main.")
+    }
+
+    remote_ref <- paste0("origin/", current_branch)
+    if (!git_ref_exists(remote_ref)) {
+      stop_quietly(paste0("🧌 Could not resolve baseline ref `", remote_ref, "`. Run `git fetch origin ", current_branch, "` (or push the branch) and retry, or use --baseline main/current."))
+    }
+
+    return(list(mode = "ref", ref = remote_ref, label = paste0(remote_ref, " (current branch on origin)")))
   }
 
-  if (git_ref_exists("main")) return(list(mode = "ref", ref = "main", label = "main"))
+  if (!identical(baseline_opt, "main")) {
+    stop_quietly("Invalid --baseline value. Use --baseline main (default), --baseline origin-current, or --baseline current.")
+  }
+
+  # Use remote-tracking main so baseline reflects origin by default.
   if (git_ref_exists("origin/main")) return(list(mode = "ref", ref = "origin/main", label = "origin/main"))
 
-  stop_quietly("Could not resolve baseline ref: neither `main` nor `origin/main` exists. Use --baseline current.")
+  stop_quietly("🧌 Could not resolve baseline ref `origin/main`. Run `git fetch origin main` and retry, or use --baseline origin-current/current.")
 }
 
+# Return full SHA for a git ref (NA when missing).
+git_ref_sha <- function(ref) {
+  out <- tryCatch(
+    suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "rev-parse", "--verify", ref), stdout = TRUE, stderr = FALSE)),
+    error = function(e) character(0)
+  )
+  if (length(out) == 0) return(NA_character_)
+  trimws(out[[1]])
+}
+
+# Return branch name for refs of the form origin/<branch>; otherwise NA.
+origin_branch_from_ref <- function(ref) {
+  if (!startsWith(ref, "origin/")) return(NA_character_)
+  branch <- sub("^origin/", "", ref)
+  if (!nzchar(branch)) return(NA_character_)
+  branch
+}
+
+# Query origin for the latest SHA of a branch; returns NA when unavailable.
+remote_origin_branch_sha <- function(branch) {
+  out <- tryCatch(
+    suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "ls-remote", "--heads", "origin", branch), stdout = TRUE, stderr = TRUE)),
+    error = function(e) character(0)
+  )
+  if (length(out) == 0) return(NA_character_)
+  hit <- out[grepl(paste0("refs/heads/", branch, "$"), out)]
+  if (length(hit) == 0) return(NA_character_)
+  fields <- strsplit(trimws(hit[[1]]), "\\s+")[[1]]
+  if (length(fields) == 0) return(NA_character_)
+  trimws(fields[[1]])
+}
+
+# Check whether local origin/<branch> matches current remote head.
+check_origin_ref_synced <- function(origin_ref) {
+  branch <- origin_branch_from_ref(origin_ref)
+  if (is.na(branch) || !nzchar(branch)) {
+    return(list(applicable = FALSE, synced = TRUE, status = "not-origin", branch = NA_character_, local_sha = NA_character_, remote_sha = NA_character_))
+  }
+
+  local_sha <- git_ref_sha(origin_ref)
+  remote_sha <- remote_origin_branch_sha(branch)
+
+  if (is.na(local_sha) || !nzchar(local_sha)) {
+    return(list(applicable = TRUE, synced = FALSE, status = "missing-local", branch = branch, local_sha = local_sha, remote_sha = remote_sha))
+  }
+
+  if (is.na(remote_sha) || !nzchar(remote_sha)) {
+    return(list(applicable = TRUE, synced = FALSE, status = "unknown-remote", branch = branch, local_sha = local_sha, remote_sha = remote_sha))
+  }
+
+  synced <- identical(local_sha, remote_sha)
+  list(
+    applicable = TRUE,
+    synced = synced,
+    status = if (synced) "synced" else "stale",
+    branch = branch,
+    local_sha = local_sha,
+    remote_sha = remote_sha
+  )
+}
+
+# Parse git-lfs pointer text into oid + size; NULL when file is not an LFS pointer.
+parse_lfs_pointer <- function(file_text) {
+  if (is.null(file_text) || !nzchar(file_text)) return(NULL)
+  lines <- trimws(unlist(strsplit(file_text, "\n", fixed = TRUE), use.names = FALSE))
+  if (!any(lines == "version https://git-lfs.github.com/spec/v1")) return(NULL)
+
+  oid_line <- lines[grepl("^oid sha256:[0-9a-f]{64}$", lines)][1]
+  size_line <- lines[grepl("^size [0-9]+$", lines)][1]
+  if (is.na(oid_line) || is.na(size_line)) return(NULL)
+
+  oid <- sub("^oid sha256:", "", oid_line)
+  size <- suppressWarnings(as.numeric(sub("^size ", "", size_line)))
+  if (!nzchar(oid) || is.na(size)) return(NULL)
+
+  list(oid = oid, size = size)
+}
+
+# List all files under a ref for selected paths.
+git_ls_tree_paths <- function(ref, rel_paths) {
+  out <- tryCatch(
+    suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "ls-tree", "-r", "--name-only", ref, "--", rel_paths), stdout = TRUE, stderr = FALSE)),
+    error = function(e) character(0)
+  )
+  out <- trimws(out)
+  out[nzchar(out)]
+}
+
+# Check local LFS cache coverage for a ref under selected output subpaths.
+lfs_availability_for_ref <- function(ref, rel_paths) {
+  files <- git_ls_tree_paths(ref, rel_paths)
+  if (length(files) == 0) {
+    return(list(
+      total_lfs_objects = 0L,
+      missing_objects = 0L,
+      total_lfs_bytes = 0,
+      missing_bytes = 0,
+      missing_preview = character(0)
+    ))
+  }
+
+  ptr_rows <- vector("list", length(files))
+  n_ptr <- 0L
+
+  for (rp in files) {
+    blob <- tryCatch(
+      suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "show", paste0(ref, ":", rp)), stdout = TRUE, stderr = FALSE)),
+      error = function(e) character(0)
+    )
+    if (length(blob) == 0) next
+
+    ptr <- parse_lfs_pointer(paste(blob, collapse = "\n"))
+    if (is.null(ptr)) next
+
+    n_ptr <- n_ptr + 1L
+    ptr_rows[[n_ptr]] <- data.frame(
+      relpath = rp,
+      oid = ptr$oid,
+      size = as.numeric(ptr$size),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (n_ptr == 0L) {
+    return(list(
+      total_lfs_objects = 0L,
+      missing_objects = 0L,
+      total_lfs_bytes = 0,
+      missing_bytes = 0,
+      missing_preview = character(0)
+    ))
+  }
+
+  ptr_df <- do.call(rbind, ptr_rows[seq_len(n_ptr)])
+  uniq <- ptr_df[!duplicated(ptr_df$oid), c("oid", "size"), drop = FALSE]
+
+  obj_root <- file.path(git_survey_bias_root, ".git", "lfs", "objects")
+  uniq$local_path <- file.path(obj_root, substr(uniq$oid, 1, 2), substr(uniq$oid, 3, 4), uniq$oid)
+  uniq$present <- file.exists(uniq$local_path)
+
+  missing <- uniq[!uniq$present, , drop = FALSE]
+
+  list(
+    total_lfs_objects = as.integer(nrow(uniq)),
+    missing_objects = as.integer(nrow(missing)),
+    total_lfs_bytes = sum(uniq$size, na.rm = TRUE),
+    missing_bytes = sum(missing$size, na.rm = TRUE),
+    missing_preview = if (nrow(missing) == 0) character(0) else missing$oid[seq_len(min(5, nrow(missing)))]
+  )
+}
+
+# Convert bytes to compact human-readable units.
+format_bytes <- function(bytes) {
+  if (is.na(bytes) || !is.finite(bytes) || bytes < 0) return("unknown size")
+  units <- c("B", "KB", "MB", "GB", "TB")
+  value <- as.numeric(bytes)
+  idx <- 1L
+  while (value >= 1024 && idx < length(units)) {
+    value <- value / 1024
+    idx <- idx + 1L
+  }
+  if (idx == 1L) {
+    paste0(format(round(value, 0), big.mark = ","), " ", units[[idx]])
+  } else {
+    paste0(format(round(value, 2), nsmall = 2, trim = TRUE), " ", units[[idx]])
+  }
+}
+
+# Enforce that remote baselines are synced locally (or block/repair based on storage mode).
+ensure_baseline_ref_synced <- function(baseline_cfg, storage_mode) {
+  if (!identical(baseline_cfg$mode, "ref")) return(invisible(TRUE))
+
+  sync <- check_origin_ref_synced(baseline_cfg$ref)
+  if (!isTRUE(sync$applicable)) return(invisible(TRUE))
+  if (isTRUE(sync$synced)) {
+    message("🎃 Baseline ref is synced with origin: ", baseline_cfg$ref, " @ ", substr(sync$local_sha, 1, 12))
+    return(invisible(TRUE))
+  }
+
+  stale_reason <- switch(
+    sync$status,
+    "missing-local" = paste0("Local ref `", baseline_cfg$ref, "` is missing."),
+    "unknown-remote" = paste0("Could not verify remote SHA for `origin/", sync$branch, "` (network/remote unavailable)."),
+    "stale" = paste0(
+      "Local `", baseline_cfg$ref, "` is stale.\n",
+      "Local SHA:  ", sync$local_sha, "\n",
+      "Remote SHA: ", sync$remote_sha
+    ),
+    paste0("Baseline ref `", baseline_cfg$ref, "` is not verified.")
+  )
+
+  fetch_cmd <- paste0("git fetch origin ", sync$branch)
+  if (identical(storage_mode, "dropbox")) {
+    stop_quietly(
+      paste0(
+        "🧌 Baseline sync check failed: ", stale_reason, "\n",
+        "Dropbox mode blocks comparison when baseline origin refs are not verified/synced.\n",
+        "Run `", fetch_cmd, "` and retry."
+      )
+    )
+  }
+
+  ok <- confirm_or_prompt_yes(
+    paste0(
+      "🧌 Baseline sync check failed: ", stale_reason, "\n",
+      "To continue in github mode, this tool must run:\n",
+      fetch_cmd, "\n"
+    )
+  )
+  if (!ok) stop_quietly("Aborted.", status = 2)
+
+  res <- suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "fetch", "origin", sync$branch)))
+  if (!isTRUE(res == 0)) {
+    stop_quietly(
+      paste0(
+        "🧌 Failed to sync baseline ref via `", fetch_cmd, "`.\n",
+        "Fix connectivity/permissions and retry."
+      )
+    )
+  }
+
+  sync2 <- check_origin_ref_synced(baseline_cfg$ref)
+  if (!isTRUE(sync2$synced)) {
+    stop_quietly(
+      paste0(
+        "🧌 Baseline ref still not synced after `", fetch_cmd, "`.\n",
+        "Local SHA:  ", sync2$local_sha %||% "NA", "\n",
+        "Remote SHA: ", sync2$remote_sha %||% "NA", "\n",
+        "Retry after resolving remote/ref issues."
+      )
+    )
+  }
+
+  message("🎃 Baseline ref synced: ", baseline_cfg$ref, " @ ", substr(sync2$local_sha, 1, 12))
+  invisible(TRUE)
+}
+
+# Enforce that baseline LFS objects are locally available (or block/repair by mode).
+ensure_baseline_lfs_available <- function(baseline_cfg, storage_mode, rel_paths) {
+  if (!identical(baseline_cfg$mode, "ref")) return(invisible(TRUE))
+
+  if (!nzchar(Sys.which("git-lfs"))) {
+    stop_quietly("🧌 git-lfs not found on PATH; cannot verify baseline LFS object availability.")
+  }
+
+  check <- lfs_availability_for_ref(baseline_cfg$ref, rel_paths)
+  if (check$total_lfs_objects == 0L) {
+    message("🎃 No LFS-tracked files detected under baseline output paths.")
+    return(invisible(TRUE))
+  }
+
+  if (check$missing_objects == 0L) {
+    message("🎃 Baseline LFS cache check passed (all required objects are local).")
+    return(invisible(TRUE))
+  }
+
+  branch <- origin_branch_from_ref(baseline_cfg$ref)
+  include_spec <- paste(rel_paths, collapse = ",")
+  fetch_cmd <- if (!is.na(branch) && nzchar(branch)) {
+    paste0("git lfs fetch --include=\"", include_spec, "\" origin ", branch)
+  } else {
+    paste0("git lfs fetch --include=\"", include_spec, "\" origin ", baseline_cfg$ref)
+  }
+
+  missing_summary <- paste0(
+    check$missing_objects, " missing LFS object(s), estimated download ",
+    format_bytes(check$missing_bytes), "."
+  )
+
+  if (identical(storage_mode, "dropbox")) {
+    stop_quietly(
+      paste0(
+        "🧌 Baseline LFS cache check failed: ", missing_summary, "\n",
+        "Dropbox mode blocks this comparison to avoid LFS downloads.\n",
+        "Switch to github mode or prefetch manually with:\n",
+        fetch_cmd
+      )
+    )
+  }
+
+  ok <- confirm_or_prompt_yes(
+    paste0(
+      "🧌 Baseline LFS cache check failed: ", missing_summary, "\n",
+      "To continue in github mode, this tool must download the missing baseline objects via:\n",
+      fetch_cmd, "\n"
+    )
+  )
+  if (!ok) stop_quietly("Aborted.", status = 2)
+
+  fetch_args <- c("-C", git_survey_bias_root, "lfs", "fetch", paste0("--include=", include_spec))
+  if (!is.na(branch) && nzchar(branch)) {
+    fetch_args <- c(fetch_args, "origin", branch)
+  } else {
+    fetch_args <- c(fetch_args, "origin", baseline_cfg$ref)
+  }
+
+  res <- suppressWarnings(system2("git", args = fetch_args))
+  if (!isTRUE(res == 0)) {
+    stop_quietly(
+      paste0(
+        "🧌 Failed to fetch baseline LFS objects.\n",
+        "Run `", fetch_cmd, "` manually and retry."
+      )
+    )
+  }
+
+  check2 <- lfs_availability_for_ref(baseline_cfg$ref, rel_paths)
+  if (check2$missing_objects > 0L) {
+    stop_quietly(
+      paste0(
+        "🧌 Baseline LFS objects are still missing after fetch (",
+        check2$missing_objects, " object(s), ",
+        format_bytes(check2$missing_bytes), ").\n",
+        "Retry `", fetch_cmd, "` and verify access to LFS objects."
+      )
+    )
+  }
+
+  message("🎃 Baseline LFS cache check passed after fetch.")
+  invisible(TRUE)
+}
+
+# Create temporary detached worktree for baseline snapshots.
 add_temp_worktree <- function(ref) {
   wt_dir <- tempfile(pattern = "results_compare_baseline_")
-  res <- suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "worktree", "add", "--detach", wt_dir, ref)))
+  # Disable hooks for this temporary internal checkout so fail-closed repo hooks do not block baseline extraction.
+  res <- suppressWarnings(system2("git", args = c("-C", git_survey_bias_root, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", wt_dir, ref)))
   if (!isTRUE(res == 0)) {
     stop_quietly(paste0("Failed to create temporary worktree for baseline ref `", ref, "`."))
   }
   wt_dir
+}
+
+# Replace LFS pointer files in a temporary baseline worktree using local LFS cache only.
+materialize_worktree_lfs <- function(worktree_dir, rel_paths) {
+  if (!nzchar(Sys.which("git-lfs"))) return(invisible(TRUE))
+  res <- suppressWarnings(system2("git", args = c("-C", worktree_dir, "lfs", "checkout", "--", rel_paths)))
+  if (!isTRUE(res == 0)) {
+    stop_quietly(
+      paste0(
+        "🧌 Failed to materialize LFS files in temporary baseline worktree.\n",
+        "Run `git lfs checkout -- ", paste(rel_paths, collapse = " "), "` and retry."
+      )
+    )
+  }
+  invisible(TRUE)
 }
 
 remove_temp_worktree <- function(path) {
@@ -106,11 +469,15 @@ remove_temp_worktree <- function(path) {
   invisible(NULL)
 }
 
+# ------------------------------------------------------------------------------
+# Argument and prompt helpers
+# ------------------------------------------------------------------------------
+# Parse command-line options and validate baseline mode.
 parse_args <- function(argv) {
   opts <- list(
     `run-name` = NULL,
     `skip-rerun` = FALSE,
-    `confirm-reset` = NULL,
+    `with-xlsx-cell-diffs` = FALSE,
     baseline = "main"
   )
 
@@ -122,7 +489,7 @@ parse_args <- function(argv) {
     }
     key <- substring(tok, 3)
 
-    if (key %in% c("skip-rerun")) {
+    if (key %in% c("skip-rerun", "with-xlsx-cell-diffs")) {
       opts[[key]] <- TRUE
       i <- i + 1
       next
@@ -134,31 +501,31 @@ parse_args <- function(argv) {
   }
 
   opts[["baseline"]] <- tolower(trimws(as.character(opts[["baseline"]] %||% "main")))
-  if (!(opts[["baseline"]] %in% c("main", "current"))) {
-    stop_quietly("Invalid --baseline value. Use --baseline main (default) or --baseline current.")
+  if (!(opts[["baseline"]] %in% c("main", "origin-current", "current"))) {
+    stop_quietly("Invalid --baseline value. Use --baseline main (default), --baseline origin-current, or --baseline current.")
   }
 
   opts
 }
 
+# Interactive confirmation helper used before fetch/download actions.
 prompt_yes <- function(message_text) {
   message(message_text)
   ans <- readline(prompt = "Type YES to continue: ")
   identical(ans, "YES")
 }
 
-confirm_or_prompt_yes <- function(message_text, confirm_value = NULL) {
-  if (identical(confirm_value, "YES")) {
-    message(message_text)
-    message("🎃 (auto-confirmed via --confirm-reset YES)")
-    return(TRUE)
-  }
-  prompt_yes(message_text)
-}
+confirm_or_prompt_yes <- function(message_text) prompt_yes(message_text)
 
+# ------------------------------------------------------------------------------
+# Path, copy, and manifest helpers
+# ------------------------------------------------------------------------------
+# Recursively list files under root; return empty vector when root is missing.
 list_files_recursive <- function(root_dir) {
   if (!dir.exists(root_dir)) return(character(0))
-  list.files(root_dir, recursive = TRUE, full.names = TRUE, include.dirs = FALSE)
+  files <- list.files(root_dir, recursive = TRUE, full.names = TRUE, include.dirs = FALSE)
+  # Ignore Office lock files (~$...) so transient editor artifacts do not pollute diffs.
+  files[!grepl("^~\\$", basename(files))]
 }
 
 rel_from <- function(file_paths, root_dir) {
@@ -190,6 +557,11 @@ copy_tree_fallback <- function(src_dir, dest_dir) {
 copy_tree_fast <- function(src_dir, dest_dir) {
   # On macOS/APFS, "cp -c" requests a copy-on-write clone (fast + space-efficient).
   # If unsupported, fall back to a normal recursive copy.
+  # Paths with spaces are routed directly to fallback copy to avoid shell splitting issues in cp invocation.
+  if (grepl("\\s", src_dir) || grepl("\\s", dest_dir)) {
+    return(copy_tree_fallback(src_dir, dest_dir))
+  }
+
   cp <- Sys.which("cp")
   if (nzchar(cp)) {
     ensure_dir(dirname(dest_dir))
@@ -199,6 +571,7 @@ copy_tree_fast <- function(src_dir, dest_dir) {
   copy_tree_fallback(src_dir, dest_dir)
 }
 
+# Map absolute file paths to md5 hashes.
 md5_map <- function(files) {
   if (length(files) == 0) return(setNames(character(0), character(0)))
   vals <- tryCatch(unname(tools::md5sum(files)), error = function(e) rep(NA_character_, length(files)))
@@ -292,6 +665,10 @@ manifest_for_roots <- function(old_root, new_root, subdirs = c("tables", "figure
   do.call(rbind, rows)
 }
 
+# ------------------------------------------------------------------------------
+# Table parsing and cell-diff helpers
+# ------------------------------------------------------------------------------
+# Normalize LaTeX cell text for stable comparisons.
 normalize_tex_cell <- function(x) {
   x <- gsub("%.*$", "", x)
   x <- gsub("\\\\textbf{", "", x, fixed = TRUE)
@@ -502,6 +879,10 @@ tex_cell_changes <- function(old_path, new_path, relpath) {
   )
 }
 
+# ------------------------------------------------------------------------------
+# Comparison bundle rendering helpers
+# ------------------------------------------------------------------------------
+# Build comparison.tex showing changed figures/tables.
 write_comparison_tex <- function(run_dir, changed_df) {
   tex_path <- file.path(run_dir, "comparison.tex")
 
@@ -887,10 +1268,32 @@ compile_tex_to_pdf <- function(run_dir, tex_path) {
   invisible(TRUE)
 }
 
+# ------------------------------------------------------------------------------
+# Main execution
+# ------------------------------------------------------------------------------
+# Build snapshots, rerun outputs (optional), and produce comparison bundle.
 main <- function() {
   opts <- parse_args(commandArgs(trailingOnly = TRUE))
 
-  baseline_dirs <- c("output/tables", "output/figures", "output/excel")
+  # Resolve output root from globals.R so behavior follows storage mode.
+  output_root <- normalizePath(output, winslash = "/", mustWork = FALSE)
+  output_subdirs <- c("tables", "figures", "excel")
+
+  # Determine whether output root lives inside the git repo.
+  repo_root_norm <- normalizePath(git_survey_bias_root, winslash = "/", mustWork = TRUE)
+  repo_prefix <- paste0(repo_root_norm, "/")
+  output_in_repo <- startsWith(output_root, repo_prefix)
+
+  # Build output path relative to repo root for git commands/worktree baselines.
+  output_rel <- if (output_in_repo) {
+    substring(output_root, nchar(repo_prefix) + 1)
+  } else {
+    basename(output_root)
+  }
+
+  # Build target subdirectories used for git status checks and baseline LFS preflight scope.
+  baseline_dirs <- file.path(output_rel, output_subdirs)
+  baseline_dirs_cmd <- paste(baseline_dirs, collapse = " ")
 
   if (!nzchar(Sys.which("git"))) stop_quietly("git not found on PATH")
 
@@ -900,23 +1303,57 @@ main <- function() {
   name_tag <- opts[["run-name"]] %||% ""
   if (nzchar(name_tag)) name_tag <- paste0("_", gsub("[^A-Za-z0-9._-]", "-", name_tag))
 
-  results_build_runs_root <- file.path(git_survey_bias_root, "output", "results_build_runs")
+  results_build_runs_root <- file.path(output_root, "results_build_runs")
   ensure_dir(results_build_runs_root)
   run_dir <- file.path(results_build_runs_root, paste0(stamp, "_", sha_tag, name_tag))
   ensure_dir(run_dir)
   message("🎃 Run folder: ", run_dir)
 
-  output_root <- file.path(git_survey_bias_root, "output")
   current_branch <- trimws(safe_system(paste("git -C", shQuote(git_survey_bias_root), "branch --show-current")) %||% "")
   baseline_cfg <- resolve_baseline(opts[["baseline"]], current_branch)
   message("🎃 Comparison baseline: ", baseline_cfg$label)
 
-  # 1) Optionally clean output/ when needed for baseline snapshot or reproducible reruns.
-  out_status <- safe_system(paste("git -C", shQuote(git_survey_bias_root), "status --porcelain", paste(baseline_dirs, collapse = " ")))
-  is_dirty_out <- !is.na(out_status) && nzchar(trimws(out_status))
-  needs_reset_for_baseline <- identical(baseline_cfg$mode, "current")
-  needs_reset_for_rerun <- !isTRUE(opts[["skip-rerun"]])
-  needs_reset_if_dirty <- is_dirty_out && (needs_reset_for_baseline || needs_reset_for_rerun)
+  # Use globals switch as storage mode source of truth.
+  storage_mode <- tolower(trimws(as.character(data_and_output_storage_location %||% ifelse(output_in_repo, "github", "dropbox"))))
+  if (!(storage_mode %in% c("github", "dropbox"))) {
+    stop_quietly("🧌 Invalid data_and_output_storage_location in globals.R. Use \"github\" or \"dropbox\".")
+  }
+  message("🎃 Storage mode: ", storage_mode)
+
+  # Preflight checks for ref-based baselines:
+  # 1) ensure local origin ref is synced with remote when applicable
+  # 2) ensure required baseline LFS objects are present locally (or explicitly fetched in github mode)
+  if (identical(baseline_cfg$mode, "ref")) {
+    ensure_baseline_ref_synced(baseline_cfg, storage_mode)
+    ensure_baseline_lfs_available(baseline_cfg, storage_mode, baseline_dirs)
+  }
+
+  # 1) Warn when output is dirty in repo mode; do not auto-reset/clean.
+  out_status <- ""
+  is_dirty_out <- FALSE
+
+  if (output_in_repo) {
+    out_status <- safe_system(paste("git -C", shQuote(git_survey_bias_root), "status --porcelain", baseline_dirs_cmd))
+    is_dirty_out <- !is.na(out_status) && nzchar(trimws(out_status))
+    if (is_dirty_out) {
+      if (isTRUE(opts[["skip-rerun"]])) {
+        message(
+          "🧌 output subdirectories are dirty and --skip-rerun is set.\n",
+          "Comparison will use current local output exactly as-is (including stale/untracked files)."
+        )
+      } else {
+        message(
+          "🧌 output subdirectories are dirty.\n",
+          "Rerun will proceed without reset/clean; stale/untracked files may appear as changes.\n",
+          "If you want clean-start rerun semantics, run manually:\n",
+          "git -C ", git_survey_bias_root, " restore ", baseline_dirs_cmd, "\n",
+          "git -C ", git_survey_bias_root, " clean -fd ", baseline_dirs_cmd
+        )
+      }
+    }
+  } else {
+    message("🎃 Output path is outside the git repo; skipping repo-dirty checks.")
+  }
 
   new_full <- if (isTRUE(opts[["skip-rerun"]])) file.path(run_dir, "new_full") else NULL
   if (isTRUE(opts[["skip-rerun"]])) {
@@ -925,53 +1362,22 @@ main <- function() {
     copy_outputs_subdirs(output_root, new_full)
   }
 
-  if (needs_reset_if_dirty) {
-    ok <- confirm_or_prompt_yes(
-      paste0(
-        "Some files in output/{tables,figures,excel} differ from the current-branch git baseline.\n",
-        if (isTRUE(opts[["skip-rerun"]]) && needs_reset_for_baseline) {
-          "To compute baseline='old' from the current branch safely, this tool will TEMPORARILY reset output/{tables,figures,excel} to baseline, snapshot it, then restore your current outputs.\n"
-        } else {
-          "🧌 To rerun from a clean baseline (fresh-clone behavior for this branch), this tool will reset output/{tables,figures,excel} before rerunning.\n"
-        },
-        "This will run: git restore output/tables output/figures output/excel  AND  git clean -fd output/tables output/figures output/excel\n"
-      ),
-      confirm_value = opts[["confirm-reset"]]
-    )
-
-    if (!ok) stop_quietly("Aborted.", status = 2)
-    message("🎃 Resetting output/ to git baseline...")
-    reset_output_to_git_baseline(baseline_dirs)
-
-    out_status2 <- safe_system(paste("git -C", shQuote(git_survey_bias_root), "status --porcelain", paste(baseline_dirs, collapse = " ")))
-    if (!is.na(out_status2) && nzchar(trimws(out_status2))) {
-      stop_quietly("output/ is still not clean after reset; aborting.")
-    }
-  }
-
   baseline_output_root <- output_root
   baseline_worktree_dir <- NULL
   if (!identical(baseline_cfg$mode, "current")) {
     message("🎃 Preparing baseline outputs from ref: ", baseline_cfg$ref)
     baseline_worktree_dir <- add_temp_worktree(baseline_cfg$ref)
     on.exit(remove_temp_worktree(baseline_worktree_dir), add = TRUE)
-    baseline_output_root <- file.path(baseline_worktree_dir, "output")
+    # Ensure baseline binaries come from local LFS cache rather than pointer text files.
+    materialize_worktree_lfs(baseline_worktree_dir, baseline_dirs)
+    # Mirror output root location inside worktree for baseline extraction from main/origin-main.
+    baseline_output_root <- file.path(baseline_worktree_dir, output_rel)
   }
 
   old_full <- file.path(run_dir, "old_full")
   ensure_dir(old_full)
   message("🎃 Snapshotting baseline output/ as 'old'...")
   copy_outputs_subdirs(baseline_output_root, old_full)
-
-  # If we were in --skip-rerun mode and reset for current-branch baseline snapshot, restore outputs.
-  if (isTRUE(opts[["skip-rerun"]]) && is_dirty_out && needs_reset_for_baseline) {
-    message("🎃 Restoring your pre-existing output/ (skip-rerun mode)...")
-    for (sd in c("tables", "figures", "excel")) {
-      tgt <- file.path(output_root, sd)
-      if (dir.exists(tgt)) unlink(tgt, recursive = TRUE, force = TRUE)
-    }
-    copy_outputs_subdirs(new_full, output_root)
-  }
 
   # 2) Rerun results (overwrites output/)
   if (!isTRUE(opts[["skip-rerun"]])) {
@@ -1049,7 +1455,11 @@ main <- function() {
   tex_path <- write_comparison_tex(run_dir, changed_for_tex)
   compile_tex_to_pdf(run_dir, tex_path)
 
-  # Cell diffs for .tex and .xlsx
+  # Optional cell diffs for .xlsx.
+  if (!isTRUE(opts[["with-xlsx-cell-diffs"]])) {
+    message("🎃 --with-xlsx-cell-diffs not set; skipping .xlsx cell-level diffs.")
+  }
+
   append_cell_diffs <- function(df, ext) {
     if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) return(invisible(NULL))
     df$ext <- ext
@@ -1084,14 +1494,16 @@ main <- function() {
     new_p <- file.path(run_dir, "new", rp)
 
     if (ext == "xlsx") {
-      if (!identical(st, "changed")) {
-        message("🎃 Skipping .xlsx cell diffs (status=", st, "): ", rp)
-      } else if (!file.exists(old_p) || !file.exists(new_p)) {
-        message("🎃 Skipping .xlsx cell diffs (missing old/new): ", rp)
-      } else {
-        message("🎃 Computing .xlsx cell diffs for: ", rp)
-        df <- xlsx_cell_changes(old_p, new_p, rp)
-        append_cell_diffs(df, "xlsx")
+      if (isTRUE(opts[["with-xlsx-cell-diffs"]])) {
+        if (!identical(st, "changed")) {
+          message("🎃 Skipping .xlsx cell diffs (status=", st, "): ", rp)
+        } else if (!file.exists(old_p) || !file.exists(new_p)) {
+          message("🎃 Skipping .xlsx cell diffs (missing old/new): ", rp)
+        } else {
+          message("🎃 Computing .xlsx cell diffs for: ", rp)
+          df <- xlsx_cell_changes(old_p, new_p, rp)
+          append_cell_diffs(df, "xlsx")
+        }
       }
     }
 
@@ -1110,6 +1522,7 @@ main <- function() {
     git_sha_short = gi$sha,
     git_dirty = gi$dirty,
     baseline_mode = opts[["baseline"]],
+    xlsx_cell_diffs_enabled = isTRUE(opts[["with-xlsx-cell-diffs"]]),
     baseline_label = baseline_cfg$label,
     baseline_ref = baseline_cfg$ref,
     n_changed = n_changed,

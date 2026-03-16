@@ -1,19 +1,16 @@
-# ------------------------------------------------------------------------------
-# Purpose: README file for survey bias project
-#
-# Created: Nico Rotundo 2026-01-06
-# ------------------------------------------------------------------------------
+<!------------------------------------------------------------------------------
+Purpose: README file for survey bias project
 
-Repository for the code used to version-control the data build, analysis, and results for the survey bias project.
+Created: Nico Rotundo 2026-01-06
+# ----------------------------------------------------------------------------->
 
 # Getting started 
 
-## Prerequisites
+## Setup instructions
+
+### Prerequisites
 - R 
 - Python 3
-- Git LFS
-
-## Setup instructions
 
 ### If you haven't cloned the repository yet,
 1. Install Git LFS at https://git-lfs.com/ 
@@ -28,9 +25,9 @@ Repository for the code used to version-control the data build, analysis, and re
 ### Final setup (all users),
 1. Add your Dropbox folder path to `globals.R` and `globals.py`
    1. Run `whoami` in your terminal to get your username
-   1. in `globals.R`,
+   1. In `globals.R`,
       1. Under the `Define user-specific Dropbox root path` section, add an analagous set of lines for your username and Dropbox path as the existing ones for Nico, Monica, and Jordan (i.e., `"your_username" =  "your_dropbox_path"`)
-   2. in `globals.py`, 
+   2. In `globals.py`, 
       1. Do the same as in `globals.R`
       
 2. Open an R terminal in VScode in the project directory and the `.Rprofile` will automatically,
@@ -42,73 +39,112 @@ Repository for the code used to version-control the data build, analysis, and re
 
 4. With the above, everything else should be automatically set up when you run any code file (i.e., Python virtual environment, Python packages, etc...)
 
-## General check XXedit this documentation
-1. Make sure that the data_and_output_storage_location switch in `globals.R` and `globals.py` is set to the intended value (i.e., either "dropbox" or "github")
+## Important general notes 
 
-## Git LFS hook policy (fail-closed)
-1. This repo uses fail-closed hooks in `.githooks/` for `post-checkout`, `post-merge`, and `pre-push`.
-2. If a hook cannot parse/validate `data_and_output_storage_location` in `code/globals.R` or cannot apply the expected LFS mode, the Git operation is blocked.
-3. Hook changes are repo-local (`git lfs install --local --skip-repo ...` and `git config --local ...`), so this does not modify global Git behavior on a machine.
+### I. Data and output storage system
+This project stores data using Git LFS --- however, we have a backup storage plan in place in the (rare) case that we run out of Git LFS storage or bandwidth, 
 
-## Blocked action recovery
-1. Confirm storage mode is valid in `code/globals.R`:
-   - `data_and_output_storage_location <- "dropbox"` or
-   - `data_and_output_storage_location <- "github"`
-2. Re-apply expected local LFS mode:
-   - For dropbox mode: `git lfs install --local --skip-smudge --skip-repo`
-   - For github mode: `git lfs install --local --skip-repo`
-3. Re-register repo hook path (if needed): `git config --local core.hooksPath .githooks`
-4. Confirm Git LFS is installed: `git lfs version`
-5. Retry the blocked Git command.
-	 
-## For code you write, 
-1. For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages
+   1. *To set the system, just set the value of the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to the intended value (i.e., usually `github`; but `dropbox` if space constrained on Git LFS)*
+   2. *If switching from Github to Dropbox, one person needs to do the following,*
+      
+      i. Make sure your local `data/` and `/output` folders are exactly the versions you want to mirror in Dropbox --- if needed, run `git lfs pull` to get the latest versions of files tracked in LFS
 
-# Comparing results across code changes
+      ii. Copy the `data/` and `output/` folders to `/Survey/consolidated_code/github_data_and_output_mirrors`
 
-To do a clean before/after check of **all results outputs**, use the rerun+compare driver. Baseline is defined as the **git-tracked** contents of `output/` (what a fresh clone would see).
+      iii. Switch the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to `dropbox`
 
-From the project root:
+      iv. Source `globals.R` in your R terminal
 
-- `Rscript code/tools/results_rerun_compare.R --run-name my_test`
+   3. *If switching from Dropbox to Github, one person needs to do the following,*
+      
+      i. Make sure the Dropbox `/Survey/consolidated_code/github_data_and_output_mirrors` folder contains the correct `data/` and `/output` folders
 
-This will:
-1. Prompt to revert `output/` to the git baseline if it differs (type `YES` to proceed).
-2. Rerun results via `code/create_tables_figures/metafile.R`.
-3. Write a compact run bundle under `output/runs/` containing:
-   - `changes.csv` (file-level + cell-level diffs for `.tex` and `.xlsx`)
-   - `comparison.tex` (+ `comparison.pdf` if `pdflatex` is installed) showing old vs new for changed tables/figures (figures are side-by-side; `.tex` tables are included as old/new snippets)
+      ii. Copy the `data/` and `output/` folders from `/Survey/consolidated_code/github_data_and_output_mirrors` to the local `data/` and `/output` folders in the repository
 
-Notes:
-- Baseline is defined as the git-tracked contents of output/tables, output/figures, output/excel.
-- `--skip-rerun` compares your current output/ against the baseline. If output/ is dirty, the tool will prompt to temporarily reset output/ to capture the baseline snapshot and then restore your outputs.
+      iii. Review the set of changes and double-check that the local `data/` and `/output` folders are exactly how you want them to be in the repository (since these will be what gets pushed to Github and tracked in Git LFS)
 
-If there are zero changes, the tool prints a message and deletes the run folder.
+      iv. Commit and push the changes to Github (which will also push the relevant LFS objects)
 
-## For any issues, reach out to me at `nrotundo@berkeley.edu`
+      v. Switch the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to `github`
 
-# Todo
-1. Build out structure of survey bias project directory (i.e., code, data, etc... folders) and get basic infrastructure working (i.e., automated setup of background things, such that anyone should be able to just clone the directory and just run any given file; package management for R and Python; globals for filepaths; metafiles for project execution that run the project from top-to-bottom and organize code order)
-   1. I think all that is left here is to make sure that the pakage management is functioning properly --- so it preserves package versions across time 
-   2. perhaps worthwhile to use Github LFS instead of dropbox for data
-      1. from my understanding it stores the data on some server and just saves a small version of the data file with binary pointers to these data (so like a filepath to the data stored on the server)
-         1.  when using EML, this seems like it would be useful to avoid having to download the entire data folder locally and managing the dropbox-eml sync in addition to the github-eml sync
-       2.  also, it'll be a good excuse to refine how we manage and store data, while keeping the dropbox archive as a backup  
+      vi. Source `globals.R` in your R terminal
 
-2.  for the metafiles, need to figure out if `source` can submit bash scripts, or if it is running things interactively 
+   4. After doing so, the backround processes for (i) syncing data and outputs to the intended storage location and (ii) zeroing LFS bandwidth use (in the case of switching to Dropbox) will be automatically set up
 
-3. I went through `clean_raw_qualtrics_data.py` (i.e., `code/Evan/1_clean_data.py` in the Dropbox) and noted various questions i had with `XX` comments --- need to cntrl-f for `XX` and address those questions at some point 
+### II. *For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages*
 
-4. Now I think we just need to move over the remaining project code from the Dropbox to here, and change filepaths 
-   1. Need to figure out the best approach to porting the Dropbox codebase here efficiently --- ideally would go file-by-file, adding necessary data to the Github data folder as we go, but this might be too time-consuming
-      1. Alternatively, could just upload the entire codebase and clean up as we go, but hesitate to do this, as then we'll be at square one re organizing the codebase
-      2. Perhaps just upload the necessary files for what is currently in the draft, but nothing else? and then worst case if we need something else later we can add it then 
+### III. Comparing results across code changes
+Use `code/tools/results_rerun_compare.R` from the project root to compare outputs before vs after code changes
 
-5. For all intermediate datasets (i.e., not raw data), should probably check against the dropbox versions to ensure they match exactly
+#### Option definitions and prompt notes
+1. `--run-name` (optional): this option defines a suffix added to the run subfolder name under `output/results_build_runs/` (or Dropbox mirror output path when in Dropbox mode)
+   - If not provided, no run-name suffix is added
+   
+2. `--baseline` (optional): this command sets what branch's `/output` folder to use as a baseline for comparison
+   - Defaults to using the `/output` files in `/origin/main` (i.e., the `/output` files you see if you go to Github and look at `/main`) as the baseline files you are comparing against 
+   - Can also be set to `origin-current`, which will use the `/output` files in `/origin/<current_branch>` (i.e., the `/output` files you see if you go to Github and look at `/<current_branch>`) as the baseline files you are comparing against 
+   - We can eventually add more baseline options if they become relevant
+  <!-- - Can also be set to `current`, which uses your current local `/output` folder at runtime as the baseline snapshot -->
 
-6. Separately, need to figure out the EML integration and adjust the codebase accordingly
+3. `--skip-rerun` (optional flag): do not run the `code/create_tables_figures/metafile.R` file
+   - Compares current outputs against baseline snapshot i.e., what you see in `/output` currently is what you compare against baseline
 
-# Temporary notes on codebase (will finalize)
+4. `--with-xlsx-cell-diffs` (optional flag): compute cell-level diffs for changed `.xlsx` files
+   - Default behavior is off (only file-level diffs are written for Excel files)
+   - Turn this on when you specifically need cell-level spreadsheet change details (you most likely will not)
+
+5. *Reasons the script may abort before doing anything,*
+   - The script first checks whether the local tracking ref is synced with `origin/main` or `origin/<current_branch>` (depending on baseline mode)
+   - The script then checks whether baseline LFS objects for `/output/{tables,figures,excel}` are already in local LFS cache
+     - In github mode, if either check fails, the script prompts before running `git fetch` and/or `git lfs fetch` (and reports estimated LFS download size when needed)
+     - In dropbox mode, if either check fails, the script aborts, since downloading files from Github is not an option with the space constraints 
+
+6. *Local output note.* The script compares against whatever is currently in your local `/output` folder on the “new” side of the comparison
+   - If your local `/output` folder contains stale files from earlier runs, manually edited files, or extra untracked files, those may appear in the comparison
+     - In github storage mode (output inside repository), the script warns when this is the case and continues
+     - In dropbox storage mode (output outside repository), the script cannot warn you using Git since the Dropbox `/output` folder is outside the repository
+
+#### Common use cases and their respective commands (where <> denotes things to fill in)
+1. You want to rerun the entire set of code that creates outputs (i.e., `code/create_tables_figures/metafile.R`) and compare against `origin/main` as the baseline,
+   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test>`
+2. You want to rerun the entire set of code that creates outputs and compare against your current branch on GitHub (`origin/<current_branch>`) as the baseline,
+   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline origin-current`
+3. You want to compare your local `/output` folder as-is (e.g., you have already generated a subset of new results) against `origin/main` as the baseline,
+   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --skip-rerun`
+4. You want to compare your local `/output` folder as-is (e.g., you have already generated a subset of new results) against `origin/<current_branch>` as the baseline,
+   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline origin-current --skip-rerun`
+<!-- 5. You have already generated a subset of new results in the `/output` folder and want to compare against your local current branch's `/output` folder + unpushed commits as the baseline,
+   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline current --skip-rerun` -->
+<!--6. You want cell-level diffs for changed Excel outputs in any of the above workflows,
+   - add `--with-xlsx-cell-diffs` to the command-->
+   
+#### How the script works 
+1. Creates a run subfolder under `output/results_build_runs/` (or Dropbox mirror output path when in Dropbox mode i.e., `/Survey/consolidated_code/github_data_and_output_mirrors`)
+2. Sets baseline source paths based on `--baseline` option
+   - `main` -> `origin/main`
+   - `origin-current` -> `origin/<current_branch>`
+3. Runs the following preflight checks before copying the `/output` files from the baseline you chose, 
+   - Your local copy of the baseline branch matches what is currently on GitHub
+   - Required baseline LFS objects for `output/{tables,figures,excel}` are available locally
+   - In github mode, the script can prompt to run `git fetch` / `git lfs fetch`; in dropbox mode, preflight failures abort
+4. Creates `old_full/{tables,figures,excel}` by copying baseline output files into the run folder
+5. Creates `new_full/{tables,figures,excel}` only when `--skip-rerun` is set, by copying current local output into the run folder; otherwise, runs `code/create_tables_figures/metafile.R` and treats the active output root as the "new" side.
+6. Compares `old_full` vs new side
+   - If there are zero differences, deletes the run folder and exits
+   - Otherwise writes file-level diffs to `changes.csv` and continues
+7. Copies changed files into run-level `old/` and `new/`, writes `comparison.tex`, and generates `comparison.pdf`
+8. Appends `.xlsx` cell-level diffs to `changes.csv` only when `--with-xlsx-cell-diffs` is set
+9.  Writes metadata (`meta.json`) describing baseline mode/ref and run counts
+
+---
+# For any issues on the above or below, reach out to me at `nrotundo@berkeley.edu`
+
+## Todo
+1. We should get package management working properly for both R and Python (i.e., `renv` for R and virtual environment for Python) so that we can ensure reproducibility across time
+
+2. Separately, need to figure out the EML integration and adjust the codebase accordingly
+
+## (Unfinished) Notes on codebase
 
 1. Infrastructure code folders/files 
    
@@ -142,12 +178,7 @@ If there are zero changes, the tool prints a message and deletes the run folder.
    2. `/code/XX/metafile.R` --- File that executes all R scripts in a given subdirectory in the correct order
       1. Whenever a new code file is created, it should be added to the appropriate sub-metafile in the correct order
 
-# Miscellaneous temporary notes 
-
-1. Right now, I have both the data and results stored in the GitHub repository both for simplicity and to ensure I am not overwriting data and results for the draft
-   1. However, if we want to store these in Dropbox, it should be the case that the only changes will be to the filepaths in `globals.R` and `globals.py` 
-      1. This may require people to manually set Dropbox filepaths on their machines in `globals.R` and `globals.py` (unless we can find a way to automate this based on e.g., OS username or something else unique to each machine)
-2. Key features of this codebase 
-   1. Auto-setup of necessary infrastructure for new users 
-   2. Ability to execute any code file interactively without using the metafile
-   3. XX
+3. Git LFS hook policy (fail-closed)
+   1. This repo uses fail-closed hooks in `.githooks/` for `post-checkout`, `post-merge`, and `pre-push`
+   2. If a hook cannot parse/validate `data_and_output_storage_location` in `code/globals.R` or cannot apply the expected LFS mode, the Git operation is blocked
+   3. Hook changes are repo-local (`git lfs install --local --skip-repo ...` and `git config --local ...`), so this does not modify global Git behavior on a machine 
