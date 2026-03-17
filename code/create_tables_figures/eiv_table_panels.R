@@ -223,6 +223,40 @@ build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
   message("✓ LaTeX table saved to: ", out_tex)
 }
 
+# ---------- TWO-PANEL LATEX TABLE BUILDER ----------
+
+build_two_panel_eiv_table <- function(cfg_left, cfg_right, out_tex,
+                                      build_fn = build_eiv_df,
+                                      left_label = "Panel A: Plackett--Luce",
+                                      right_label = "Panel B: Borda") {
+  df_left  <- build_fn(cfg_left)
+  df_right <- build_fn(cfg_right)
+
+  common_cols <- colnames(df_left)
+  df_left  <- df_left[, common_cols]
+  df_right <- df_right[, common_cols]
+
+  combined_df <- bind_rows(df_left, df_right)
+  n_left  <- nrow(df_left)
+  n_right <- nrow(df_right)
+
+  tex_code <- kable(
+    combined_df,
+    format    = "latex",
+    booktabs  = TRUE,
+    align     = c("l", rep("c", ncol(combined_df) - 1)),
+    col.names = common_cols,
+    linesep   = "",
+    escape    = FALSE
+  ) %>%
+    pack_rows(left_label, 1, n_left) %>%
+    pack_rows(right_label, n_left + 1, n_left + n_right)
+
+  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
+  writeLines(tex_code, out_tex)
+  message("✓ LaTeX table saved to: ", out_tex)
+}
+
 # ---------- CONFIG HELPERS ----------
 
 make_uni_cfg <- function(root, model, lhs, rhs_contact, rhs_conduct, rhs_extra,
@@ -331,6 +365,47 @@ build_four_panel_eiv_table(
   cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
   cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
   out_tex   = file.path(tables, "EIV_age_four_panel_wt.tex")
+)
+
+# ==========================================================================
+# UNIVARIATE TWO-PANEL TABLES (WEIGHTED)
+# Keep legacy PL+Borda names for comparison scripts; add OLS+Borda variants.
+# ==========================================================================
+
+# ---- Race (weighted): PL + Borda (legacy name) ----
+build_two_panel_eiv_table(
+  cfg_left   = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+  cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+  out_tex    = file.path(tables, "EIV_race_two_panel_wt.tex"),
+  left_label = "Panel A: Plackett--Luce",
+  right_label = "Panel B: Borda"
+)
+
+# ---- Gender (weighted): PL + Borda (legacy name) ----
+build_two_panel_eiv_table(
+  cfg_left   = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+  cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+  out_tex    = file.path(tables, "EIV_gender_two_panel_wt.tex"),
+  left_label = "Panel A: Plackett--Luce",
+  right_label = "Panel B: Borda"
+)
+
+# ---- Race (weighted): OLS + Borda ----
+build_two_panel_eiv_table(
+  cfg_left   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+  cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+  out_tex    = file.path(tables, "EIV_race_two_panel_wt_ols_borda.tex"),
+  left_label = "Panel A: OLS",
+  right_label = "Panel B: Borda"
+)
+
+# ---- Gender (weighted): OLS + Borda ----
+build_two_panel_eiv_table(
+  cfg_left   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+  cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+  out_tex    = file.path(tables, "EIV_gender_two_panel_wt_ols_borda.tex"),
+  left_label = "Panel A: OLS",
+  right_label = "Panel B: Borda"
 )
 
 # ==========================================================================

@@ -1,5 +1,12 @@
 source("code/globals.R")
 
+# Resolve firm identifier column across old/new pipeline formats
+get_firm_id_col <- function(df) {
+  if ("firm_id" %in% names(df)) return("firm_id")
+  if ("entity_id" %in% names(df)) return("entity_id")
+  stop("Could not find firm identifier column (expected `firm_id` or `entity_id`).")
+}
+
 # -------------------------------------------------------------------
 # 0. User inputs
 # -------------------------------------------------------------------
@@ -67,19 +74,54 @@ outcomes <- c("pooled_favor_white", "pooled_favor_male")
 exp_coef_path <- file.path(excel, full_sample_file)
 
 exp_coef_raw <- readxl::read_xlsx(exp_coef_path, sheet = "Coefficients")
+id_col <- get_firm_id_col(exp_coef_raw)
+
 # New pipeline has model column; filter to one model to avoid duplicates
 if ("model" %in% names(exp_coef_raw)) {
   exp_coef_raw <- exp_coef_raw %>%
     dplyr::filter(.data$model == dplyr::first(unique(.data$model)))
 }
-if ("dif" %in% names(exp_coef_raw)) {
+
+# In new long format, keep firm rows and use subset == "all" for baseline IDs
+if ("entity_type" %in% names(exp_coef_raw)) {
+  exp_coef_raw <- exp_coef_raw %>%
+    dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
+}
+if ("subset" %in% names(exp_coef_raw)) {
+  exp_coef_raw <- exp_coef_raw %>% dplyr::filter(.data$subset == "all")
+}
+
+if (all(c("outcome", "estimate") %in% names(exp_coef_raw))) {
+  if (any(exp_coef_raw$outcome == "dif")) {
+    exp_firm_ids <- exp_coef_raw %>%
+      dplyr::filter(.data$outcome == "dif", !is.na(.data$estimate)) %>%
+      dplyr::pull(!!rlang::sym(id_col)) %>%
+      unique() %>%
+      sort()
+  } else {
+    exp_firm_ids <- exp_coef_raw %>%
+      dplyr::pull(!!rlang::sym(id_col)) %>%
+      unique() %>%
+      sort()
+  }
+} else if ("dif" %in% names(exp_coef_raw)) {
   exp_firm_ids <- exp_coef_raw %>%
     dplyr::filter(!is.na(.data$dif)) %>%
-    dplyr::pull(firm_id) %>%
+    dplyr::pull(!!rlang::sym(id_col)) %>%
     unique() %>%
     sort()
 } else {
-  exp_firm_ids <- exp_coef_raw$firm_id %>% unique() %>% sort()
+  exp_firm_ids <- exp_coef_raw %>%
+    dplyr::pull(!!rlang::sym(id_col)) %>%
+    unique() %>%
+    sort()
+}
+
+if (length(exp_firm_ids) == 0L) {
+  exp_firm_ids <- exp_coef_raw %>%
+    dplyr::pull(!!rlang::sym(id_col)) %>%
+    unique() %>%
+    sort()
 }
 
 cat("Identified", length(exp_firm_ids),
@@ -113,10 +155,41 @@ read_theta <- function(excel, file, outcome,
     # Old pipeline: Borda in separate sheet
     df <- readxl::read_xlsx(path, sheet = "borda_score")
   }
-
-  df %>%
-    dplyr::select(firm_id, !!sym(outcome)) %>%
-    dplyr::rename(theta = !!sym(outcome))
+  
+  id_col <- get_firm_id_col(df)
+  
+  if (all(c("outcome", "estimate") %in% names(df))) {
+    if ("entity_type" %in% names(df)) {
+      df <- df %>%
+        dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
+    }
+    if ("subset" %in% names(df)) {
+      df <- df %>% dplyr::filter(.data$subset == "all")
+    }
+    
+    out <- df %>%
+      dplyr::filter(.data$outcome == !!outcome) %>%
+      dplyr::select(!!rlang::sym(id_col), estimate) %>%
+      dplyr::rename(
+        firm_id = !!rlang::sym(id_col),
+        theta   = estimate
+      )
+  } else {
+    out <- df %>%
+      dplyr::select(!!rlang::sym(id_col), !!rlang::sym(outcome)) %>%
+      dplyr::rename(
+        firm_id = !!rlang::sym(id_col),
+        theta   = !!rlang::sym(outcome)
+      )
+  }
+  
+  out %>%
+    dplyr::mutate(
+      firm_id = suppressWarnings(as.numeric(.data$firm_id)),
+      theta   = suppressWarnings(as.numeric(.data$theta))
+    ) %>%
+    dplyr::filter(!is.na(.data$firm_id)) %>%
+    dplyr::distinct(.data$firm_id, .keep_all = TRUE)
 }
 
 # -------------------------------------------------------------------
@@ -275,7 +348,7 @@ compute_corr_row <- function(theta1, theta2,
   signal2  <- sig2_row$signal[1]
   
   denom <- sqrt(signal1 * signal2)
-  corr_c <- if (denom > 0) covariance / denom else NA_real_
+  corr_c <- if (is.finite(denom) && denom > 0) covariance / denom else NA_real_
   
   tibble::tibble(
     model      = model,
@@ -562,3 +635,30 @@ latex_lines <- c(
 out_tex <- file.path(tables, "pl_borda_corr_with_LR_pvals.tex")
 writeLines(latex_lines, out_tex)
 message("LaTeX table written to: ", out_tex)
+
+# -------------------------------------------------------------------
+# 8. Generate OLS + Borda version (keep original table unchanged)
+# -------------------------------------------------------------------
+
+panelA_ols_borda <- get_panel_matrix(ols_corr,   pl_corr, all_firms_flag = TRUE, with_pvalues = TRUE)
+panelB_ols_borda <- get_panel_matrix(borda_corr, pl_corr, all_firms_flag = TRUE, with_pvalues = FALSE)
+
+latex_lines_ols_borda <- c(
+  "  \\centering",
+  "  \\begin{tabular}{lcccc}",
+  "    \\toprule",
+  "    & \\multicolumn{2}{c}{Discrimination Black} & \\multicolumn{2}{c}{Discrimination Female} \\\\",
+  "    & Corr & p-value & Corr & p-value \\\\",
+  "    \\midrule",
+  "    \\multicolumn{5}{l}{\\textbf{Panel A: OLS}}\\\\",
+  panel_rows(panelA_ols_borda),
+  "    \\addlinespace",
+  "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
+  panel_rows(panelB_ols_borda),
+  "    \\bottomrule",
+  "  \\end{tabular}"
+)
+
+out_tex_ols_borda <- file.path(tables, "ols_borda_corr_with_LR_pvals.tex")
+writeLines(latex_lines_ols_borda, out_tex_ols_borda)
+message("LaTeX table written to: ", out_tex_ols_borda)
