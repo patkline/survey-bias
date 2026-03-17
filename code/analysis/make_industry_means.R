@@ -1,189 +1,343 @@
-################################################################################
-# Create industry means + SEs (jobs-weighted) for:
-#   - Plackett–Luce (Coefficients + Robust SEs)
-#   - Ordered Logit (OL_Coefficients + OL_Robust_SEs)
-#   - Borda (borda_score + borda_score_se)
+# ------------------------------------------------------------------------------
+# Add industry-mean outcomes (equal-weighted + weighted) and demeaned outcomes
 #
-# Writes to Excel:
-#   - ind_mean_PL, ind_mean_OL, ind_mean_Borda
+# Creates FOUR NEW outcomes per original outcome:
+#   outcome_im    : industry means (equal weights)
+#   outcome_dm    : firm deviations from equal-weight industry means
+#   outcome_im_w  : industry means (weights from firm_table[[weight_col]])
+#   outcome_dm_w  : firm deviations from weighted industry means
 #
-# Requires: dplyr, tidyr, openxlsx
-################################################################################
+# Notes:
+# - Uses ONLY Firm entities as inputs.
+# - Output mats are standardized to entity<id> column names.
+# - S outputs keep ONLY resp_id as an id column.
+# - Weighted versions are ONLY computed if weight_col is provided AND fully populated
+#   (no NA / non-finite). If require_positive_weights=TRUE, also requires all weights > 0.
+# ------------------------------------------------------------------------------
 
-make_industry_means <- function(output_path, industry_map, weights_df = NULL,
-                                pl_coef_sheet = "Coefficients",
-                                pl_se_sheet   = "Robust SEs",
-                                ol_coef_sheet = "OL_Coefficients",
-                                ol_se_sheet   = "OL_Robust_SEs",
-                                borda_coef_sheet = "borda_score",
-                                borda_se_sheet   = "borda_score_se",
-                                out_prefix = "ind_mean") {
+add_industry_means_to_results <- function(
+    results,
+    industry_map,
+    outcomes,
+    model_names = NULL,
+    which_sets = c("all", "subset97"),
+    industry_col = "aer_naics2",
+    suffix_dm = "_dm",
+    suffix_im = "_im",
+    suffix_dm_w = "_dm_w",
+    suffix_im_w = "_im_w",
+    weight_col = NULL,               # e.g. "njobs"
+    require_positive_weights = TRUE  # if TRUE, skip weighted versions unless all w > 0
+) {
+  stopifnot(is.list(results))
+  stopifnot("firm_id" %in% names(industry_map))
+  stopifnot(industry_col %in% names(industry_map))
   
-  # ---- helpers ----
-  safe_read <- function(sheet) {
-    if (!(sheet %in% openxlsx::getSheetNames(output_path))) return(NULL)
-    tryCatch(openxlsx::read.xlsx(output_path, sheet = sheet), error = function(e) NULL)
+  # --- helpers from your entity-aware stack (must exist in scope) ---
+  if (!exists(".coerce_entity_table", mode = "function")) stop(".coerce_entity_table() not found in scope.")
+  if (!exists(".resolve_entity_cols", mode = "function")) stop(".resolve_entity_cols() not found in scope.")
+  if (!exists(".make_entity_cols", mode = "function")) stop(".make_entity_cols() not found in scope.")
+  
+  # which models to loop over
+  if (is.null(model_names)) {
+    model_names <- intersect(
+      c("OL", "PL", "Borda", "OLS", "OLSC"),
+      unique(c(names(results$all), names(results$subset97)))
+    )
   }
   
-  # weights: default to njobs inside weights_df if provided; else try to read from data?
-  # Here we assume weights_df has columns firm_id, weights (njobs)
-  if (!is.null(weights_df)) {
-    w_tbl <- weights_df %>%
-      dplyr::select(firm_id, weights) %>%
-      dplyr::distinct() %>%
-      dplyr::mutate(firm_id = as.integer(firm_id),
-                    weights = as.numeric(weights))
-  } else {
-    stop("Provide weights_df with columns firm_id and weights (njobs).")
-  }
-  
-  ind_map <- industry_map %>%
-    dplyr::select(firm_id, aer_naics2) %>%
-    dplyr::distinct() %>%
-    dplyr::mutate(firm_id = as.integer(firm_id))
-  
-  # Compute industry mean + propagated measurement-error SE:
-  #   a_f = w_f / sum_g w
-  #   mu_g = sum a_f x_f
-  #   se_g = sqrt( sum a_f^2 se_f^2 )
-  summarize_to_industry <- function(df_coef, df_se, label) {
-    if (is.null(df_coef)) return(NULL)
+  # --- build equal-weight GAM ---
+  build_GAM_equal <- function(firm_ids, industry_ids) {
+    J <- length(firm_ids)
+    inds <- sort(unique(industry_ids))
+    K <- length(inds)
     
-    id_cols <- intersect(c("firm_id","firm"), names(df_coef))
-    if (!("firm_id" %in% id_cols)) stop(label, ": firm_id missing in coef sheet.")
-    
-    # outcomes = numeric columns excluding id cols
-    out_cols <- setdiff(names(df_coef), id_cols)
-    out_cols <- out_cols[sapply(df_coef[out_cols], is.numeric)]
-    
-    if (!length(out_cols)) return(NULL)
-    
-    # SEs: if missing or column not present, fill NA
-    if (is.null(df_se)) {
-      df_se <- df_coef[, c(id_cols, out_cols), drop = FALSE]
-      df_se[out_cols] <- NA_real_
-    } else {
-      # ensure same set of cols; missing -> NA
-      keep_se <- intersect(c(id_cols, out_cols), names(df_se))
-      df_se2 <- df_coef[, c(id_cols), drop = FALSE]
-      for (oc in out_cols) {
-        if (oc %in% names(df_se)) df_se2[[oc]] <- as.numeric(df_se[[oc]])
-        else df_se2[[oc]] <- NA_real_
-      }
-      df_se <- df_se2
+    G <- matrix(0, nrow = J, ncol = K)
+    colnames(G) <- as.character(inds)
+    for (j in seq_len(J)) {
+      k <- match(industry_ids[j], inds)
+      G[j, k] <- 1
     }
     
-    # long for coef
-    coef_long <- df_coef %>%
-      dplyr::select(dplyr::all_of(c("firm_id", out_cols))) %>%
-      tidyr::pivot_longer(cols = dplyr::all_of(out_cols),
-                          names_to = "outcome", values_to = "x_hat") %>%
-      dplyr::mutate(firm_id = as.integer(firm_id),
-                    x_hat = as.numeric(x_hat))
+    GtG <- crossprod(G)       # KxK
+    A   <- solve(GtG, t(G))   # KxJ
+    M   <- diag(J) - G %*% A  # JxJ
     
-    # long for se
-    se_long <- df_se %>%
-      dplyr::select(dplyr::all_of(c("firm_id", out_cols))) %>%
-      tidyr::pivot_longer(cols = dplyr::all_of(out_cols),
-                          names_to = "outcome", values_to = "x_se") %>%
-      dplyr::mutate(firm_id = as.integer(firm_id),
-                    x_se = as.numeric(x_se))
-    
-    long <- coef_long %>%
-      dplyr::left_join(se_long, by = c("firm_id","outcome")) %>%
-      dplyr::left_join(ind_map, by = "firm_id") %>%
-      dplyr::left_join(w_tbl,   by = "firm_id") %>%
-      dplyr::filter(!is.na(aer_naics2), !is.na(weights), is.finite(weights)) %>%
-      dplyr::mutate(weights = pmax(weights, 0))
-    
-    # drop firms with missing coef for a given outcome
-    long <- long %>% dplyr::filter(is.finite(x_hat))
-    
-    # compute within-industry normalized weights
-    ind_sum <- long %>%
-      dplyr::group_by(aer_naics2, outcome) %>%
-      dplyr::mutate(wsum = sum(weights, na.rm = TRUE),
-                    a = dplyr::if_else(wsum > 0, weights / wsum, NA_real_)) %>%
-      dplyr::summarise(
-        ind_mean = sum(a * x_hat, na.rm = TRUE),
-        ind_se   = sqrt(sum((a^2) * (x_se^2), na.rm = TRUE)),  # propagated SE
-        n_firms  = dplyr::n_distinct(firm_id),
-        wsum     = max(wsum, na.rm = TRUE),
-        .groups  = "drop"
-      ) %>%
-      dplyr::mutate(approach = label, .before = 1)
-    
-    # wide out (mean + se)
-    mean_wide <- ind_sum %>%
-      dplyr::select(approach, aer_naics2, outcome, ind_mean) %>%
-      tidyr::pivot_wider(names_from = outcome, values_from = ind_mean)
-    
-    se_wide <- ind_sum %>%
-      dplyr::select(approach, aer_naics2, outcome, ind_se) %>%
-      tidyr::pivot_wider(names_from = outcome,
-                         values_from = ind_se,
-                         names_glue = "{outcome}_se")
-    
-    meta <- ind_sum %>%
-      dplyr::select(approach, aer_naics2, outcome, n_firms, wsum) %>%
-      dplyr::group_by(approach, aer_naics2) %>%
-      dplyr::summarise(
-        n_firms = max(n_firms, na.rm = TRUE),
-        wsum    = max(wsum, na.rm = TRUE),
-        .groups = "drop"
-      )
-    
-    out <- meta %>%
-      dplyr::left_join(mean_wide, by = c("approach","aer_naics2")) %>%
-      dplyr::left_join(se_wide,   by = c("approach","aer_naics2"))
-    
-    out
+    list(G = G, A = A, M = M, inds = inds)
   }
   
-  # ---- read sheets ----
-  pl_coef <- safe_read(pl_coef_sheet)
-  pl_se   <- safe_read(pl_se_sheet)
-  
-  ol_coef <- safe_read(ol_coef_sheet)
-  ol_se   <- safe_read(ol_se_sheet)
-  
-  borda_coef <- safe_read(borda_coef_sheet)
-  borda_se   <- safe_read(borda_se_sheet)
-  
-  # ---- compute ----
-  out_pl    <- summarize_to_industry(pl_coef,    pl_se,    "PL")
-  out_ol    <- summarize_to_industry(ol_coef,    ol_se,    "OL")
-  out_borda <- summarize_to_industry(borda_coef, borda_se, "Borda")
-  
-  # ---- write ----
-  wb <- openxlsx::loadWorkbook(output_path)
-  
-  write_sheet <- function(name, df) {
-    if (is.null(df)) return(invisible(NULL))
-    remove_sheet_safely(wb, name)
-    openxlsx::addWorksheet(wb, name)
-    openxlsx::writeData(wb, name, df)
+  # --- build weighted GAM ---
+  # A_w = (G' W G)^{-1} G' W   ;  M_w = I - G A_w
+  build_GAM_weighted <- function(firm_ids, industry_ids, w_vec) {
+    J <- length(firm_ids)
+    inds <- sort(unique(industry_ids))
+    K <- length(inds)
+    
+    G <- matrix(0, nrow = J, ncol = K)
+    colnames(G) <- as.character(inds)
+    for (j in seq_len(J)) {
+      k <- match(industry_ids[j], inds)
+      G[j, k] <- 1
+    }
+    
+    w_vec <- as.numeric(w_vec)
+    W <- diag(w_vec, nrow = J, ncol = J)
+    
+    GtWG <- t(G) %*% W %*% G  # KxK
+    
+    # If an industry has 0 total weight, GtWG will be singular.
+    # Add tiny ridge for safety (should not happen if weights are all >0).
+    if (any(diag(GtWG) == 0)) {
+      GtWG <- GtWG + diag(1e-12, nrow(GtWG))
+    }
+    
+    A_w <- solve(GtWG, t(G) %*% W)  # KxJ
+    M_w <- diag(J) - G %*% A_w      # JxJ
+    
+    list(G = G, A = A_w, M = M_w, inds = inds, w = w_vec)
   }
   
-  write_sheet(paste0(out_prefix, "_PL"),    out_pl)
-  write_sheet(paste0(out_prefix, "_OL"),    out_ol)
-  write_sheet(paste0(out_prefix, "_Borda"), out_borda)
+  # pull matrix columns from S given ids; S may use entity<id> or firm<id>
+  pull_S_matrix <- function(S_df, ids) {
+    stopifnot("resp_id" %in% names(S_df))
+    s_cols <- .resolve_entity_cols(ids, names(S_df))
+    as.matrix(S_df[, s_cols, drop = FALSE])
+  }
   
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  # pull square matrix given ids; matrices may use entity<id> or firm<id>
+  pull_square <- function(M, ids) {
+    M <- as.matrix(M)
+    if (is.null(dimnames(M)) || is.null(rownames(M)) || is.null(colnames(M))) {
+      stop("Expected square matrix with dimnames.")
+    }
+    cols <- .resolve_entity_cols(ids, colnames(M))
+    M[cols, cols, drop = FALSE]
+  }
   
-  invisible(list(PL = out_pl, OL = out_ol, Borda = out_borda))
+  # transform one res by linear map T
+  transform_result <- function(
+    res,
+    firm_ft, firm_ids,
+    T,
+    out_entity_type, out_entity_ids, out_entity_names,
+    out_weight = NULL
+  ) {
+    beta <- as.numeric(firm_ft$estimate[match(firm_ids, firm_ft$entity_id)])
+    
+    bread_in <- pull_square(res$mats$bread, firm_ids)
+    cov_in   <- pull_square(res$mats$cov,   firm_ids)
+    rcov_in  <- pull_square(res$mats$rcov,  firm_ids)
+    
+    S_df <- res$mats$S
+    S_in <- pull_S_matrix(S_df, firm_ids)  # n x J
+    
+    beta_out  <- as.numeric(T %*% beta)
+    bread_out <- T %*% bread_in
+    cov_out   <- T %*% cov_in  %*% t(T)
+    rcov_out  <- T %*% rcov_in %*% t(T)
+    S_out     <- S_in %*% t(T)
+    
+    out_cols <- .make_entity_cols(out_entity_ids)
+    
+    dimnames(cov_out)  <- list(out_cols, out_cols)
+    dimnames(rcov_out) <- list(out_cols, out_cols)
+    colnames(S_out)    <- out_cols
+    
+    # bread is Jout x Jin; set informative dimnames
+    dimnames(bread_out) <- list(out_cols, .make_entity_cols(firm_ids))
+    
+    # rebuild S df: keep ONLY resp_id
+    S_out_df <- cbind(
+      resp_id = S_df[["resp_id"]],
+      as.data.frame(S_out)
+    )
+    names(S_out_df)[2:ncol(S_out_df)] <- out_cols
+    
+    out_tbl <- data.frame(
+      entity_type = out_entity_type,
+      entity_id   = as.integer(out_entity_ids),
+      entity      = as.character(out_entity_names),
+      estimate    = as.numeric(beta_out),
+      se          = sqrt(diag(cov_out)),
+      rse         = sqrt(diag(rcov_out)),
+      eb          = NA_real_,
+      stringsAsFactors = FALSE
+    )
+    
+    # optional weight column passthrough
+    if (!is.null(weight_col)) {
+      out_tbl[[weight_col]] <- if (is.null(out_weight)) NA_real_ else as.numeric(out_weight)
+    }
+    
+    out_res <- res
+    out_res$firm_table <- out_tbl
+    out_res$mats <- list(
+      S     = S_out_df,
+      bread = bread_out,
+      cov   = cov_out,
+      rcov  = rcov_out
+    )
+    out_res
+  }
+  
+  # main loops
+  for (set_name in which_sets) {
+    if (is.null(results[[set_name]])) next
+    
+    for (model in model_names) {
+      if (is.null(results[[set_name]][[model]])) next
+      
+      for (outcome in outcomes) {
+        res <- results[[set_name]][[model]][[outcome]]
+        if (is.null(res) || is.null(res$firm_table) || is.null(res$mats)) next
+        
+        # --- coerce and restrict to Firm entities ---
+        ft_all  <- .coerce_entity_table(res$firm_table)
+        firm_ft <- ft_all[ft_all$entity_type == "Firm", , drop = FALSE]
+        if (nrow(firm_ft) == 0) next
+        
+        firm_ids <- sort(unique(as.integer(firm_ft$entity_id)))
+        
+        # --- industry mapping in firm_id order ---
+        imap <- industry_map |>
+          dplyr::select(firm_id, !!rlang::sym(industry_col)) |>
+          dplyr::mutate(
+            firm_id = as.integer(firm_id),
+            industry_id = suppressWarnings(as.integer(.data[[industry_col]]))
+          )
+        
+        industry_ids <- imap$industry_id[match(firm_ids, imap$firm_id)]
+        if (any(is.na(industry_ids))) {
+          miss <- firm_ids[is.na(industry_ids)]
+          stop("Missing industry assignment for firm_id(s): ", paste(miss, collapse = ", "))
+        }
+        
+        # --------------------------
+        # Equal-weight transforms
+        # --------------------------
+        GAM_eq <- build_GAM_equal(firm_ids, industry_ids)
+        A_eq   <- GAM_eq$A
+        M_eq   <- GAM_eq$M
+        inds   <- GAM_eq$inds
+        
+        out_ids_im   <- as.integer(inds)
+        out_names_im <- paste0(industry_col, "=", out_ids_im)
+        
+        # optional weight column for _im (equal weights): industry firm counts
+        out_w_im_eq <- NULL
+        if (!is.null(weight_col)) {
+          cnt <- tapply(rep(1, length(industry_ids)), industry_ids, sum)
+          out_w_im_eq <- as.numeric(cnt[as.character(out_ids_im)])
+        }
+        
+        res_im <- transform_result(
+          res              = res,
+          firm_ft          = firm_ft,
+          firm_ids         = firm_ids,
+          T                = A_eq,
+          out_entity_type  = "Industry",
+          out_entity_ids   = out_ids_im,
+          out_entity_names = out_names_im,
+          out_weight       = out_w_im_eq
+        )
+        
+        # demeaned (_dm): firm deviations from equal-weight industry mean
+        out_ids_dm   <- firm_ids
+        out_names_dm <- firm_ft$entity[match(out_ids_dm, firm_ft$entity_id)]
+        
+        out_w_dm_eq <- NULL
+        if (!is.null(weight_col) && weight_col %in% names(firm_ft)) {
+          out_w_dm_eq <- firm_ft[[weight_col]][match(out_ids_dm, firm_ft$entity_id)]
+        }
+        
+        res_dm <- transform_result(
+          res              = res,
+          firm_ft          = firm_ft,
+          firm_ids         = firm_ids,
+          T                = M_eq,
+          out_entity_type  = "Firm",
+          out_entity_ids   = out_ids_dm,
+          out_entity_names = out_names_dm,
+          out_weight       = out_w_dm_eq
+        )
+        
+        results[[set_name]][[model]][[paste0(outcome, suffix_im)]] <- res_im
+        results[[set_name]][[model]][[paste0(outcome, suffix_dm)]] <- res_dm
+        
+        # --------------------------
+        # Weighted transforms (_im_w / _dm_w)
+        # Only compute if weight_col is present AND fully populated (no NA/non-finite),
+        # and (optionally) strictly positive.
+        # --------------------------
+        do_weighted <- !is.null(weight_col) && (weight_col %in% names(firm_ft))
+        
+        if (do_weighted) {
+          w_raw <- firm_ft[[weight_col]][match(firm_ids, firm_ft$entity_id)]
+          w_raw <- as.numeric(w_raw)
+          
+          # If any NA / non-finite -> SKIP weighted versions
+          if (anyNA(w_raw) || any(!is.finite(w_raw))) {
+            message("Skipping weighted industry means for outcome=", outcome,
+                    " model=", model, " set=", set_name,
+                    " because ", weight_col, " has NA/non-finite values.")
+            do_weighted <- FALSE
+          }
+          
+          # Optional: require strictly positive weights
+          if (do_weighted && isTRUE(require_positive_weights) && any(w_raw <= 0)) {
+            message("Skipping weighted industry means for outcome=", outcome,
+                    " model=", model, " set=", set_name,
+                    " because ", weight_col, " has non-positive values.")
+            do_weighted <- FALSE
+          }
+        }
+        
+        if (do_weighted) {
+          w_vec <- w_raw
+          
+          GAM_w <- build_GAM_weighted(firm_ids, industry_ids, w_vec)
+          A_w   <- GAM_w$A
+          M_w   <- GAM_w$M
+          
+          # weights aggregated to industries for _im_w: sum of firm weights in industry
+          out_w_im_w <- NULL
+          if (!is.null(weight_col)) {
+            sumw <- tapply(w_vec, industry_ids, sum)
+            out_w_im_w <- as.numeric(sumw[as.character(out_ids_im)])
+          }
+          
+          res_im_w <- transform_result(
+            res              = res,
+            firm_ft          = firm_ft,
+            firm_ids         = firm_ids,
+            T                = A_w,
+            out_entity_type  = "Industry",
+            out_entity_ids   = out_ids_im,
+            out_entity_names = out_names_im,
+            out_weight       = out_w_im_w
+          )
+          
+          # firm weights unchanged for _dm_w
+          out_w_dm_w <- NULL
+          if (!is.null(weight_col)) out_w_dm_w <- w_vec[match(out_ids_dm, firm_ids)]
+          
+          res_dm_w <- transform_result(
+            res              = res,
+            firm_ft          = firm_ft,
+            firm_ids         = firm_ids,
+            T                = M_w,
+            out_entity_type  = "Firm",
+            out_entity_ids   = out_ids_dm,
+            out_entity_names = out_names_dm,
+            out_weight       = out_w_dm_w
+          )
+          
+          results[[set_name]][[model]][[paste0(outcome, suffix_im_w)]] <- res_im_w
+          results[[set_name]][[model]][[paste0(outcome, suffix_dm_w)]] <- res_dm_w
+        }
+      }
+    }
+  }
+  
+  results
 }
-
-################################################################################
-# Example call (inside run_analysis_pipeline AFTER EIV weights are created):
-################################################################################
-# weights <- data %>% dplyr::select(firm_id, njobs) %>%
-#   dplyr::rename(weights = njobs) %>% dplyr::distinct()
-#
-# make_industry_means(
-#   output_path   = output_path,
-#   industry_map  = industry_map,
-#   weights_df    = weights,
-#   out_prefix    = "ind_mean_jobs"
-# )
-################################################################################

@@ -1,8 +1,3 @@
-# ------------------------------------------------------------------------------
-# Purpose: Run Model Helper
-#
-# Created: Jordan Cammarota 03-06-2026
-# ------------------------------------------------------------------------------
 run_model_ols <- function(
     data_long,
     id_map,
@@ -14,20 +9,28 @@ run_model_ols <- function(
   set.seed(seed)
   
   stopifnot("resp_id" %in% names(data_long))
-
+  stopifnot("firm_id" %in% names(data_long))
+  
   # Ensure weights exist (default 1)
   if (!("w" %in% names(data_long))) data_long$w <- 1
   
-  if (scale_and_center) {
-    # --- NEW: Center + scale ratings (global) ---
-    mu <- mean(data_long$rating, na.rm = TRUE)
+  # Ensure rating column exists
+  if (!(outcome %in% names(data_long)) && !("rating" %in% names(data_long))) {
+    stop("run_model_ols(): no column named outcome='", outcome, "' or 'rating' found in data_long.")
+  }
+  if (!("rating" %in% names(data_long))) data_long$rating <- data_long[[outcome]]
+  
+  # Flip so higher = "better" in your convention (assuming 1..5)
+  data_long$rating <- 6 - data_long$rating
+  
+  if (isTRUE(scale_and_center)) {
+    mu  <- mean(data_long$rating, na.rm = TRUE)
     sdv <- stats::sd(data_long$rating, na.rm = TRUE)
-    
-    data_long$rating <- (data_long$rating - mu)/sdv
+    if (!is.finite(sdv) || sdv <= 0) stop("run_model_ols(): SD is zero/NA; cannot scale.")
+    data_long$rating <- (data_long$rating - mu) / sdv
   }
   
-  # 2) Build centered firm scores + naive SE + robust SE + centered bread/score/cov
-  #    Assumes your mean_esimator_bread_and_score() performs sum-to-zero centering internally
+  # Mean-estimator machinery (centers internally)
   out <- mean_estimator_bread_and_score(
     data_long,
     id_var   = "resp_id",
@@ -36,67 +39,76 @@ run_model_ols <- function(
     w_var    = "w"
   )
   
-  firm_scores <- out$firm_scores  # firm_id, borda_score, se, rse (centered)
+  firm_scores <- out$firm_scores  # firm_id, item_worth, se, rse
   Psi         <- out$score        # n_resp x J (centered), colnames firm<id>
-  rcov_mat    <- out$cov          # J x J robust covariance (centered)
-  bread_mat   <- out$bread        # J x J (centered), if you want it later
+  cov_mat     <- out$cov          # naive covariance (centered)
+  rcov_mat    <- out$rcov         # robust covariance (centered)
+  bread_mat   <- out$bread        # bread (centered)
   
-  # 3) Add firm names (optional)
+  # Add firm names
   if (!is.null(id_map) && all(c("firm_id", "firm") %in% names(id_map))) {
     firm_scores <- firm_scores %>%
-      dplyr::left_join(dplyr::distinct(id_map, firm_id, firm), by = "firm_id")
+      dplyr::left_join(dplyr::distinct(id_map, firm_id, firm, njobs), by = "firm_id")
   } else {
     firm_scores$firm <- NA_character_
   }
   
-  # 4) EB step (computed from robust SE by default)
+  # Align everything to firm_scores order
+  firm_ids  <- as.integer(firm_scores$firm_id)
+  firm_cols <- paste0("firm", firm_ids)
+  entity_cols <- paste0("entity", firm_ids)
+  
+  miss <- setdiff(firm_cols, colnames(Psi))
+  if (length(miss)) stop("run_model_ols(): score matrix missing firm cols: ", paste(miss, collapse = ", "))
+  
+  Psi_mat   <- as.matrix(Psi[, firm_cols, drop = FALSE])
+  cov_mat   <- as.matrix(cov_mat[firm_cols, firm_cols, drop = FALSE])
+  rcov_mat  <- as.matrix(rcov_mat[firm_cols, firm_cols, drop = FALSE])
+  bread_mat <- as.matrix(bread_mat[firm_cols, firm_cols, drop = FALSE])
+  
+  # Rename mats to entity<id> naming
+  colnames(Psi_mat) <- entity_cols
+  dimnames(cov_mat)   <- list(entity_cols, entity_cols)
+  dimnames(rcov_mat)  <- list(entity_cols, entity_cols)
+  dimnames(bread_mat) <- list(entity_cols, entity_cols)
+  
+  # EB step (uses robust SE)
   eb_hat <- rep(NA_real_, nrow(firm_scores))
   if (isTRUE(do_eb) && exists("eb_two_step", mode = "function")) {
     ok <- is.finite(firm_scores$item_worth) & is.finite(firm_scores$rse) & firm_scores$rse > 0
     if (sum(ok) >= 2) {
-      eb_fit <- eb_two_step(
-        theta_hat = firm_scores$item_worth[ok],
-        s         = pmax(firm_scores$rse[ok], 1e-8)
-      )
+      eb_fit <- eb_two_step(theta_hat = firm_scores$item_worth[ok], s = pmax(firm_scores$rse[ok], 1e-8))
       eb_hat[ok] <- eb_fit$theta_eb
     }
   }
   
-  # 5) Naive covariance (diagonal) for "cov" slot; robust covariance for "rcov"
-  #    (keeps your PL/OL convention: cov = model/naive, rcov = clustered/robust)
-  firm_cols <- colnames(rcov_mat)  # should already be firm<id>
-  cov_mat <- matrix(0, nrow = length(firm_cols), ncol = length(firm_cols),
-                    dimnames = list(firm_cols, firm_cols))
-  # align se to firm_cols order
-  firm_ids_from_cols <- suppressWarnings(as.integer(sub("^firm", "", firm_cols)))
-  se_vec <- firm_scores$se[match(firm_ids_from_cols, firm_scores$firm_id)]
-  diag(cov_mat) <- se_vec^2
-  
-  # 6) Build standardized firm_table
-  firm_table <- firm_scores %>%
+  # Build entity-style table
+  entity_table <- firm_scores %>%
     dplyr::transmute(
-      firm_id,
-      firm,
-      estimate = item_worth,
-      se       = se,
-      rse      = rse,
-      eb       = eb_hat
+      entity_type = "Firm",
+      entity_id   = as.integer(firm_id),
+      entity      = firm,
+      njobs       = njobs,
+      estimate    = as.numeric(item_worth),
+      se          = as.numeric(se),
+      rse         = as.numeric(rse),
+      eb          = as.numeric(eb_hat)
     ) %>%
-    dplyr::arrange(firm_id)
+    dplyr::arrange(entity_id)
   
-  # 7) Store S as a data.frame with resp_id + firm<id> columns (like PL/OL style)
-  S_df <- as.data.frame(Psi)
-  S_df <- cbind(resp_id = rownames(Psi), S_df)
+  # Score df: resp_id + entity<id>
+  S_df <- as.data.frame(Psi_mat)
+  S_df <- cbind(resp_id = rownames(Psi_mat), S_df)
   rownames(S_df) <- NULL
   
   list(
-    fit = NULL,  # Borda isn't fit via clm/PlackettLuce object; keep NULL for uniformity
-    firm_table = firm_table,
+    fit = NULL,
+    firm_table = entity_table,  # keep slot name for compat; contents are entity schema
     mats = list(
-      S     = S_df,     # score-like contributions (centered)
-      cov   = cov_mat,  # naive covariance (diag(se^2))
-      rcov  = rcov_mat, # robust covariance (sandwich, centered)
-      bread = bread_mat # optional but often useful
+      S     = S_df,
+      cov   = cov_mat,
+      rcov  = rcov_mat,
+      bread = bread_mat
     )
   )
 }

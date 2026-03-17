@@ -4,56 +4,67 @@
 # Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
 run_eiv_one <- function(
-    coef97_df,
-    industry_map,
+    coef_df_wide,
     noise_mat,
     model_value,
     lhs_var,
     rhs_vars,
-    weights_df = NULL,
-    weights_col = "weights"
+    id_col = "entity_id",      # set "firm_id" if needed
+    model_col = "model",
+    fe_col = "aer_naics2",
+    weights_col = NULL         # e.g. "njobs" or "weights"; if NULL => equal weights
 ) {
-  stopifnot(is.data.frame(coef97_df))
-  stopifnot("firm_id" %in% names(coef97_df))
-  stopifnot("model" %in% names(coef97_df))
-  stopifnot(all(c("firm_id", "aer_naics2") %in% names(industry_map)))
+  stopifnot(is.data.frame(coef_df_wide))
+  stopifnot(model_col %in% names(coef_df_wide))
+  stopifnot(fe_col %in% names(coef_df_wide))
+  stopifnot(id_col %in% names(coef_df_wide))
   stopifnot(length(rhs_vars) >= 1)
   
-  # --- filter to model ---
-  df_m <- coef97_df |> dplyr::filter(.data$model == model_value)
+  # --- 1) Restrict to correct model ---
+  df_m <- coef_df_wide |> dplyr::filter(.data[[model_col]] == model_value)
   
-  # --- keep needed columns + join industry ---
-  need_cols <- unique(c("firm_id", lhs_var, rhs_vars))
+  if (!is.null(weights_col)) {
+    # If you want to ALSO require non-missing weights, uncomment the filter line.
+    # reg_data <- reg_data |> dplyr::filter(!is.na(.data[[weights_col]]))
+    df_m[["weight"]] <- df_m[[weights_col]]
+  } else {
+    df_m[["weight"]] <- 1
+  }
+  
+  # --- required columns check ---
+  need_cols <- unique(c(id_col, fe_col, lhs_var, rhs_vars, "weight"))
   miss_cols <- setdiff(need_cols, names(df_m))
   if (length(miss_cols) > 0) {
-    stop("run_eiv_one(): Missing columns in coef97_df for model ", model_value, ": ",
-         paste(miss_cols, collapse = ", "))
+    stop(
+      "run_eiv_one(): Missing columns in coef_df_wide for model ", model_value, ": ",
+      paste(miss_cols, collapse = ", ")
+    )
   }
+  
+
   
   reg_data <- df_m |>
     dplyr::select(dplyr::all_of(need_cols)) |>
-    dplyr::left_join(industry_map |> dplyr::select(firm_id, aer_naics2), by = "firm_id") |>
-    dplyr::filter(!is.na(.data[[lhs_var]]), !is.na(.data[["aer_naics2"]]))
+    dplyr::filter(
+      !is.na(.data[[lhs_var]]),
+      !is.na(.data[[fe_col]])
+    )
   
-  # --- weights (optional) ---
-  if (!is.null(weights_df)) {
-    stopifnot("firm_id" %in% names(weights_df))
-    stopifnot(weights_col %in% names(weights_df))
-    reg_data <- reg_data |>
-      dplyr::left_join(weights_df |> dplyr::select(firm_id, dplyr::all_of(weights_col)), by = "firm_id")
-    reg_data[[weights_col]] <- ifelse(is.na(reg_data[[weights_col]]), 1, reg_data[[weights_col]])
-  } else {
-    reg_data[[weights_col]] <- 1
+  for (rv in rhs_vars) {
+    reg_data <- reg_data |> dplyr::filter(!is.na(.data[[rv]]))
   }
   
-  # --- FE dummies (industry) ---
-  fe_mat <- stats::model.matrix(~ factor(reg_data$aer_naics2) - 1)
+  
+  # --- 3) Build FE dummies from aer_naics2 ---
+  fe_mat <- stats::model.matrix(
+    stats::as.formula(paste0("~ factor(", fe_col, ") - 1")),
+    data = reg_data
+  )
   colnames(fe_mat) <- paste0("fe_", seq_len(ncol(fe_mat)))
   reg_data <- dplyr::bind_cols(reg_data, as.data.frame(fe_mat))
   fe_cols <- colnames(fe_mat)
   
   # --- Build Sigma_error for RHS vars ---
-  # noise_mat must have row/colnames matching RHS var names
   if (is.null(dimnames(noise_mat)) || is.null(rownames(noise_mat)) || is.null(colnames(noise_mat))) {
     stop("run_eiv_one(): noise_mat must have rownames/colnames equal to variable names.")
   }
@@ -64,11 +75,12 @@ run_eiv_one <- function(
   
   Sigma1 <- as.matrix(noise_mat[rhs_vars, rhs_vars, drop = FALSE])
   
-  # With FE: expand to include FE cols with 0 measurement error
-  Sigma2 <- matrix(0,
-                   nrow = length(rhs_vars) + length(fe_cols),
-                   ncol = length(rhs_vars) + length(fe_cols),
-                   dimnames = list(c(rhs_vars, fe_cols), c(rhs_vars, fe_cols)))
+  Sigma2 <- matrix(
+    0,
+    nrow = length(rhs_vars) + length(fe_cols),
+    ncol = length(rhs_vars) + length(fe_cols),
+    dimnames = list(c(rhs_vars, fe_cols), c(rhs_vars, fe_cols))
+  )
   Sigma2[rhs_vars, rhs_vars] <- Sigma1
   
   # --- formulas ---
@@ -76,11 +88,9 @@ run_eiv_one <- function(
   f_no_fe  <- stats::as.formula(paste(lhs_var, "~", rhs_part))
   f_fe     <- stats::as.formula(paste(lhs_var, "~ 0 +", paste(c(rhs_vars, fe_cols), collapse = " + ")))
   
-  # --- helper to extract coef + se for each RHS var ---
+  # --- helper to extract coef + se for RHS vars only ---
   extract_coef_rows <- function(fit, coef_tag) {
-    if (is.null(fit) || is.null(fit$vcov)) {
-      return(data.frame())
-    }
+    if (is.null(fit) || is.null(fit$vcov)) return(data.frame())
     cf <- stats::coef(fit)
     V  <- fit$vcov
     
@@ -88,38 +98,38 @@ run_eiv_one <- function(
       est <- if (rv %in% names(cf)) unname(cf[[rv]]) else NA_real_
       se  <- if (!is.null(dim(V)) && rv %in% rownames(V) && rv %in% colnames(V)) sqrt(V[rv, rv]) else NA_real_
       data.frame(
-        model       = model_value,
-        lhs         = lhs_var,
-        formula     = rhs_part,      # "rhs1 + rhs2 + ..."
-        rhs         = rv,            # the coefficient being reported
-        coef        = coef_tag,      # 1=no FE, 2=FE
-        sample_est  = est,
-        sample_se   = se,
+        model      = model_value,
+        lhs        = lhs_var,
+        formula    = rhs_part,
+        rhs        = rv,
+        coef       = coef_tag,   # 1=no FE, 2=FE
+        sample_est = est,
+        sample_se  = se,
+        n          = nrow(reg_data),
         stringsAsFactors = FALSE
       )
     })
     dplyr::bind_rows(out)
   }
   
-  message("Running EIV: Model = ", model_value, ", formula = ", f_no_fe)
+  message("Running EIV: Model = ", model_value, ", LHS = ", lhs_var, ", RHS = ", rhs_part)
   
-  # --- run EIV (no FE) ---
   fit1 <- tryCatch(
-    eivreg(f_no_fe, data = reg_data, Sigma_error = Sigma1, weights = reg_data[[weights_col]]),
+    eivreg(f_no_fe, data = reg_data, Sigma_error = Sigma1, weights = reg_data[["weight"]]),
     error = function(e) NULL
   )
   
-  # --- run EIV (with FE) ---
   fit2 <- tryCatch(
-    eivreg(f_fe, data = reg_data, Sigma_error = Sigma2, weights = reg_data[[weights_col]]),
+    eivreg(f_fe, data = reg_data, Sigma_error = Sigma2, weights = reg_data[["weight"]]),
     error = function(e) NULL
   )
   
-  rows1 <- extract_coef_rows(fit1, coef_tag = 1L)
-  rows2 <- extract_coef_rows(fit2, coef_tag = 2L)
-  
-  dplyr::bind_rows(rows1, rows2)
+  dplyr::bind_rows(
+    extract_coef_rows(fit1, coef_tag = 1L),
+    extract_coef_rows(fit2, coef_tag = 2L)
+  )
 }
+
 # ==============================================================================
 # Outer function you call: run_eiv_suite()
 # (Assumes you already have an inner function named run_eiv_once() in your codebase
@@ -133,17 +143,17 @@ run_eiv_one <- function(
 
 run_eiv_suite <- function(
     regs,
-    coef97_df,
-    industry_map,
+    coef_df_wide,
     noise_mats_97,
     models = names(noise_mats_97),
-    weights_df = NULL,
-    weights_col = "weights"
+    id_col = "entity_id",
+    model_col = "model",
+    fe_col = "aer_naics2",
+    weights_col = NULL
 ) {
-  stopifnot(is.list(regs), is.data.frame(coef97_df), is.data.frame(industry_map))
+  stopifnot(is.list(regs), is.data.frame(coef_df_wide))
   stopifnot(is.list(noise_mats_97))
   
-  # default models = intersection of requested models and available noise mats
   models <- intersect(models, names(noise_mats_97))
   if (length(models) == 0) stop("run_eiv_suite(): no models to run (models not in noise_mats_97).")
   
@@ -151,21 +161,22 @@ run_eiv_suite <- function(
   k <- 1L
   
   for (spec in regs) {
-    lhs <- spec$lhs
-    rhs <- spec$rhs
+    lhs_var <- spec$lhs
+    rhs_vars <- spec$rhs
     
-    for (m in models) {
-      nm <- noise_mats_97[[m]]
-      if (is.null(nm)) next
+    for (model_value in models) {
+      noise_mat <- noise_mats_97[[model_value]]
+      if (is.null(noise_mat)) next
       
       out_df <- run_eiv_one(
-        coef97_df    = coef97_df,
-        industry_map = industry_map,
-        noise_mat    = nm,
-        model_value  = m,
-        lhs_var      = lhs,
-        rhs_vars     = rhs,
-        weights_df   = weights_df,
+        coef_df_wide = coef_df_wide,
+        noise_mat    = noise_mat,
+        model_value  = model_value,
+        lhs_var      = lhs_var,
+        rhs_vars     = rhs_vars,
+        id_col       = id_col,
+        model_col    = model_col,
+        fe_col       = fe_col,
         weights_col  = weights_col
       )
       
@@ -187,20 +198,22 @@ write_eiv_sheet <- function(
     wb,
     sheet_name = "EIV",
     regs,
-    coef97_df,
-    industry_map,
+    coef_df_wide,
     noise_mats_97,
     models = names(noise_mats_97),
-    weights_df = NULL,
-    weights_col = "weights"
+    id_col = "entity_id",
+    model_col = "model",
+    fe_col = "aer_naics2",
+    weights_col = NULL
 ) {
   eiv_df <- run_eiv_suite(
     regs         = regs,
-    coef97_df    = coef97_df,
-    industry_map = industry_map,
+    coef_df_wide = coef_df_wide,
     noise_mats_97 = noise_mats_97,
     models       = models,
-    weights_df   = weights_df,
+    id_col       = id_col,
+    model_col    = model_col,
+    fe_col       = fe_col,
     weights_col  = weights_col
   )
   
@@ -210,7 +223,6 @@ write_eiv_sheet <- function(
   
   invisible(eiv_df)
 }
-
 
 # -------------------------------------------------------------------
 # Build a JxJ NOISE matrix from variance_df + covariance_df

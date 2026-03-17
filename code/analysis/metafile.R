@@ -9,6 +9,7 @@ source("code/globals.R")
 
 # Load Necessary Functions
 source(file.path(analysis, "load_all.R"))
+source(file.path(analysis, "analysis_pipeline.R"))
 
 # 
 # ## 0) parse args -------------------------------------------------------------
@@ -38,7 +39,21 @@ survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
                  "conduct_favor_male", "conduct_male", "conduct_female",
                  "conduct_favor_younger", "conduct_younger", "conduct_older", 
                  "discretion", "FirmSelective", "FirmDesire",
-                 "pooled_favor_white","pooled_favor_male")
+                 "pooled_favor_white","pooled_favor_male", 
+                 "pooled_white", "pooled_black",
+                 "pooled_male", "pooled_female")
+
+valence_triples <- list(
+  list(valence1 = "conduct_black",     valence2 = "conduct_white",     new_outcome = "conduct_favor_white_ep"),
+  list(valence1 = "FirmCont_black",    valence2 = "FirmCont_white",    new_outcome = "FirmCont_favor_white_ep"),
+  list(valence1 = "FirmHire_black",    valence2 = "FirmHire_white",    new_outcome = "FirmHire_favor_white_ep"),
+  list(valence1 = "pooled_black",      valence2 = "pooled_white",    new_outcome = "pooled_favor_white_ep"),
+  list(valence1 = "conduct_female",     valence2 = "conduct_male",     new_outcome = "conduct_favor_male_ep"),
+  list(valence1 = "FirmCont_female",    valence2 = "FirmCont_male",    new_outcome = "FirmCont_favor_male_ep"),
+  list(valence1 = "FirmHire_female",    valence2 = "FirmHire_male",    new_outcome = "FirmHire_favor_male_ep"),
+  list(valence1 = "pooled_female",      valence2 = "pooled_male",    new_outcome = "pooled_favor_male_ep"),
+  list(valence1 = "conduct_older",     valence2 = "conduct_younger",     new_outcome = "conduct_favor_younger_ep")
+)
 
 experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "cb_central_full")
 respondent_col <- "ResponseId"
@@ -58,6 +73,7 @@ system.time({
     subset_var = subset_var, subset_value = subset_value,
     output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
     run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+    combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
     seed = 123
   ) 
 })
@@ -107,6 +123,7 @@ for (i in seq_len(nrow(runs))) {
       subset_var = subset_var, subset_value = subset_value,
       output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
       run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+      combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
       seed = 123
     ) 
   })

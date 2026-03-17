@@ -1,8 +1,3 @@
-# ------------------------------------------------------------------------------
-# Purpose: Run Model Helper
-#
-# Created: Jordan Cammarota 03-06-2026
-# ------------------------------------------------------------------------------
 run_model_ol <- function(dat_long, outcome, respondent_col, id_map = NULL) {
   
   sanitize_resp_col <- function(df) {
@@ -32,20 +27,26 @@ run_model_ol <- function(dat_long, outcome, respondent_col, id_map = NULL) {
   
   dat_long <- ensure_firm_id(dat_long, id_map)
   
+  # keep needed cols + drop NAs + flip scale: 6 - rating
   dat_m <- dat_long %>%
     dplyr::select(dplyr::all_of(c(resp_col, "firm_id", rating_col))) %>%
     dplyr::filter(!is.na(.data[[resp_col]]),
                   !is.na(.data[["firm_id"]]),
-                  !is.na(.data[[rating_col]]))
+                  !is.na(.data[[rating_col]])) %>%
+    dplyr::mutate(!!rating_col := 6 - .data[[rating_col]])
   
-  # firm_id as factor with stable ordering
+  # factorize
   dat_m[[resp_col]] <- factor(dat_m[[resp_col]])
-  dat_m$firm_id     <- factor(dat_m$firm_id)
   
-  # Treatment coding => firm 1 (first level) omitted
-  # options(contrasts = c("contr.sum", "contr.poly"))
-  contrasts(dat_m$firm_id) <- stats::contr.treatment(nlevels(dat_m$firm_id), base = 1)
-  # contrasts(dat_m$firm_id) <- contr.sum(nlevels(dat_m$firm_id))
+  # IMPORTANT: make firm_id factor levels equal to numeric firm ids in sorted order
+  firm_levels <- sort(unique(as.integer(dat_m$firm_id)))
+  dat_m$firm_id <- factor(as.integer(dat_m$firm_id), levels = firm_levels)
+  
+  J <- length(firm_levels)
+  if (J < 2) stop("Not enough firm levels for ordered logit.")
+  
+  # Impose sum-to-zero from the start
+  contrasts(dat_m$firm_id) <- stats::contr.sum(J)
   
   # ordered outcome
   if (!is.ordered(dat_m[[rating_col]])) {
@@ -60,7 +61,7 @@ run_model_ol <- function(dat_long, outcome, respondent_col, id_map = NULL) {
   fml <- stats::as.formula(paste0(rating_col, " ~ firm_id"))
   fit <- ordinal::clm(formula = fml, data = dat_m, link = "logit", Hess = TRUE)
   
-  # --- Get full (theta-space) covariance + scores ---
+  # full vcov + estfun (includes thresholds + firm coefs)
   V_all <- as.matrix(stats::vcov(fit))
   S_all <- tryCatch(sandwich::estfun(fit), error = function(e) NULL)
   if (is.null(S_all)) stop("sandwich::estfun(clm) failed; cannot build score matrix.")
@@ -69,119 +70,88 @@ run_model_ol <- function(dat_long, outcome, respondent_col, id_map = NULL) {
   firm_theta_names <- grep("^firm_id", names(stats::coef(fit)), value = TRUE)
   firm_theta_names <- firm_theta_names[!grepl("\\|", firm_theta_names)]
   
-  firm_levels <- levels(dat_m$firm_id)
-  J <- length(firm_levels)
-  if (J < 2) stop("Not enough firm levels for ordered logit.")
-  
-  # Under contr.treatment(base=1), we expect J-1 firm coefficients
+  # Under contr.sum, clm reports J-1 firm coefficients
   if (length(firm_theta_names) != (J - 1)) {
-    warning("Expected J-1 firm parameters under contr.treatment; got ",
+    warning("Expected J-1 firm parameters under contr.sum; got ",
             length(firm_theta_names), ". Check clm parameter naming.")
   }
   
-  # Extract (J-1) objects
+  # Extract theta/V/S in the reported parameterization (J-1)
   V_th <- V_all[firm_theta_names, firm_theta_names, drop = FALSE]
   S_th <- S_all[, firm_theta_names, drop = FALSE]
   theta_hat <- as.numeric(stats::coef(fit)[firm_theta_names])
   
-  # ---------------------------------------------------------
-  # Expand to J by inserting 0 for omitted firm (base=1)
-  # ---------------------------------------------------------
-  # Map each theta name to a firm level index (2..J)
-  # e.g. "firm_id2" -> 2
-  lev_idx <- suppressWarnings(as.integer(sub("^firm_id", "", firm_theta_names)))
-  if (anyNA(lev_idx)) {
-    stop("Could not parse firm indices from firm_theta_names: ",
-         paste(firm_theta_names, collapse = ", "),
-         ". Adjust the parsing rule for your clm naming.")
-  }
+  # Expand to J using contr.sum identity: last level = -sum(others)
+  theta_full <- c(theta_hat, -sum(theta_hat))
+  names(theta_full) <- as.character(firm_levels)
   
-  # Build full theta (length J)
-  theta_full <- rep(0, J)
-  names(theta_full) <- firm_levels
-  # Fill firms 2..J (or whatever indices are present)
-  theta_full[lev_idx] <- theta_hat
+  # Expansion matrix R: (J x (J-1))
+  R <- rbind(diag(J - 1), rep(-1, J - 1))
   
-  # Build full V (J x J) with 0 row/col for firm 1
-  V_full <- matrix(0, nrow = J, ncol = J, dimnames = list(firm_levels, firm_levels))
-  V_full[lev_idx, lev_idx] <- V_th
+  # Expand covariance: V_full = R V_th R'
+  V_full <- R %*% V_th %*% t(R)
   
-  # Build full S (n x J) with 0 column for firm 1
-  S_full <- matrix(0, nrow = nrow(S_th), ncol = J,
-                   dimnames = list(rownames(S_th), firm_levels))
-  S_full[, lev_idx] <- S_th
+  # Expand score: S_full = S_th %*% R'
+  S_full <- as.matrix(S_th) %*% t(R)
   
-  # If you want "firm<id>" column names for downstream compatibility:
-  firm_cols <- paste0("firm", firm_levels)  # only if firm_levels are numeric IDs
+  # Rename to entity<id> convention
+  entity_ids  <- firm_levels
+  entity_cols <- paste0("entity", entity_ids)
   
-  # Recenter
-  rec <- recenter_objects(
-    beta   = theta_full,
-    cov    = V_full,
-    S_full = S_full
-  )
+  colnames(S_full) <- entity_cols
+  dimnames(V_full) <- list(entity_cols, entity_cols)
   
-  beta_c <- rec$beta
-  cov_c  <- rec$cov
-  S_c    <- rec$S
+  # Robust covariance
+  rcov_full <- V_full %*% crossprod(S_full) %*% V_full
+  dimnames(rcov_full) <- list(entity_cols, entity_cols)
   
-  # name firms by actual levels (these are *levels* of firm_id factor)
-  firm_levels <- levels(dat_m$firm_id)
-  firm_ids_chr <- as.character(firm_levels)
-  firm_cols <- paste0("firm", firm_ids_chr)
+  # Entity names + njobs from id_map
+  entity_names <- rep(NA_character_, J)
+  entity_njobs <- rep(NA_real_, J)  # NEW
   
-  names(beta_c) <- firm_cols
-  colnames(cov_c) <- rownames(cov_c) <- firm_cols
-  colnames(S_c) <- firm_cols
-  
-  # Robust covariance (sandwich, using your "score then crossprod" convention)
-  rcov_c <- cov_c %*% crossprod(S_c) %*% cov_c
-  colnames(rcov_c) <- rownames(rcov_c) <- firm_cols
-  
-  # firm lookup
-  firm_tbl <- data.frame(firm_id = as.integer(firm_ids_chr), stringsAsFactors = FALSE)
   if (!is.null(id_map) && all(c("firm_id", "firm") %in% names(id_map))) {
-    firm_tbl <- firm_tbl %>%
-      dplyr::left_join(dplyr::distinct(id_map, firm_id, firm), by = "firm_id") %>%
-      dplyr::arrange(match(as.character(firm_id), firm_ids_chr))
-  } else {
-    firm_tbl$firm <- NA_character_
-  }
-  
-  firm_tbl <- firm_tbl %>%
-    dplyr::mutate(
-      estimate = beta_c,
-      se  = sqrt(diag(cov_c)),
-      rse = sqrt(diag(rcov_c))
-    )
-  
-  # EB step (optional; uses robust SE)
-  firm_tbl$eb <- NA_real_
-  if (exists("eb_two_step", mode = "function")) {
-    ok <- is.finite(firm_tbl$estimate) & is.finite(firm_tbl$rse) & firm_tbl$rse > 0
-    if (sum(ok) >= 2) {
-      eb_fit <- eb_two_step(theta_hat = firm_tbl$estimate[ok], s = pmax(firm_tbl$rse[ok], 1e-8))
-      firm_tbl$eb[ok] <- eb_fit$theta_eb
+    tmp <- id_map %>%
+      dplyr::select(dplyr::any_of(c("firm_id", "firm", "njobs"))) %>%
+      dplyr::distinct()
+    entity_names <- tmp$firm[match(entity_ids, tmp$firm_id)]
+    if ("njobs" %in% names(tmp)) {  # NEW
+      entity_njobs <- tmp$njobs[match(entity_ids, tmp$firm_id)]
     }
   }
   
-  # Store S with ids (same convention you used)
-  S_df <- as.data.frame(S_c)
-  S_df <- cbind(
-    resp_id = dat_m[[resp_col]],
-    firm_id = dat_m$firm_id,
-    S_df
+  entity_tbl <- data.frame(
+    entity_type = "Firm",
+    entity_id   = as.integer(entity_ids),
+    entity      = entity_names,
+    njobs       = as.numeric(entity_njobs),   # NEW
+    estimate    = as.numeric(theta_full),
+    se          = sqrt(diag(V_full)),
+    rse         = sqrt(diag(rcov_full)),
+    eb          = NA_real_,
+    stringsAsFactors = FALSE
   )
+  
+  # EB step (optional; uses robust SE)
+  if (exists("eb_two_step", mode = "function")) {
+    ok <- is.finite(entity_tbl$estimate) & is.finite(entity_tbl$rse) & entity_tbl$rse > 0
+    if (sum(ok) >= 2) {
+      eb_fit <- eb_two_step(theta_hat = entity_tbl$estimate[ok], s = pmax(entity_tbl$rse[ok], 1e-8))
+      entity_tbl$eb[ok] <- eb_fit$theta_eb
+    }
+  }
+  
+  # Score df: resp_id + entity<id>
+  S_df <- as.data.frame(S_full)
+  S_df <- cbind(resp_id = dat_m[[resp_col]], S_df)
   
   list(
     fit = fit,
-    firm_table = firm_tbl %>% dplyr::select(firm_id, firm, estimate, se, rse, eb),
+    firm_table = entity_tbl,
     mats = list(
       S     = S_df,
-      cov   = cov_c,
-      rcov  = rcov_c,
-      bread = cov_c
+      cov   = V_full,
+      rcov  = rcov_full,
+      bread = V_full
     )
-    
   )
 }

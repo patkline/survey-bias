@@ -11,6 +11,7 @@ run_analysis_pipeline <- function(
     subset_var = NULL, subset_value = NULL, 
     output_path, industry_map_path, firms97 = NULL,
     run_ol = FALSE, run_pl = FALSE, run_borda = FALSE, run_ols = FALSE, run_ols_centered = FALSE,
+    combine_valences = FALSE, valence_triples = NULL, industry_means = FALSE,
     seed = 123
 ) {
   
@@ -43,7 +44,7 @@ run_analysis_pipeline <- function(
   id_map_list             <- prep$id_map
   
 ################################################################################
-## Step 1: Run Models
+## Step 1a: Run Models
 ################################################################################ 
   results <- run_models(
     wb = wb,
@@ -62,12 +63,60 @@ run_analysis_pipeline <- function(
     run_ols_centered = run_ols_centered,
     firms97 = firms97,
     seed = seed,
-    build_subset97 = TRUE
+    build_subset97 = TRUE,
+    combine_valences = combine_valences,
+    valence_triples = valence_triples
   )
   
   # Save once at end
   openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
   message("✅ Step 1 Complete. Saved: ", output_path)
+ 
+################################################################################
+## Step 1b: Industry means + demeaned outcomes
+################################################################################
+  if (isTRUE(industry_means)) {
+    message("Adding industry means + demeaned outcomes")
+    
+    models_to_transform <- character(0)
+    if (isTRUE(run_ol))           models_to_transform <- c(models_to_transform, "OL")
+    if (isTRUE(run_pl))           models_to_transform <- c(models_to_transform, "PL")
+    if (isTRUE(run_borda))        models_to_transform <- c(models_to_transform, "Borda")
+    if (isTRUE(run_ols))          models_to_transform <- c(models_to_transform, "OLS")
+    if (isTRUE(run_ols_centered)) models_to_transform <- c(models_to_transform, "OLSC")
+    
+    results <- add_industry_means_to_results(
+      results       = results,
+      industry_map  = industry_map,
+      outcomes      = survey_vars,
+      model_names   = models_to_transform,
+      which_sets    = c("all", "subset97"),
+      industry_col  = "aer_naics2",
+      suffix_dm     = "_dm",
+      suffix_im     = "_im",
+      
+      # NEW: weighted versions using firm_table$njobs
+      weight_col    = "njobs",
+      suffix_dm_w   = "_dm_w",
+      suffix_im_w   = "_im_w",
+      require_positive_weights = TRUE
+    )
+  }
+  
+################################################################################
+## Step 1c: Save Results
+################################################################################  
+  message("Writing coefficient outputs after Step 2")
+  coef_long_df <- write_coefficients_long_sheet(
+    results = results,
+    wb = wb,
+    sheet_name = "Coefficients",
+    include_sets = c("all","subset97"),
+    data_for_experimental = data,
+    experimental_vars = experimental_vars,
+    industry_map = industry_map
+  )
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
   
 ################################################################################
 ## Step 2: Variance, Noise, Signal Variance
@@ -75,18 +124,25 @@ run_analysis_pipeline <- function(
   ## See functions in "variance_functions.R"
   message("Variance Denoising")
   variance_df <- write_variance_sheet(results, wb, sheet_name = "variance")
-  
+
   # Save once at end
   openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
   message("✅ Step 2 Complete. Saved: ", output_path)
-  
+
 ################################################################################
 ## Step 3: Covariance, Noise, Signal Covariance
-################################################################################  
+################################################################################
   # Step 3: Covariance + noise12
   message("Covariance Denoising")
-  covariance_df <- write_covariance_sheet(results, wb, sheet_name = "covariance")
   
+  if (!is.null(valence_triples)) {
+    new_outcomes <- vapply(valence_triples, `[[`, character(1), "new_outcome")
+    variables <- c(survey_vars, new_outcomes)
+  } else {
+    variables <- survey_vars
+  }
+  covariance_df <- write_covariance_sheet(results, wb, sheet_name = "covariance", survey_vars = variables)
+
   # Save once at end
   openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
   message("✅ Step 3 Complete. Saved: ", output_path)
@@ -100,99 +156,143 @@ run_analysis_pipeline <- function(
   remove_sheet_safely(wb, "correlation")
   openxlsx::addWorksheet(wb, "correlation")
   openxlsx::writeData(wb, "correlation", corr_df)
-  
+
   # Save once at end
   openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
   message("✅ Step 4 Complete. Saved: ", output_path)
-  
+
 ################################################################################
 ## Step 5: EIV
 ################################################################################
-  # message("Building Noise Matrices for EIV")
-  # 
-  # # which models were run?
-  # models_to_build <- character(0)
-  # if (isTRUE(run_pl))    models_to_build <- c(models_to_build, "PL")
-  # if (isTRUE(run_borda)) models_to_build <- c(models_to_build, "Borda")
-  # if (isTRUE(run_ol))    models_to_build <- c(models_to_build, "OL")
-  # 
-  # # build one noise matrix per model (subset97)
-  # noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
-  # 
-  # for (m in models_to_build) {
-  #   noise_mats_97[[m]] <- build_noise_matrix(
-  #     variance_df   = variance_df,
-  #     covariance_df = covariance_df,
-  #     outcomes      = survey_vars,
-  #     subset_value  = "subset97",
-  #     model_value   = m
-  #   )
-  # }
-  # 
-  # # Optional convenience objects if you still want them:
-  # N97_PL    <- if ("PL"    %in% names(noise_mats_97)) noise_mats_97[["PL"]]    else NULL
-  # N97_Borda <- if ("Borda" %in% names(noise_mats_97)) noise_mats_97[["Borda"]] else NULL
-  # N97_OL    <- if ("OL"    %in% names(noise_mats_97)) noise_mats_97[["OL"]]    else NULL
-  # N97_OLS    <- if ("OLS"    %in% names(noise_mats_97)) noise_mats_97[["OLS"]]    else NULL
-  # N97_OLSC    <- if ("OLSC"    %in% names(noise_mats_97)) noise_mats_97[["OLSC"]]    else NULL
-  # 
-  # # List of Specifications
-  # regs_uni <- list(
-  #   list(lhs = "cb_central_full",   rhs = c("discretion")),
-  #   list(lhs = "log_dif",           rhs = c("FirmCont_favor_white")),
-  #   list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
-  #   list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
-  #   list(lhs = "log_dif",           rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif",           rhs = c("discretion")),
-  #   list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male")),
-  #   list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male")),
-  #   list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male")),
-  #   list(lhs = "log_dif_gender",    rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif_gender",    rhs = c("discretion")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("FirmCont_favor_male")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("conduct_favor_male")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("pooled_favor_male")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif_gender_sq", rhs = c("discretion")),
-  #   list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger")),
-  #   list(lhs = "log_dif_age",       rhs = c("FirmSelective")),
-  #   list(lhs = "log_dif_age",       rhs = c("discretion"))
-  # )
-  # 
-  # regs_bi <- list(
-  #   list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
-  #   list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),
-  #   list(lhs = "log_dif_age",    rhs = c("FirmSelective", "discretion"))
-  # )
-  # 
-  # regs_all <- c(regs_uni, regs_bi)
-  # 
-  # message("Running EIV")
-  # 
-  # # weights (optional)
-  # weights <- data %>%
-  #   dplyr::select(firm_id, njobs) %>%
-  #   dplyr::distinct() %>%
-  #   dplyr::rename(weights = njobs)
-  # 
-  # coef97_df <- openxlsx::read.xlsx(output_path, sheet = "Coefficients (97)")
-  # 
-  # models_to_run_eiv <- intersect(c("PL", "Borda", "OL", "OLS", "OLSC"), names(noise_mats_97))
-  # 
-  # eiv_df <- write_eiv_sheet(
-  #   wb            = wb,
-  #   sheet_name    = "EIV",
-  #   regs          = regs_all,
-  #   coef97_df     = coef97_df,
-  #   industry_map  = industry_map,
-  #   noise_mats_97 = noise_mats_97,
-  #   models        = models_to_run_eiv,
-  #   weights_df    = weights,      # set to NULL for equal weights
-  #   weights_col   = "weights"
-  # )
-  # 
-  # # Save once at end
-  # openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  # message("✅ Step 5 Complete. Saved: ", output_path)
+  message("Building Noise Matrices for EIV")
+  if (!is.null(valence_triples)) {
+    new_outcomes <- vapply(valence_triples, `[[`, character(1), "new_outcome")
+    variables <- c(survey_vars, new_outcomes)
+  } else {
+    variables <- survey_vars
+  }
+
+  # which models were run?
+  models_to_build <- character(0)
+  if (isTRUE(run_pl))    models_to_build <- c(models_to_build, "PL")
+  if (isTRUE(run_borda)) models_to_build <- c(models_to_build, "Borda")
+  if (isTRUE(run_ol))    models_to_build <- c(models_to_build, "OL")
+  if (isTRUE(run_ols))    models_to_build <- c(models_to_build, "OLS")
+  if (isTRUE(run_ols_centered))    models_to_build <- c(models_to_build, "OLSC")
+  
+  # build one noise matrix per model (subset97)
+  noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
+
+  for (m in models_to_build) {
+    noise_mats_97[[m]] <- build_noise_matrix(
+      variance_df   = variance_df,
+      covariance_df = covariance_df,
+      outcomes      = variables,
+      subset_value  = "subset97",
+      model_value   = m
+    )
+  }
+
+  # Optional convenience objects if you still want them:
+  N97_PL    <- if ("PL"    %in% names(noise_mats_97)) noise_mats_97[["PL"]]    else NULL
+  N97_Borda <- if ("Borda" %in% names(noise_mats_97)) noise_mats_97[["Borda"]] else NULL
+  N97_OL    <- if ("OL"    %in% names(noise_mats_97)) noise_mats_97[["OL"]]    else NULL
+  N97_OLS    <- if ("OLS"    %in% names(noise_mats_97)) noise_mats_97[["OLS"]]    else NULL
+  N97_OLSC    <- if ("OLSC"    %in% names(noise_mats_97)) noise_mats_97[["OLSC"]]    else NULL
+
+  # List of Specifications
+  regs_uni <- list(
+    list(lhs = "cb_central_full",   rhs = c("discretion")),
+    list(lhs = "log_dif",           rhs = c("FirmCont_favor_white")),
+    list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
+    list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
+    list(lhs = "log_dif",           rhs = c("FirmCont_favor_white_ep")),
+    list(lhs = "log_dif",           rhs = c("conduct_favor_white_ep")),
+    list(lhs = "log_dif",           rhs = c("pooled_favor_white_ep")),
+    list(lhs = "log_dif",           rhs = c("FirmSelective")),
+    list(lhs = "log_dif",           rhs = c("discretion")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male_ep")),
+    list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male_ep")),
+    list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male_ep")),
+    list(lhs = "log_dif_gender",    rhs = c("FirmSelective")),
+    list(lhs = "log_dif_gender",    rhs = c("discretion")),
+    list(lhs = "log_dif_gender_sq", rhs = c("FirmCont_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("conduct_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("pooled_favor_male")),
+    list(lhs = "log_dif_gender_sq", rhs = c("FirmSelective")),
+    list(lhs = "log_dif_gender_sq", rhs = c("discretion")),
+    list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger")),
+    list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger_ep")),
+    list(lhs = "log_dif_age",       rhs = c("FirmSelective")),
+    list(lhs = "log_dif_age",       rhs = c("discretion"))
+  )
+
+  regs_bi <- list(
+    list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
+    list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),
+    list(lhs = "log_dif_age",    rhs = c("FirmSelective", "discretion"))
+  )
+
+  regs_all <- c(regs_uni, regs_bi)
+  
+  message("Build EIV Dataframes")
+  # (optional) filter to a subset for EIV
+  coef_long_97 <- coef_long_df |> dplyr::filter(.data$subset == "subset97")
+  
+  coef_firm <- coef_long_97 |> dplyr::filter(.data$entity_type == "Firm")
+  coef_ind  <- coef_long_97 |> dplyr::filter(.data$entity_type == "Industry")
+  
+  to_wide_by_outcome <- function(df_long, data) {
+    df_wide <- df_long |>
+      dplyr::filter(model != "EXPERIMENTAL") |>
+      dplyr::select(model, entity_id, entity, outcome, estimate, njobs) |>
+      dplyr::distinct() |>
+      tidyr::pivot_wider(
+        id_cols = c(model, entity_id, entity, njobs),
+        names_from = outcome,
+        values_from = estimate
+      )
+    
+    experimental <- df_long |>
+      dplyr::filter(model == "EXPERIMENTAL") |>
+      dplyr::select(entity_id, entity, outcome, estimate) |>
+      dplyr::distinct() |>
+      tidyr::pivot_wider(
+        id_cols = c(entity_id, entity),
+        names_from = outcome,
+        values_from = estimate
+      )
+    
+    df_final <- left_join(df_wide, experimental, by="entity_id")
+    
+    return(df_final)
+  }
+  
+  coef_firm_wide <- to_wide_by_outcome(coef_firm) %>% left_join(industry_map %>% rename(entity_id = firm_id), by="entity_id")
+  coef_ind_wide  <- to_wide_by_outcome(coef_ind)
+
+  message("Running EIV")
+
+  models_to_run_eiv <- intersect(c("PL", "Borda", "OL", "OLS", "OLSC"), names(noise_mats_97))
+
+  eiv_df_firm <- write_eiv_sheet(
+    wb,
+    sheet_name = "EIV_firm",
+    regs = regs_all,
+    coef_df_wide = coef_firm_wide,
+    noise_mats_97 = noise_mats_97,
+    models = names(noise_mats_97),
+    id_col = "entity_id",
+    model_col = "model",
+    fe_col = "aer_naics2",
+    weights_col = "njobs"
+  )
+
+  # Save once at end
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 5 Complete. Saved: ", output_path)
 
 }

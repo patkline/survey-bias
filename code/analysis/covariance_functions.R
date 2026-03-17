@@ -26,8 +26,8 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   overlap_ids <- intersect(id1, id2)
   Ncommon <- as.integer(length(overlap_ids))
   
-  firm_cols1 <- names(S1_df)[grepl("^firm\\d+$", names(S1_df))]
-  firm_cols2 <- names(S2_df)[grepl("^firm\\d+$", names(S2_df))]
+  firm_cols1 <- names(S1_df)[grepl("^entity\\d+$", names(S1_df))]
+  firm_cols2 <- names(S2_df)[grepl("^entity\\d+$", names(S2_df))]
   common_cols <- intersect(firm_cols1, firm_cols2)
   
   if (length(common_cols) < 2L) {
@@ -53,9 +53,9 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   B2c <- B2[common_cols, common_cols, drop = FALSE]
   B_block <- Matrix::bdiag(B1c, B2c)
   
-  firm_ids <- as.integer(sub("^firm", "", common_cols))
-  beta1 <- res1$firm_table$estimate[match(firm_ids, res1$firm_table$firm_id)]
-  beta2 <- res2$firm_table$estimate[match(firm_ids, res2$firm_table$firm_id)]
+  firm_ids <- as.integer(sub("^entity", "", common_cols))
+  beta1 <- res1$firm_table$estimate[match(firm_ids, res1$firm_table$entity_id)]
+  beta2 <- res2$firm_table$estimate[match(firm_ids, res2$firm_table$entity_id)]
   covariance <- mean(beta1 * beta2, na.rm = TRUE)
   
   S1_full <- as.matrix(S1_df[, common_cols, drop = FALSE])
@@ -97,71 +97,90 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
     Ncommon = Ncommon
   )
 }
-write_covariance_sheet <- function(results, wb, sheet_name = "covariance") {
+
+write_covariance_sheet <- function(results, wb, sheet_name = "covariance", survey_vars) {
   # results: list(all=..., subset97=...)
   # wb: openxlsx workbook
   
   stopifnot(is.list(results), !is.null(results$all))
   
   models <- intersect(c("OL", "PL", "Borda", "OLS", "OLSC"), names(results$all))
+  if (length(models) == 0) stop("write_covariance_sheet(): no recognized models found in results$all")
   
-  # infer survey_vars from what’s inside results$all
-  # (assumes each model list has the same outcome names)
-  survey_vars <- unique(unlist(lapply(models, function(m) names(results$all[[m]]))))
-  survey_vars <- survey_vars[!is.na(survey_vars) & nzchar(survey_vars)]
+  # Helper: build within-level pairs
+  make_pairs <- function(vars) {
+    vars <- vars[!is.na(vars) & nzchar(vars)]
+    vars <- unique(vars)
+    if (length(vars) < 2) return(list())
+    combn(vars, 2, simplify = FALSE)
+  }
   
-  pairs <- combn(survey_vars, 2, simplify = FALSE)
+  pairs <- make_pairs(survey_vars)
   
   rows <- list()
   k <- 1L
   
   for (model in models) {
-    for (pair in pairs) {
-      v1 <- pair[[1]]
-      v2 <- pair[[2]]
+    
+    # ---------- ALL ----------
+    model_all <- results$all[[model]]
+    if (!is.null(model_all)) {
       
-      # ---------- ALL ----------
-      if (!is.null(results$all[[model]][[v1]]) && !is.null(results$all[[model]][[v2]])) {
-        out <- compute_pairwise_cov_and_noise(results$all[[model]][[v1]],
-                                              results$all[[model]][[v2]])
-        rows[[k]] <- data.frame(
-          lhs = v1,
-          rhs = v2,
-          subset = "all",
-          model = model,
-          J = out$J,
-          N1 = out$N1,
-          N2 = out$N2,
-          Ncommon = out$Ncommon,
-          covariance = out$covariance,
-          noise = out$noise,
-          stringsAsFactors = FALSE
-        )
-        k <- k + 1L
-      }
-      
-      # ---------- SUBSET97 ----------
-      if (!is.null(results$subset97) &&
-          !is.null(results$subset97[[model]]) &&
-          !is.null(results$subset97[[model]][[v1]]) &&
-          !is.null(results$subset97[[model]][[v2]])) {
+      for (pair in pairs) {
+        v1 <- pair[[1]]
+        v2 <- pair[[2]]
         
-        out <- compute_pairwise_cov_and_noise(results$subset97[[model]][[v1]],
-                                              results$subset97[[model]][[v2]])
-        rows[[k]] <- data.frame(
-          lhs = v1,
-          rhs = v2,
-          subset = "subset97",
-          model = model,
-          J = out$J,
-          N1 = out$N1,
-          N2 = out$N2,
-          Ncommon = out$Ncommon,
-          covariance = out$covariance,
-          noise = out$noise,
-          stringsAsFactors = FALSE
-        )
-        k <- k + 1L
+        if (!is.null(model_all[[v1]]) && !is.null(model_all[[v2]])) {
+          message("Covariance Calculation for model = ", model, ", subset = all, outcome1 = ", v1, ", outcome2 = ", v2)
+          out <- compute_pairwise_cov_and_noise(model_all[[v1]], model_all[[v2]])
+          rows[[k]] <- data.frame(
+            lhs = v1,
+            rhs = v2,
+            subset = "all",
+            model = model,
+            J = out$J,
+            N1 = out$N1,
+            N2 = out$N2,
+            Ncommon = out$Ncommon,
+            covariance = out$covariance,
+            noise = out$noise,
+            stringsAsFactors = FALSE
+          )
+          k <- k + 1L
+        }
+      }
+    }
+    
+    # ---------- SUBSET97 ----------
+    model_97 <- NULL
+    if (!is.null(results$subset97) && !is.null(results$subset97[[model]])) {
+      model_97 <- results$subset97[[model]]
+    }
+    
+    if (!is.null(model_97)) {
+      
+      for (pair in pairs) {
+        v1 <- pair[[1]]
+        v2 <- pair[[2]]
+        
+        if (!is.null(model_97[[v1]]) && !is.null(model_97[[v2]])) {
+          message("Covariance Calculation for model = ", model, ", subset = 97, outcome1 = ", v1, ", outcome2 = ", v2)
+          out <- compute_pairwise_cov_and_noise(model_97[[v1]], model_97[[v2]])
+          rows[[k]] <- data.frame(
+            lhs = v1,
+            rhs = v2,
+            subset = "subset97",
+            model = model,
+            J = out$J,
+            N1 = out$N1,
+            N2 = out$N2,
+            Ncommon = out$Ncommon,
+            covariance = out$covariance,
+            noise = out$noise,
+            stringsAsFactors = FALSE
+          )
+          k <- k + 1L
+        }
       }
     }
   }
