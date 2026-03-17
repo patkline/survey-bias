@@ -19,7 +19,9 @@ create_plots_and_tables_from_sheets <- function(excel_path,
                                                 gap_width = 3,    # <-- # of blank slots between bottom/top groups
                                                 scale_borda_to_100 = FALSE,  # rescale Borda 0–1 -> 0–100
                                                 variance_csv_name = "variance_biascorrected_pl_borda.csv",
-                                                variance_tex_name = "variance_biascorrected_pl_borda.tex") {
+                                                variance_tex_name = "variance_biascorrected_pl_borda.tex",
+                                                variance_ols_csv_name = "variance_biascorrected_ols_borda.csv",
+                                                variance_ols_tex_name = "variance_biascorrected_ols_borda.tex") {
   
   # scale controls for Borda
   borda_mult   <- if (isTRUE(scale_borda_to_100)) 100 else 1
@@ -29,15 +31,66 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   # read core sheets -- new pipeline has a `model` column in Coefficients/EB
   df_coef_raw <- read_excel(excel_path, sheet = "Coefficients")
   has_model_col <- "model" %in% names(df_coef_raw)
+  df_coef_ols <- NULL
+  df_eb_ols <- NULL
 
   if (has_model_col) {
-    # New pipeline: filter by model
-    df_coef <- df_coef_raw %>% dplyr::filter(.data$model == "PL") %>% dplyr::select(-model)
-    df_borda <- df_coef_raw %>% dplyr::filter(.data$model == "Borda") %>% dplyr::select(-model)
+    # New pipeline: convert long Coefficients format into legacy wide format
+    to_wide_coef <- function(df, model_name) {
+      model_df <- df %>% dplyr::filter(.data$model == model_name)
+
+      if (all(c("outcome", "estimate") %in% names(model_df))) {
+        if ("subset" %in% names(model_df)) {
+          model_df <- model_df %>% dplyr::filter(.data$subset == "all")
+        }
+        if ("entity_type" %in% names(model_df)) {
+          model_df <- model_df %>%
+            dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
+        }
+
+        id_col <- if ("firm_id" %in% names(model_df)) {
+          "firm_id"
+        } else if ("entity_id" %in% names(model_df)) {
+          "entity_id"
+        } else {
+          NULL
+        }
+
+        name_col <- if ("firm" %in% names(model_df)) {
+          "firm"
+        } else if ("entity" %in% names(model_df)) {
+          "entity"
+        } else {
+          NULL
+        }
+
+        if (!is.null(id_col) && !is.null(name_col)) {
+          return(
+            model_df %>%
+              dplyr::transmute(
+                firm    = as.character(.data[[name_col]]),
+                firm_id = suppressWarnings(as.integer(.data[[id_col]])),
+                outcome = as.character(.data$outcome),
+                estimate = suppressWarnings(as.numeric(.data$estimate))
+              ) %>%
+              dplyr::filter(!is.na(.data$firm_id), !is.na(.data$outcome)) %>%
+              dplyr::distinct(.data$firm_id, .data$outcome, .keep_all = TRUE) %>%
+              tidyr::pivot_wider(names_from = outcome, values_from = estimate)
+          )
+        }
+      }
+
+      model_df %>% dplyr::select(-model)
+    }
+
+    df_coef <- to_wide_coef(df_coef_raw, "PL")
+    df_coef_ols <- to_wide_coef(df_coef_raw, "OLS")
+    df_borda <- to_wide_coef(df_coef_raw, "Borda")
 
     df_eb_raw <- tryCatch(read_excel(excel_path, sheet = "EB Coefficients"), error = function(e) NULL)
     if (!is.null(df_eb_raw) && "model" %in% names(df_eb_raw)) {
       df_eb <- df_eb_raw %>% dplyr::filter(.data$model == "PL") %>% dplyr::select(-model)
+      df_eb_ols <- df_eb_raw %>% dplyr::filter(.data$model == "OLS") %>% dplyr::select(-model)
       df_borda_eb <- df_eb_raw %>% dplyr::filter(.data$model == "Borda") %>% dplyr::select(-model)
     } else {
       df_eb <- tryCatch(read_excel(excel_path, sheet = "Coefficients (EB)"), error = function(e) NULL)
@@ -64,6 +117,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   
   # helper for unique file suffix by settings
   suffix <- if (!is.null(ws_type) && nzchar(ws_type)) paste0("_", ws_type) else ""
+  ols_borda_dualaxis_outcomes <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")
   
   # helper to pick EB key (prefer Two-Step)
   choose_pl_eb_key <- function(df_old, df_new) {
@@ -466,7 +520,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   
   
   # Call remains the same:
-  write_variance_biascorrected_table(
+  variance_tables <- write_variance_biascorrected_table(
     excel_path    = excel_path,
     outcomes      = outcomes,
     tables_dir    = tables_dir,
@@ -474,6 +528,102 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     borda_mult    = borda_mult,
     csv_name      = variance_csv_name,
     tex_name      = variance_tex_name
+  )
+
+  # -------------------------------------------------------------------
+  # Generate OLS + Borda version of the variance / SD table
+  # -------------------------------------------------------------------
+  write_variance_biascorrected_ols_borda_table <- function(tab,
+                                                            tables_dir,
+                                                            csv_name = "variance_biascorrected_ols_borda.csv",
+                                                            tex_name = "variance_biascorrected_ols_borda.tex",
+                                                            latex_decimals = 3) {
+    if (is.null(tab)) return(invisible(NULL))
+
+    need_numeric <- c(
+      "OLS_sd", "OLS_sd_bias_corrected", "OLS_t_stat",
+      "Borda_sd", "Borda_sd_bias_corrected", "Borda_t_stat", "Borda_var_norm"
+    )
+    for (nm in need_numeric) {
+      if (!nm %in% names(tab)) tab[[nm]] <- NA_real_
+    }
+    if (!"Outcome_display" %in% names(tab)) {
+      tab$Outcome_display <- tab$outcome
+    }
+
+    csv_out_path <- file.path(tables_dir, csv_name)
+    out_csv <- data.frame(
+      Outcome = tab$Outcome_display,
+      `OLS: sd` = tab$OLS_sd,
+      `OLS: bias corrected sd` = tab$OLS_sd_bias_corrected,
+      `OLS: t-stat` = tab$OLS_t_stat,
+      `Borda: sd` = tab$Borda_sd,
+      `Borda: bias corrected sd` = tab$Borda_sd_bias_corrected,
+      `Borda: t-stat` = tab$Borda_t_stat,
+      `Borda: normed variance` = tab$Borda_var_norm,
+      check.names = FALSE
+    )
+    utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
+
+    fmt_dec <- function(x, k = latex_decimals) {
+      z <- suppressWarnings(as.numeric(x))
+      out <- rep("", length(z))
+      ok <- is.finite(z)
+      out[ok] <- formatC(z[ok], format = "f", digits = k, drop0trailing = FALSE)
+      out
+    }
+
+    latex_df <- tab %>%
+      dplyr::transmute(
+        Outcome = .data$Outcome_display,
+        `Standard deviation`                   = fmt_dec(.data$OLS_sd, latex_decimals),
+        `Bias-corrected standard deviation`    = fmt_dec(.data$OLS_sd_bias_corrected, latex_decimals),
+        `t-statistic`                          = fmt_dec(.data$OLS_t_stat, latex_decimals),
+        `Standard deviation.2`                 = fmt_dec(.data$Borda_sd, latex_decimals),
+        `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals),
+        `t-statistic.2`                        = fmt_dec(.data$Borda_t_stat, latex_decimals),
+        `var_norm`                             = fmt_dec(.data$Borda_var_norm, latex_decimals)
+      )
+
+    xt <- xtable::xtable(latex_df, align = c("l", "l", "c", "c", "c", "c", "c", "c", "c"))
+
+    header <- paste0(
+      "\\toprule\n",
+      " & \\multicolumn{3}{c}{OLS} & \\multicolumn{4}{c}{Borda} \\\\\n",
+      "\\cmidrule(lr){2-4} \\cmidrule(lr){5-8}\n",
+      "Outcome & Std Dev & ",
+      "\\shortstack{Signal\\\\Std Dev} & ",
+      "\\shortstack{T-stat\\\\no signal} & ",
+      "Std Dev & ",
+      "\\shortstack{Signal\\\\Std Dev} & ",
+      "\\shortstack{T-stat\\\\no signal} &",
+      "\\shortstack{Normed\\\\Variance} \\\\\n",
+      "\\midrule\n"
+    )
+
+    tex_out_path <- file.path(tables_dir, tex_name)
+    print(
+      xt,
+      include.rownames = FALSE,
+      include.colnames = FALSE,
+      file = tex_out_path,
+      add.to.row = list(pos = list(0), command = header),
+      sanitize.text.function = identity,
+      booktabs = TRUE,
+      floating = FALSE,
+      comment = FALSE
+    )
+    cat("Variance / SD table saved:",
+        basename(csv_out_path), "and", basename(tex_out_path), "\n")
+
+    invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+  }
+
+  write_variance_biascorrected_ols_borda_table(
+    tab       = variance_tables$data,
+    tables_dir = tables_dir,
+    csv_name   = variance_ols_csv_name,
+    tex_name   = variance_ols_tex_name
   )
   
   for (new_outcome in outcomes) {
@@ -501,6 +651,11 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     } else {
       coeff_df_eb_new <- coeff_df %>%
         transmute(firm, firm_id, Estimate_eb_new = NA_real_)
+    }
+    if (!is.null(df_eb_ols) && all(cols_needed %in% names(df_eb_ols))) {
+      coeff_df_eb_ols <- get_one(df_eb_ols, new_outcome, "Estimate_eb_ols")
+    } else {
+      coeff_df_eb_ols <- coeff_df %>% transmute(firm, firm_id, Estimate_eb_ols = NA_real_)
     }
     if (!is.null(df_avg) && all(cols_needed %in% names(df_avg))) {
       avg_df <- get_one(df_avg, new_outcome, "avg_rating")
@@ -694,6 +849,95 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       ggsave(file.path(plots_dir, paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, suffix, ".png")),
              p_tb_bordaEB_dual, width = 16, height = 8, dpi = 300)
       cat("✅ Saved: ", paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, suffix, ".png "), "\n")
+    }
+
+    # -------------------------------
+    # NEW) Top/Bottom N by Borda EB with OLS EB for selected outcomes
+    # -------------------------------
+    if (new_outcome %in% ols_borda_dualaxis_outcomes) {
+      eb_dual_ols <- coeff_df_eb_ols %>%
+        dplyr::rename(EB_OLS = Estimate_eb_ols) %>%
+        dplyr::left_join(borda_eb_df, by = c("firm","firm_id")) %>%
+        dplyr::select(firm, firm_id, EB_OLS, Borda_EB)
+
+      if (all(is.na(eb_dual_ols$EB_OLS)) || all(is.na(eb_dual_ols$Borda_EB))) {
+        message("⚠️ Missing OLS EB or Borda EB for outcome: ", new_outcome, " — skipping OLS/Borda dual-axis Top/Bottom plot.")
+      } else {
+        mean_borda_all_ols <- mean(eb_dual_ols$Borda_EB, na.rm = TRUE)
+        ranked_dual_ols <- eb_dual_ols %>% dplyr::mutate(.rank_key = Borda_EB)
+        topN_dual_ols <- ranked_dual_ols %>% dplyr::slice_max(order_by = .rank_key, n = n_keep_overlay, with_ties = FALSE)
+        botN_dual_ols <- ranked_dual_ols %>% dplyr::slice_min(order_by = .rank_key, n = n_keep_overlay, with_ties = FALSE)
+        botN_dual_ols <- botN_dual_ols %>% arrange(Borda_EB, firm)
+        topN_dual_ols <- topN_dual_ols %>% arrange(Borda_EB, firm)
+
+        spacer_ols <- tibble(
+          firm            = paste0("__gap", seq_len(gap_width), "__"),
+          firm_id         = NA_integer_,
+          EB_OLS          = NA_real_,
+          Borda_EB        = NA_real_,
+          Borda_scaled_to_OLS = NA_real_
+        )
+        subset_dual_ols <- bind_rows(botN_dual_ols, spacer_ols, topN_dual_ols)
+
+        s_ols <- stats::sd(subset_dual_ols$EB_OLS, na.rm = TRUE); if (!is.finite(s_ols) || s_ols == 0) s_ols <- 1
+        s_bd  <- stats::sd(subset_dual_ols$Borda_EB, na.rm = TRUE); if (!is.finite(s_bd) || s_bd == 0) s_bd <- 1
+        a_ols <- s_ols / s_bd
+        b_ols <- -a_ols * mean_borda_all_ols
+
+        subset_dual_ols <- subset_dual_ols %>%
+          mutate(
+            firm = factor(firm, levels = firm, ordered = TRUE),
+            Borda_scaled_to_OLS = a_ols * Borda_EB + b_ols
+          )
+        inv_to_borda_ols <- function(y) (y - b_ols) / a_ols
+
+        guides_dual_ols <- subset_dual_ols %>%
+          group_by(firm) %>%
+          summarise(
+            ymin = suppressWarnings(pmin(EB_OLS, Borda_scaled_to_OLS, na.rm = TRUE)),
+            ymax = suppressWarnings(pmax(EB_OLS, Borda_scaled_to_OLS, na.rm = TRUE)),
+            .groups = "drop"
+          )
+        n_bottom_ols <- nrow(botN_dual_ols)
+        gap_start_ols <- n_bottom_ols + 0.5
+        gap_end_ols   <- n_bottom_ols + gap_width + 0.5
+        hide_gap_labels <- function(x) ifelse(grepl("^__gap\\d+__$", x), "", x)
+
+        p_tb_bordaEB_dual_ols <- ggplot(subset_dual_ols, aes(x = firm)) +
+          geom_segment(data = guides_dual_ols,
+                       aes(x = firm, xend = firm, y = ymin, yend = ymax),
+                       inherit.aes = FALSE, linewidth = 0.3, alpha = 0.35) +
+          geom_point(aes(y = EB_OLS,             color = "OLS (EB)"), size = 2.6, alpha = 0.9) +
+          geom_line (aes(y = EB_OLS,             color = "OLS (EB)", group = 1), linewidth = 0.7, alpha = 0.9) +
+          geom_point(aes(y = Borda_scaled_to_OLS, color = "Borda (EB)"), size = 2.6, alpha = 0.9, shape = 17) +
+          geom_line (aes(y = Borda_scaled_to_OLS, color = "Borda (EB)", group = 1),
+                     linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
+          geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+          geom_vline(xintercept = gap_start_ols, linetype = "dashed", linewidth = 0.6, color = "grey55") +
+          geom_vline(xintercept = gap_end_ols,   linetype = "dashed", linewidth = 0.6, color = "grey55") +
+          scale_y_continuous(
+            name     = "OLS Item Worth (EB)",
+            sec.axis = sec_axis(~ inv_to_borda_ols(.), name = "Borda Score (EB)")
+          ) +
+          scale_color_manual(values = c("OLS (EB)" = "steelblue", "Borda (EB)" = "darkorange")) +
+          labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
+          theme_minimal(base_size = 14) +
+          theme(
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+            legend.position = "none",
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.background = element_rect(fill = "white", color = "black"),
+            plot.background  = element_rect(fill = "white", color = NA),
+            plot.margin      = margin(t = 10, r = 20, b = 80, l = 90)
+          ) +
+          scale_x_discrete(labels = hide_gap_labels, expand = expansion(add = 0.8)) +
+          coord_cartesian(clip = "off")
+
+        ggsave(file.path(plots_dir, paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, "_ols_borda", suffix, ".png")),
+               p_tb_bordaEB_dual_ols, width = 16, height = 8, dpi = 300)
+        cat("✅ Saved: ", paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, "_ols_borda", suffix, ".png "), "\n")
+      }
     }
     
     # -------------------------------
@@ -925,5 +1169,7 @@ create_plots_and_tables_from_sheets(
   add_45_line = TRUE,
   scale_borda_to_100 = FALSE,
   variance_csv_name = "variance_biascorrected_pl_borda_alternate.csv",
-  variance_tex_name = "variance_biascorrected_pl_borda_alternate.tex"
+  variance_tex_name = "variance_biascorrected_pl_borda_alternate.tex",
+  variance_ols_csv_name = "variance_biascorrected_ols_borda_alternate.csv",
+  variance_ols_tex_name = "variance_biascorrected_ols_borda_alternate.tex"
 )

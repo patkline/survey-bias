@@ -7,7 +7,7 @@ fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
 # Read one coef/se pair from the unified EIV sheet (new pipeline)
 pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
-                     sheet = "EIV", model_filter = NULL,
+                     sheet = "EIV_firm", model_filter = NULL,
                      formula_filter = NULL, divide_by_100 = FALSE) {
   path <- file.path(root, file)
   dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
@@ -68,7 +68,7 @@ default_filemap <- tibble(
 
 build_eiv_df <- function(cfg) {
   root         <- cfg$root
-  sheet_name   <- cfg$sheet_name   %||% "EIV"
+  sheet_name   <- cfg$sheet_name   %||% "EIV_firm"
   model_filter <- cfg$model_filter
   lhs          <- cfg$lhs
   rhs_contact  <- cfg$rhs_contact
@@ -107,7 +107,7 @@ build_eiv_df <- function(cfg) {
 
 build_eiv_df_bivariate <- function(cfg) {
   root           <- cfg$root
-  sheet_name     <- cfg$sheet_name     %||% "EIV"
+  sheet_name     <- cfg$sheet_name     %||% "EIV_firm"
   model_filter   <- cfg$model_filter
   lhs            <- cfg$lhs
   rhs1           <- cfg$rhs1
@@ -263,7 +263,7 @@ make_uni_cfg <- function(root, model, lhs, rhs_contact, rhs_conduct, rhs_extra,
                          coef1 = 1L, coef2 = 2L, scale_by_100 = FALSE) {
   list(
     root         = root,
-    sheet_name   = "EIV",
+    sheet_name   = "EIV_firm",
     model_filter = model,
     lhs          = lhs,
     rhs_contact  = rhs_contact,
@@ -281,7 +281,7 @@ make_bi_cfg <- function(root, model, lhs, rhs1 = "FirmSelective", rhs2 = "discre
                         coef1 = 1L, coef2 = 2L) {
   list(
     root           = root,
-    sheet_name     = "EIV",
+    sheet_name     = "EIV_firm",
     model_filter   = model,
     lhs            = lhs,
     rhs1           = rhs1,

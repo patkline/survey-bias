@@ -637,24 +637,29 @@ writeLines(latex_lines, out_tex)
 message("LaTeX table written to: ", out_tex)
 
 # -------------------------------------------------------------------
-# 8. Generate OLS + Borda version (keep original table unchanged)
+# 8. Generate OLS + Borda version (corr-only; no p-value columns)
 # -------------------------------------------------------------------
 
-panelA_ols_borda <- get_panel_matrix(ols_corr,   pl_corr, all_firms_flag = TRUE, with_pvalues = TRUE)
+panelA_ols_borda <- get_panel_matrix(ols_corr,   pl_corr, all_firms_flag = TRUE, with_pvalues = FALSE)
 panelB_ols_borda <- get_panel_matrix(borda_corr, pl_corr, all_firms_flag = TRUE, with_pvalues = FALSE)
+
+panel_rows_corr_only <- function(panel) {
+  paste0("    ", panel$Row, " & ",
+         panel$`Discrimination Black`, " & ",
+         panel$`Discrimination Female`, " \\\\")
+}
 
 latex_lines_ols_borda <- c(
   "  \\centering",
-  "  \\begin{tabular}{lcccc}",
+  "  \\begin{tabular}{lcc}",
   "    \\toprule",
-  "    & \\multicolumn{2}{c}{Discrimination Black} & \\multicolumn{2}{c}{Discrimination Female} \\\\",
-  "    & Corr & p-value & Corr & p-value \\\\",
+  "    & Discrimination Black & Discrimination Female \\\\",
   "    \\midrule",
-  "    \\multicolumn{5}{l}{\\textbf{Panel A: OLS}}\\\\",
-  panel_rows(panelA_ols_borda),
+  "    \\multicolumn{3}{l}{\\textbf{Panel A: OLS}}\\\\",
+  panel_rows_corr_only(panelA_ols_borda),
   "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
-  panel_rows(panelB_ols_borda),
+  "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda}}\\\\",
+  panel_rows_corr_only(panelB_ols_borda),
   "    \\bottomrule",
   "  \\end{tabular}"
 )
