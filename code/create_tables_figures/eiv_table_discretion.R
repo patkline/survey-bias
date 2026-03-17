@@ -10,7 +10,7 @@ fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
 # Read one coef/se pair from the unified EIV sheet (new pipeline)
 pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
-                     sheet = "EIV", model_filter = NULL, divide_by_100 = FALSE) {
+                     sheet = "EIV_firm", model_filter = NULL, divide_by_100 = FALSE) {
 
   path <- file.path(root, file)
   dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
@@ -72,7 +72,7 @@ default_filemap <- tibble(
 
 build_eiv_df_two_cols <- function(cfg) {
   root         <- cfg$root
-  sheet_name   <- cfg$sheet_name   %||% "EIV"
+  sheet_name   <- cfg$sheet_name   %||% "EIV_firm"
   model_filter <- cfg$model_filter
   lhs          <- cfg$lhs
   rhs          <- cfg$rhs
@@ -217,7 +217,7 @@ build_two_panel_eiv_table_two_cols <- function(cfg_left, cfg_right, out_tex,
 make_disc_cfg <- function(root, model, coef1 = 1L, coef2 = 2L) {
   list(
     root         = root,
-    sheet_name   = "EIV",
+    sheet_name   = "EIV_firm",
     model_filter = model,
     lhs          = "cb_central_full",
     rhs          = "discretion",
