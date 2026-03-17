@@ -178,6 +178,40 @@ build_four_panel_eiv_table_two_cols <- function(cfg_pl, cfg_borda, cfg_ols, cfg_
   message("✓ LaTeX table saved to: ", out_tex)
 }
 
+# ---------- BUILD A TWO-PANEL LATEX TABLE ----------
+
+build_two_panel_eiv_table_two_cols <- function(cfg_left, cfg_right, out_tex,
+                                               left_label = "Panel A: Plackett--Luce",
+                                               right_label = "Panel B: Borda") {
+  df_left  <- build_eiv_df_two_cols(cfg_left)
+  df_right <- build_eiv_df_two_cols(cfg_right)
+
+  common_cols <- colnames(df_left)
+  df_left  <- df_left[, common_cols]
+  df_right <- df_right[, common_cols]
+
+  combined_df <- bind_rows(df_left, df_right)
+  n_left  <- nrow(df_left)
+  n_right <- nrow(df_right)
+
+  tex_code <- kable(
+    combined_df,
+    format    = "latex",
+    booktabs  = TRUE,
+    align     = c("l", rep("c", ncol(combined_df) - 1)),
+    col.names = common_cols,
+    linesep   = "",
+    escape    = FALSE
+  ) %>%
+    kable_styling(full_width = FALSE, position = "center") %>%
+    pack_rows(left_label, 1, n_left) %>%
+    pack_rows(right_label, n_left + 1, n_left + n_right)
+
+  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
+  writeLines(tex_code, out_tex)
+  message("✓ LaTeX table saved to: ", out_tex)
+}
+
 # ---------- CONFIGS ----------
 
 make_disc_cfg <- function(root, model, coef1 = 1L, coef2 = 2L) {
@@ -215,4 +249,22 @@ build_four_panel_eiv_table_two_cols(
   cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
   cfg_ol    = make_disc_cfg(root_dir, "OL"),
   out_tex   = file.path(tables, "EIV_discretion_four_panel_wt.tex")
+)
+
+# Weighted two-panel legacy output name: PL + Borda
+build_two_panel_eiv_table_two_cols(
+  cfg_left   = make_disc_cfg(root_dir, "PL"),
+  cfg_right  = make_disc_cfg(root_dir, "Borda"),
+  out_tex    = file.path(tables, "EIV_discretion_two_panel_wt.tex"),
+  left_label = "Panel A: Plackett--Luce",
+  right_label = "Panel B: Borda"
+)
+
+# Weighted two-panel OLS + Borda version
+build_two_panel_eiv_table_two_cols(
+  cfg_left   = make_disc_cfg(root_dir, "OLS"),
+  cfg_right  = make_disc_cfg(root_dir, "Borda"),
+  out_tex    = file.path(tables, "EIV_discretion_two_panel_wt_ols_borda.tex"),
+  left_label = "Panel A: OLS",
+  right_label = "Panel B: Borda"
 )
