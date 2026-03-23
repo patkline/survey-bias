@@ -52,7 +52,9 @@ default_filemap <- tibble(
              "Looking for a Job",
              "Not Looking for a Job",
              "Feared Discrimination",
-             "Did Not Fear Discrimination"),
+             "Did Not Fear Discrimination",
+             "40 Years or Older",
+             "Less than 40 Years Old"),
   file  = c("Plackett_Luce_Full_Sample.xlsx",
             "Plackett_Luce_Subset_Black.xlsx",
             "Plackett_Luce_Subset_White.xlsx",
@@ -61,7 +63,9 @@ default_filemap <- tibble(
             "Plackett_Luce_Subset_Looking.xlsx",
             "Plackett_Luce_Subset_Not_Looking.xlsx",
             "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx")
+            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
+            "Plackett_Luce_Subset_Age_gte40.xlsx",
+            "Plackett_Luce_Subset_Age_lt40.xlsx")
 )
 
 # ---------- BUILD DF FOR ONE UNIVARIATE CONFIG ----------
@@ -195,8 +199,8 @@ build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
       pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
       pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
       pack_rows("Panel C: Ordered Logit", cum_borda + 1, cum_ol) %>%
-      pack_rows("Panel D: OLS", cum_ol + 1, cum_ols) %>%
-      pack_rows("Panel E: OLS Centered", cum_ols + 1, cum_olsc)
+      pack_rows("Panel D: Likert Score", cum_ol + 1, cum_ols) %>%
+      pack_rows("Panel E: Likert Score Centered", cum_ols + 1, cum_olsc)
   } else {
     cum_pl    <- n_pl
     cum_borda <- cum_pl + n_borda
@@ -214,8 +218,8 @@ build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
     ) %>%
       pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
       pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
-      pack_rows("Panel C: OLS", cum_borda + 1, cum_ols) %>%
-      pack_rows("Panel D: OLS Centered", cum_ols + 1, cum_olsc)
+      pack_rows("Panel C: Likert Score", cum_borda + 1, cum_ols) %>%
+      pack_rows("Panel D: Likert Score Centered", cum_ols + 1, cum_olsc)
   }
 
   dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
@@ -302,100 +306,92 @@ make_bi_cfg <- function(root, model, lhs, rhs1 = "FirmSelective", rhs2 = "discre
 
 root_dir <- excel
 
-# ---- Race ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  out_tex   = file.path(tables, "EIV_race_four_panel.tex")
-)
+if (FALSE) {
+  # ---- Race ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    out_tex   = file.path(tables, "EIV_race_four_panel.tex")
+  )
 
-# ---- Gender ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  out_tex   = file.path(tables, "EIV_gender_four_panel.tex")
-)
+  # ---- Gender ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    out_tex   = file.path(tables, "EIV_gender_four_panel.tex")
+  )
 
-# ---- Age ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  out_tex   = file.path(tables, "EIV_age_four_panel.tex")
-)
+  # ---- Age ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    out_tex   = file.path(tables, "EIV_age_four_panel.tex")
+  )
 
-# ==========================================================================
-# UNIVARIATE FOUR-PANEL TABLES (WEIGHTED)
-# New pipeline bakes in weights; coef 1/2 are already weighted.
-# ==========================================================================
+  # ---- Race (weighted) ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    out_tex   = file.path(tables, "EIV_race_four_panel_wt.tex")
+  )
 
-# ---- Race (weighted) ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  out_tex   = file.path(tables, "EIV_race_four_panel_wt.tex")
-)
+  # ---- Gender (weighted) ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    out_tex   = file.path(tables, "EIV_gender_four_panel_wt.tex")
+  )
 
-# ---- Gender (weighted) ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  out_tex   = file.path(tables, "EIV_gender_four_panel_wt.tex")
-)
+  # ---- Age (weighted) ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
+    out_tex   = file.path(tables, "EIV_age_four_panel_wt.tex")
+  )
 
-# ---- Age (weighted) ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_uni_cfg(root_dir, "PL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_borda = make_uni_cfg(root_dir, "Borda", "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_ols   = make_uni_cfg(root_dir, "OLS",   "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_olsc  = make_uni_cfg(root_dir, "OLSC",  "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  cfg_ol    = make_uni_cfg(root_dir, "OL",    "log_dif_age", "FirmCont_favor_younger", "conduct_favor_younger", "pooled_favor_younger"),
-  out_tex   = file.path(tables, "EIV_age_four_panel_wt.tex")
-)
+  # ---- Race (weighted): PL + Borda (legacy name) ----
+  build_two_panel_eiv_table(
+    cfg_left   = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
+    out_tex    = file.path(tables, "EIV_race_two_panel_wt.tex"),
+    left_label = "Panel A: Plackett--Luce",
+    right_label = "Panel B: Borda"
+  )
 
-# ==========================================================================
-# UNIVARIATE TWO-PANEL TABLES (WEIGHTED)
-# Keep legacy PL+Borda names for comparison scripts; add OLS+Borda variants.
-# ==========================================================================
-
-# ---- Race (weighted): PL + Borda (legacy name) ----
-build_two_panel_eiv_table(
-  cfg_left   = make_uni_cfg(root_dir, "PL",    "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
-  out_tex    = file.path(tables, "EIV_race_two_panel_wt.tex"),
-  left_label = "Panel A: Plackett--Luce",
-  right_label = "Panel B: Borda"
-)
-
-# ---- Gender (weighted): PL + Borda (legacy name) ----
-build_two_panel_eiv_table(
-  cfg_left   = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
-  out_tex    = file.path(tables, "EIV_gender_two_panel_wt.tex"),
-  left_label = "Panel A: Plackett--Luce",
-  right_label = "Panel B: Borda"
-)
+  # ---- Gender (weighted): PL + Borda (legacy name) ----
+  build_two_panel_eiv_table(
+    cfg_left   = make_uni_cfg(root_dir, "PL",    "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
+    out_tex    = file.path(tables, "EIV_gender_two_panel_wt.tex"),
+    left_label = "Panel A: Plackett--Luce",
+    right_label = "Panel B: Borda"
+  )
+}
 
 # ---- Race (weighted): OLS + Borda ----
 build_two_panel_eiv_table(
   cfg_left   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
   cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
   out_tex    = file.path(tables, "EIV_race_two_panel_wt_ols_borda.tex"),
-  left_label = "Panel A: OLS",
+  left_label = "Panel A: Likert Score",
   right_label = "Panel B: Borda"
 )
 
@@ -404,7 +400,7 @@ build_two_panel_eiv_table(
   cfg_left   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
   cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
   out_tex    = file.path(tables, "EIV_gender_two_panel_wt_ols_borda.tex"),
-  left_label = "Panel A: OLS",
+  left_label = "Panel A: Likert Score",
   right_label = "Panel B: Borda"
 )
 
@@ -412,35 +408,37 @@ build_two_panel_eiv_table(
 # BIVARIATE FOUR-PANEL TABLES
 # ==========================================================================
 
-# ---- Race (bivariate) ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif"),
-  cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif"),
-  cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif"),
-  cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif"),
-  cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif"),
-  out_tex   = file.path(tables, "EIV_race_bivariate_four_panel.tex"),
-  build_fn  = build_eiv_df_bivariate
-)
+if (FALSE) {
+  # ---- Race (bivariate) ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif"),
+    cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif"),
+    cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif"),
+    cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif"),
+    cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif"),
+    out_tex   = file.path(tables, "EIV_race_bivariate_four_panel.tex"),
+    build_fn  = build_eiv_df_bivariate
+  )
 
-# ---- Gender (bivariate) ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif_gender"),
-  cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif_gender"),
-  cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif_gender"),
-  cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif_gender"),
-  cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif_gender"),
-  out_tex   = file.path(tables, "EIV_gender_bivariate_four_panel.tex"),
-  build_fn  = build_eiv_df_bivariate
-)
+  # ---- Gender (bivariate) ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif_gender"),
+    cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif_gender"),
+    cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif_gender"),
+    cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif_gender"),
+    cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif_gender"),
+    out_tex   = file.path(tables, "EIV_gender_bivariate_four_panel.tex"),
+    build_fn  = build_eiv_df_bivariate
+  )
 
-# ---- Age (bivariate) ----
-build_four_panel_eiv_table(
-  cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif_age"),
-  cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif_age"),
-  cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif_age"),
-  cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif_age"),
-  cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif_age"),
-  out_tex   = file.path(tables, "EIV_age_bivariate_four_panel.tex"),
-  build_fn  = build_eiv_df_bivariate
-)
+  # ---- Age (bivariate) ----
+  build_four_panel_eiv_table(
+    cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif_age"),
+    cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif_age"),
+    cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif_age"),
+    cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif_age"),
+    cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif_age"),
+    out_tex   = file.path(tables, "EIV_age_bivariate_four_panel.tex"),
+    build_fn  = build_eiv_df_bivariate
+  )
+}

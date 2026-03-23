@@ -29,7 +29,11 @@ sample_filemap <- tibble::tibble(
              "At Least Some College",
              "HS Diploma or Less",
              "Convenience",
-             "Probability"),
+             "Probability",
+             "Not Confident (Gender)",
+             "Confident (Gender)",
+             "Not Confident (Race)",
+             "Confident (Race)"),
   file   = c("Plackett_Luce_Subset_Black.xlsx",
              "Plackett_Luce_Subset_White.xlsx",
              "Plackett_Luce_Subset_Female.xlsx",
@@ -43,7 +47,11 @@ sample_filemap <- tibble::tibble(
              "Plackett_Luce_Subset_College.xlsx",
              "Plackett_Luce_Subset_No_College.xlsx",
              "Plackett_Luce_Subset_Convenience.xlsx",
-             "Plackett_Luce_Subset_Probability.xlsx")
+             "Plackett_Luce_Subset_Probability.xlsx",
+             "Plackett_Luce_Subset_Conf_Gender_N.xlsx",
+             "Plackett_Luce_Subset_Conf_Gender_Y.xlsx",
+             "Plackett_Luce_Subset_Conf_Race_N.xlsx",
+             "Plackett_Luce_Subset_Conf_Race_Y.xlsx")
 )
 
 # Pairs of subsamples to correlate / test
@@ -54,14 +62,18 @@ sample_pairs <- tibble::tibble(
               "Feared Discrimination",
               "40 Years or Older",
               "At Least Some College",
-              "Convenience"),
+              "Convenience",
+              "Not Confident (Gender)",
+              "Not Confident (Race)"),
   sample2 = c("White",
               "Female",
               "Not Looking for a Job",
               "Did Not Fear Discrimination",
               "Less than 40 Years Old",
               "HS Diploma or Less",
-              "Probability")
+              "Probability",
+              "Confident (Gender)",
+              "Confident (Race)")
 )
 
 # Outcomes of interest
@@ -522,7 +534,9 @@ row_specs <- tibble::tribble(
   "Feared Discrimination vs Not",    "Feared Discrimination",  "Did Not Fear Discrimination",
   "Age $>=$ 40 vs $<$ 40",               "40 Years or Older",      "Less than 40 Years Old",
   "At Least Some College vs HS Diploma or less", "At Least Some College", "HS Diploma or Less",
-  "Convenience vs Probability",      "Convenience",            "Probability"
+  "Convenience vs Probability",      "Convenience",            "Probability",
+  "Confident vs Not (Gender)",       "Not Confident (Gender)", "Confident (Gender)",
+  "Confident vs Not (Race)",         "Not Confident (Race)",   "Confident (Race)"
 )
 
 # Outcomes and their display labels
@@ -623,10 +637,10 @@ latex_lines <- c(
   "    \\multicolumn{5}{l}{\\textbf{Panel C: Ordered Logit}}\\\\",
   panel_rows(panelC),
   "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel D: OLS}}\\\\",
+  "    \\multicolumn{5}{l}{\\textbf{Panel D: Likert Score}}\\\\",
   panel_rows(panelD),
   "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel E: OLS Centered}}\\\\",
+  "    \\multicolumn{5}{l}{\\textbf{Panel E: Likert Score Centered}}\\\\",
   panel_rows(panelE),
   "    \\bottomrule",
   "  \\end{tabular}"
@@ -655,7 +669,7 @@ latex_lines_ols_borda <- c(
   "    \\toprule",
   "    & Discrimination Black & Discrimination Female \\\\",
   "    \\midrule",
-  "    \\multicolumn{3}{l}{\\textbf{Panel A: OLS}}\\\\",
+  "    \\multicolumn{3}{l}{\\textbf{Panel A: Likert Score}}\\\\",
   panel_rows_corr_only(panelA_ols_borda),
   "    \\addlinespace",
   "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda}}\\\\",
