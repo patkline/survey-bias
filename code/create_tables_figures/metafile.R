@@ -25,6 +25,7 @@ source(file.path(create_tables_figures, "eiv_table_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_bivariate.R"))
 source(file.path(create_tables_figures, "cross_sample_signal_corr.R"))
 source(file.path(create_tables_figures, "cross_model_corr.R"))
+source(file.path(create_tables_figures, "valence_correlation_bars.R"))
 
 message("🎃 Tables and figures complete")
 
