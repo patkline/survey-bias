@@ -301,10 +301,10 @@ latex_lines <- c(
   "    \\multicolumn{3}{l}{\\textbf{Panel C: Ordered Logit (Raw Correlation)}}\\\\",
   panel_rows_corr_only(panelC),
   "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel D: OLS (Raw Correlation)}}\\\\",
+  "    \\multicolumn{3}{l}{\\textbf{Panel D: Likert Score (Raw Correlation)}}\\\\",
   panel_rows_corr_only(panelD),
   "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel E: OLS Centered (Raw Correlation)}}\\\\",
+  "    \\multicolumn{3}{l}{\\textbf{Panel E: Likert Score Centered (Raw Correlation)}}\\\\",
   panel_rows_corr_only(panelE),
   "    \\bottomrule",
   "  \\end{tabular}"

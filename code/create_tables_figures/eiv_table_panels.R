@@ -195,8 +195,8 @@ build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
       pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
       pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
       pack_rows("Panel C: Ordered Logit", cum_borda + 1, cum_ol) %>%
-      pack_rows("Panel D: OLS", cum_ol + 1, cum_ols) %>%
-      pack_rows("Panel E: OLS Centered", cum_ols + 1, cum_olsc)
+      pack_rows("Panel D: Likert Score", cum_ol + 1, cum_ols) %>%
+      pack_rows("Panel E: Likert Score Centered", cum_ols + 1, cum_olsc)
   } else {
     cum_pl    <- n_pl
     cum_borda <- cum_pl + n_borda
@@ -214,8 +214,8 @@ build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
     ) %>%
       pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
       pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
-      pack_rows("Panel C: OLS", cum_borda + 1, cum_ols) %>%
-      pack_rows("Panel D: OLS Centered", cum_ols + 1, cum_olsc)
+      pack_rows("Panel C: Likert Score", cum_borda + 1, cum_ols) %>%
+      pack_rows("Panel D: Likert Score Centered", cum_ols + 1, cum_olsc)
   }
 
   dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
@@ -395,7 +395,7 @@ build_two_panel_eiv_table(
   cfg_left   = make_uni_cfg(root_dir, "OLS",   "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
   cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"),
   out_tex    = file.path(tables, "EIV_race_two_panel_wt_ols_borda.tex"),
-  left_label = "Panel A: OLS",
+  left_label = "Panel A: Likert Score",
   right_label = "Panel B: Borda"
 )
 
@@ -404,7 +404,7 @@ build_two_panel_eiv_table(
   cfg_left   = make_uni_cfg(root_dir, "OLS",   "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
   cfg_right  = make_uni_cfg(root_dir, "Borda", "log_dif_gender", "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male"),
   out_tex    = file.path(tables, "EIV_gender_two_panel_wt_ols_borda.tex"),
-  left_label = "Panel A: OLS",
+  left_label = "Panel A: Likert Score",
   right_label = "Panel B: Borda"
 )
 

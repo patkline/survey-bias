@@ -14,6 +14,7 @@ library(ggplot2)
 excel_path <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
 models     <- c("PL", "Borda", "OL", "OLS", "OLSC")
 subset_filter <- "all"
+model_title_map <- c(OLS = "Likert Score", OLSC = "Likert Score Centered")
 
 # Pairs: list of (outcome_a, outcome_b, bar_label)
 race_pairs <- list(
@@ -98,7 +99,9 @@ for (m in models) {
               " -- plot will be empty.")
     }
 
-    p <- make_bar_plot(df_sub, m, dim)
+    m_title <- unname(model_title_map[m])
+    if (is.na(m_title)) m_title <- m
+    p <- make_bar_plot(df_sub, m_title, dim)
 
     fname <- paste0("valence_corr_", m, "_",
                      tolower(dim), ".png")

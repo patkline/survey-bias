@@ -471,10 +471,10 @@ latex_lines <- c(
   "    \\multicolumn{3}{l}{\\textbf{Panel C: Ordered Logit (Placebo)}}\\\\",
   panel_rows_corr_only(panelC),
   "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel D: OLS (Placebo)}}\\\\",
+  "    \\multicolumn{3}{l}{\\textbf{Panel D: Likert Score (Placebo)}}\\\\",
   panel_rows_corr_only(panelD),
   "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel E: OLS Centered (Placebo)}}\\\\",
+  "    \\multicolumn{3}{l}{\\textbf{Panel E: Likert Score Centered (Placebo)}}\\\\",
   panel_rows_corr_only(panelE),
   "    \\bottomrule",
   "  \\end{tabular}"
