@@ -5,10 +5,15 @@ source("code/globals.R")
 # Pretty 3-decimal formatter
 fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
-# Read one coef/se pair for bivariate models
-# For bivariate: coef 1 = selectivity, coef 3 = discretion
+# Read one coef/se pair for bivariate models from unified EIV_firm.
+# Legacy mapping:
+#   coef_num 1/2 -> FirmSelective (No FE / Industry FE)
+#   coef_num 3/4 -> discretion   (No FE / Industry FE)
 pull_bivariate_est <- function(root, file, lhs_var, coef_num,
-                               sheet = "EIV_BIVARIATE", divide_by_100 = FALSE) {
+                               model_filter = "PL",
+                               formula_var = "FirmSelective + discretion",
+                               sheet = "EIV_firm",
+                               divide_by_100 = FALSE) {
   path <- file.path(root, file)
   dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
                   error = function(e) tibble())
@@ -17,9 +22,15 @@ pull_bivariate_est <- function(root, file, lhs_var, coef_num,
   # Convert coef column to numeric
   dat$coef <- suppressWarnings(as.numeric(dat$coef))
 
-  # Filter using base R to avoid data masking issues in rowwise context
-  # Note: rhs is the same for all rows ("FirmSelective + discretion"), so we ignore it
-  out <- dat[dat$lhs == lhs_var & dat$coef == coef_num, ]
+  rhs_var <- if (coef_num %in% c(1L, 2L)) "FirmSelective" else "discretion"
+  coef_in_sheet <- if (coef_num %in% c(1L, 3L)) 1L else 2L
+
+  out <- dat[
+    dat$model == model_filter &
+      dat$lhs == lhs_var &
+      dat$formula == formula_var &
+      dat$rhs == rhs_var &
+      dat$coef == coef_in_sheet, ]
 
   if (!nrow(out)) return("NA (NA)")
 
@@ -64,7 +75,9 @@ default_filemap <- tibble(
 
 build_bivariate_df <- function(cfg) {
   root        <- cfg$root
-  sheet_name  <- cfg$sheet_name  %||% "EIV_BIVARIATE"
+  sheet_name  <- cfg$sheet_name  %||% "EIV_firm"
+  model_filter <- cfg$model_filter %||% "PL"
+  formula_filter <- cfg$formula_filter %||% "FirmSelective + discretion"
   lhs         <- cfg$lhs
   coef1       <- cfg$coef1 %||% 1L  # Selectivity
   coef3       <- cfg$coef3 %||% 3L  # Discretion
@@ -79,7 +92,13 @@ build_bivariate_df <- function(cfg) {
   selectivity_row <- filemap %>%
     rowwise() %>%
     mutate(
-      value = pull_bivariate_est(root, file, lhs, coef1, sheet_name, scale_by_100)
+      value = pull_bivariate_est(
+        root, file, lhs, coef1,
+        model_filter = model_filter,
+        formula_var = formula_filter,
+        sheet = sheet_name,
+        divide_by_100 = scale_by_100
+      )
     ) %>%
     ungroup()
 
@@ -87,7 +106,13 @@ build_bivariate_df <- function(cfg) {
   discretion_row <- filemap %>%
     rowwise() %>%
     mutate(
-      value = pull_bivariate_est(root, file, lhs, coef3, sheet_name, scale_by_100)
+      value = pull_bivariate_est(
+        root, file, lhs, coef3,
+        model_filter = model_filter,
+        formula_var = formula_filter,
+        sheet = sheet_name,
+        divide_by_100 = scale_by_100
+      )
     ) %>%
     ungroup()
 
@@ -188,21 +213,24 @@ runs <- list(
   # Plackett-Luce
   pl_race = list(
     root        = root_dir,
-    sheet_name  = "EIV_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "PL",
     lhs         = "log_dif",
     coef1       = 1L,  # Selectivity
     coef3       = 3L   # Discretion
   ),
   pl_gender = list(
     root        = root_dir,
-    sheet_name  = "EIV_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "PL",
     lhs         = "log_dif_gender",
     coef1       = 1L,
     coef3       = 3L
   ),
   pl_age = list(
     root        = root_dir,
-    sheet_name  = "EIV_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "PL",
     lhs         = "log_dif_age",
     coef1       = 1L,
     coef3       = 3L
@@ -211,21 +239,24 @@ runs <- list(
   # Borda
   borda_race = list(
     root        = root_dir,
-    sheet_name  = "EIV_BORDA_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "Borda",
     lhs         = "log_dif",
     coef1       = 1L,
     coef3       = 3L
   ),
   borda_gender = list(
     root        = root_dir,
-    sheet_name  = "EIV_BORDA_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "Borda",
     lhs         = "log_dif_gender",
     coef1       = 1L,
     coef3       = 3L
   ),
   borda_age = list(
     root        = root_dir,
-    sheet_name  = "EIV_BORDA_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "Borda",
     lhs         = "log_dif_age",
     coef1       = 1L,
     coef3       = 3L
@@ -304,25 +335,40 @@ build_comparison_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
 
   build_panel <- function(cfg) {
     lhs <- cfg$lhs
-    bivariate_sheet <- cfg$bivariate_sheet
-    univariate_sheet <- cfg$univariate_sheet
+    model_filter <- cfg$model_filter %||% "PL"
+    bivariate_sheet <- cfg$bivariate_sheet %||% "EIV_firm"
 
     # Column 1: Bivariate No FE (coef1 = Selectivity, coef3 = Discretion)
-    biv_nofe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 1L, bivariate_sheet)
-    biv_nofe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 3L, bivariate_sheet)
+    biv_nofe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 1L,
+                                       model_filter = model_filter,
+                                       sheet = bivariate_sheet)
+    biv_nofe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 3L,
+                                       model_filter = model_filter,
+                                       sheet = bivariate_sheet)
 
     # Column 2: Bivariate With FE (coef2 = Selectivity, coef4 = Discretion)
-    biv_fe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 2L, bivariate_sheet)
-    biv_fe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 4L, bivariate_sheet)
+    biv_fe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 2L,
+                                     model_filter = model_filter,
+                                     sheet = bivariate_sheet)
+    biv_fe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 4L,
+                                     model_filter = model_filter,
+                                     sheet = bivariate_sheet)
 
-    # Column 3: Univariate No FE (coef1)
-    # NOTE: for univariate EIV_BS, weighted specs are coefs 3 (No FE) and 4 (Industry FEs)
-    uni_nofe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 3L, univariate_sheet)
-    uni_nofe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 3L, univariate_sheet)
+    # Column 3: Univariate No FE (coef1 in EIV_firm)
+    uni_nofe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 1L,
+                                      formula_var = "FirmSelective",
+                                      model_filter = model_filter)
+    uni_nofe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 1L,
+                                      formula_var = "discretion",
+                                      model_filter = model_filter)
 
-    # Column 4: Univariate With FE (coef2)
-    uni_fe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 4L, univariate_sheet)
-    uni_fe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 4L, univariate_sheet)
+    # Column 4: Univariate With FE (coef2 in EIV_firm)
+    uni_fe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 2L,
+                                    formula_var = "FirmSelective",
+                                    model_filter = model_filter)
+    uni_fe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 2L,
+                                    formula_var = "discretion",
+                                    model_filter = model_filter)
 
     tibble(
       Regressor = c("Selectivity", "Discretion"),
@@ -478,20 +524,20 @@ comparison_runs <- list(
   race = list(
     root = root_dir,
     lhs = "log_dif",
-    bivariate_sheet = "EIV_BIVARIATE",
-    univariate_sheet = "EIV_BS"
+    model_filter = "PL",
+    bivariate_sheet = "EIV_firm"
   ),
   gender = list(
     root = root_dir,
     lhs = "log_dif_gender",
-    bivariate_sheet = "EIV_BIVARIATE",
-    univariate_sheet = "EIV_BS"
+    model_filter = "PL",
+    bivariate_sheet = "EIV_firm"
   ),
   age = list(
     root = root_dir,
     lhs = "log_dif_age",
-    bivariate_sheet = "EIV_BIVARIATE",
-    univariate_sheet = "EIV_BS"
+    model_filter = "PL",
+    bivariate_sheet = "EIV_firm"
   )
 )
 
@@ -510,21 +556,30 @@ build_comparison_table(
 table8_file <- "Plackett_Luce_Full_Sample.xlsx"
 
 table8_runs <- list(
-  ls_race = list(root = root_dir, lhs = "log_dif",        univariate_sheet = "EIV_BS"),
-  ls_gender = list(root = root_dir, lhs = "log_dif_gender", univariate_sheet = "EIV_BS"),
-  borda_race = list(root = root_dir, lhs = "log_dif",        univariate_sheet = "EIV_Bordaw"),
-  borda_gender = list(root = root_dir, lhs = "log_dif_gender", univariate_sheet = "EIV_Bordaw")
+  ls_race = list(root = root_dir, lhs = "log_dif",        model_filter = "OLS"),
+  ls_gender = list(root = root_dir, lhs = "log_dif_gender", model_filter = "OLS"),
+  borda_race = list(root = root_dir, lhs = "log_dif",        model_filter = "Borda"),
+  borda_gender = list(root = root_dir, lhs = "log_dif_gender", model_filter = "Borda")
 )
 
 build_table8_row <- function(cfg) {
   root <- cfg$root
   lhs  <- cfg$lhs
-  sheet <- cfg$univariate_sheet
+  model_filter <- cfg$model_filter
 
-  uni_nofe_sel <- pull_univariate_est(root, table8_file, lhs, "FirmSelective", 3L, sheet)
-  uni_nofe_dis <- pull_univariate_est(root, table8_file, lhs, "discretion", 3L, sheet)
-  uni_fe_sel <- pull_univariate_est(root, table8_file, lhs, "FirmSelective", 4L, sheet)
-  uni_fe_dis <- pull_univariate_est(root, table8_file, lhs, "discretion", 4L, sheet)
+  # Pull univariate rows from the unified EIV_firm sheet.
+  uni_nofe_sel <- pull_eiv_firm_est(root, table8_file, lhs, "FirmSelective", 1L,
+                                    formula_var = "FirmSelective",
+                                    model_filter = model_filter)
+  uni_nofe_dis <- pull_eiv_firm_est(root, table8_file, lhs, "discretion", 1L,
+                                    formula_var = "discretion",
+                                    model_filter = model_filter)
+  uni_fe_sel <- pull_eiv_firm_est(root, table8_file, lhs, "FirmSelective", 2L,
+                                  formula_var = "FirmSelective",
+                                  model_filter = model_filter)
+  uni_fe_dis <- pull_eiv_firm_est(root, table8_file, lhs, "discretion", 2L,
+                                  formula_var = "discretion",
+                                  model_filter = model_filter)
 
   tibble(
     Regressor = c("Selectivity", "Discretion"),
