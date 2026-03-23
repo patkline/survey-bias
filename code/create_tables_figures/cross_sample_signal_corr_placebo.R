@@ -37,7 +37,11 @@ sample_filemap <- tibble::tibble(
              "At Least Some College",
              "HS Diploma or Less",
              "Convenience",
-             "Probability"),
+             "Probability",
+             "Not Confident (Gender)",
+             "Confident (Gender)",
+             "Not Confident (Race)",
+             "Confident (Race)"),
   file   = c("Plackett_Luce_Subset_Black.xlsx",
              "Plackett_Luce_Subset_White.xlsx",
              "Plackett_Luce_Subset_Female.xlsx",
@@ -51,7 +55,11 @@ sample_filemap <- tibble::tibble(
              "Plackett_Luce_Subset_College.xlsx",
              "Plackett_Luce_Subset_No_College.xlsx",
              "Plackett_Luce_Subset_Convenience.xlsx",
-             "Plackett_Luce_Subset_Probability.xlsx")
+             "Plackett_Luce_Subset_Probability.xlsx",
+             "Plackett_Luce_Subset_Conf_Gender_N.xlsx",
+             "Plackett_Luce_Subset_Conf_Gender_Y.xlsx",
+             "Plackett_Luce_Subset_Conf_Race_N.xlsx",
+             "Plackett_Luce_Subset_Conf_Race_Y.xlsx")
 )
 
 sample_pairs <- tibble::tibble(
@@ -61,14 +69,18 @@ sample_pairs <- tibble::tibble(
               "Feared Discrimination",
               "40 Years or Older",
               "At Least Some College",
-              "Convenience"),
+              "Convenience",
+              "Not Confident (Gender)",
+              "Not Confident (Race)"),
   sample2 = c("White",
               "Female",
               "Not Looking for a Job",
               "Did Not Fear Discrimination",
               "Less than 40 Years Old",
               "HS Diploma or Less",
-              "Probability")
+              "Probability",
+              "Confident (Gender)",
+              "Confident (Race)")
 )
 
 outcomes <- c("pooled_favor_white", "pooled_favor_male")
@@ -400,7 +412,9 @@ row_specs <- tibble::tribble(
   "Feared Discrimination vs Not",    "Feared Discrimination",  "Did Not Fear Discrimination",
   "Age $>=$ 40 vs $<$ 40",          "40 Years or Older",      "Less than 40 Years Old",
   "At Least Some College vs HS Diploma or less", "At Least Some College", "HS Diploma or Less",
-  "Convenience vs Probability",      "Convenience",            "Probability"
+  "Convenience vs Probability",      "Convenience",            "Probability",
+  "Confident vs Not (Gender)",       "Not Confident (Gender)", "Confident (Gender)",
+  "Confident vs Not (Race)",         "Not Confident (Race)",   "Confident (Race)"
 )
 
 outcome_map <- tibble::tribble(
