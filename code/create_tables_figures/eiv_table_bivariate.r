@@ -504,7 +504,7 @@ build_comparison_table(
 
 # ------------------------------------------------------------------------------
 # Build Table 8: EIV_bivariate_vs_univariate_wt_ols_borda.tex
-# Purpose: Likert Score + Borda panels; separate models only; race/gender only
+# Purpose: Likert + Borda panels; separate models only; race/gender only
 # ------------------------------------------------------------------------------
 
 table8_file <- "Plackett_Luce_Full_Sample.xlsx"
@@ -564,7 +564,7 @@ tex_code_table8 <- kable(
   linesep   = "",
   escape    = FALSE
 ) %>%
-  pack_rows("Panel A: Likert Score", 1, n_ls) %>%
+  pack_rows("Panel A: Likert", 1, n_ls) %>%
   pack_rows("\\\\textit{Race}", 1, n_ls_race, italic = TRUE, escape = FALSE) %>%
   pack_rows("\\\\textit{Gender}", n_ls_race + 1, n_ls, italic = TRUE, escape = FALSE) %>%
   pack_rows("Panel B: Borda", n_ls + 1, n_ls + n_borda) %>%

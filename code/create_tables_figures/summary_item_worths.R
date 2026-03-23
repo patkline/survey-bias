@@ -361,14 +361,14 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       csv_cols[["OL: t-stat"]] <- tab$OL_t_stat
     }
     if ("OLS_sd" %in% names(tab)) {
-      csv_cols[["Likert Score: sd"]] <- tab$OLS_sd
-      csv_cols[["Likert Score: bias corrected sd"]] <- tab$OLS_sd_bias_corrected
-      csv_cols[["Likert Score: t-stat"]] <- tab$OLS_t_stat
+      csv_cols[["Likert: sd"]] <- tab$OLS_sd
+      csv_cols[["Likert: bias corrected sd"]] <- tab$OLS_sd_bias_corrected
+      csv_cols[["Likert: t-stat"]] <- tab$OLS_t_stat
     }
     if ("OLSC_sd" %in% names(tab)) {
-      csv_cols[["Likert Score Centered: sd"]] <- tab$OLSC_sd
-      csv_cols[["Likert Score Centered: bias corrected sd"]] <- tab$OLSC_sd_bias_corrected
-      csv_cols[["Likert Score Centered: t-stat"]] <- tab$OLSC_t_stat
+      csv_cols[["Likert Centered: sd"]] <- tab$OLSC_sd
+      csv_cols[["Likert Centered: bias corrected sd"]] <- tab$OLSC_sd_bias_corrected
+      csv_cols[["Likert Centered: t-stat"]] <- tab$OLSC_t_stat
     }
     out_csv <- as.data.frame(csv_cols, check.names = FALSE)
     utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
@@ -440,13 +440,13 @@ create_plots_and_tables_from_sheets <- function(excel_path,
         col_idx <- col_idx + 3
       }
       if (has_ols) {
-        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Likert Score}")
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Likert}")
         extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & ")
         cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
         col_idx <- col_idx + 3
       }
       if (has_olsc) {
-        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Likert Score Centered}")
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Likert Centered}")
         extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal}")
         cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
       }
@@ -554,9 +554,9 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     csv_out_path <- file.path(tables_dir, csv_name)
     out_csv <- data.frame(
       Outcome = tab$Outcome_display,
-      `Likert Score: sd` = tab$OLS_sd,
-      `Likert Score: bias corrected sd` = tab$OLS_sd_bias_corrected,
-      `Likert Score: t-stat` = tab$OLS_t_stat,
+      `Likert: sd` = tab$OLS_sd,
+      `Likert: bias corrected sd` = tab$OLS_sd_bias_corrected,
+      `Likert: t-stat` = tab$OLS_t_stat,
       `Borda: sd` = tab$Borda_sd,
       `Borda: bias corrected sd` = tab$Borda_sd_bias_corrected,
       `Borda: t-stat` = tab$Borda_t_stat,
@@ -589,7 +589,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
 
     header <- paste0(
       "\\toprule\n",
-      " & \\multicolumn{3}{c}{Likert Score} & \\multicolumn{4}{c}{Borda} \\\\\n",
+      " & \\multicolumn{3}{c}{Likert} & \\multicolumn{4}{c}{Borda} \\\\\n",
       "\\cmidrule(lr){2-4} \\cmidrule(lr){5-8}\n",
       "Outcome & Std Dev & ",
       "\\shortstack{Signal\\\\Std Dev} & ",
@@ -831,12 +831,30 @@ create_plots_and_tables_from_sheets <- function(excel_path,
           name     = "Plackett–Luce Item Worth (EB)",
           sec.axis = sec_axis(~ inv_to_borda(.), name = "Borda Score (EB)")
         ) +
-        scale_color_manual(values = c("PL (EB)" = "steelblue", "Borda (EB)" = "darkorange")) +
+        scale_color_manual(
+          values = c("PL (EB)" = "steelblue", "Borda (EB)" = "darkorange"),
+          breaks = c("PL (EB)", "Borda (EB)"),
+          labels = c("PL (EB)" = "Plackett–Luce", "Borda (EB)" = "Borda Score")
+        ) +
+        guides(color = guide_legend(
+          override.aes = list(
+            shape = c(16, 17),
+            linetype = c("solid", "dashed"),
+            linewidth = c(0.7, 0.7),
+            alpha = c(0.9, 0.9)
+          )
+        )) +
         labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
         theme_minimal(base_size = 14) +
         theme(
           axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
-          legend.position = "none",
+          legend.position = c(0.985, 0.03),
+          legend.justification = c(1, 0),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 8, color = "black"),
+          legend.key = element_blank(),
+          legend.key.height = grid::unit(10, "pt"),
+          legend.background = element_rect(fill = scales::alpha("white", 0.85), color = NA),
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(),
           panel.background = element_rect(fill = "white", color = "black"),
@@ -916,15 +934,33 @@ create_plots_and_tables_from_sheets <- function(excel_path,
           geom_vline(xintercept = gap_start_ols, linetype = "dashed", linewidth = 0.6, color = "grey55") +
           geom_vline(xintercept = gap_end_ols,   linetype = "dashed", linewidth = 0.6, color = "grey55") +
           scale_y_continuous(
-            name     = "Likert Score Item Worth (EB)",
+            name     = "Likert Score (EB)",
             sec.axis = sec_axis(~ inv_to_borda_ols(.), name = "Borda Score (EB)")
           ) +
-          scale_color_manual(values = c("Likert Score (EB)" = "steelblue", "Borda (EB)" = "darkorange")) +
+          scale_color_manual(
+            values = c("Likert Score (EB)" = "steelblue", "Borda (EB)" = "darkorange"),
+            breaks = c("Likert Score (EB)", "Borda (EB)"),
+            labels = c("Likert Score (EB)" = "Likert Score", "Borda (EB)" = "Borda Score")
+          ) +
+          guides(color = guide_legend(
+            override.aes = list(
+              shape = c(16, 17),
+              linetype = c("solid", "dashed"),
+              linewidth = c(0.7, 0.7),
+              alpha = c(0.9, 0.9)
+            )
+          )) +
           labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
           theme_minimal(base_size = 14) +
           theme(
             axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
-            legend.position = "none",
+            legend.position = c(0.985, 0.03),
+            legend.justification = c(1, 0),
+            legend.title = element_blank(),
+            legend.text = element_text(size = 8, color = "black"),
+            legend.key = element_blank(),
+            legend.key.height = grid::unit(10, "pt"),
+            legend.background = element_rect(fill = scales::alpha("white", 0.85), color = NA),
             panel.grid.major = element_blank(),
             panel.grid.minor = element_blank(),
             panel.background = element_rect(fill = "white", color = "black"),

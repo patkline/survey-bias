@@ -359,7 +359,7 @@ create_combined_tri_heatmap(
 
 
 # ------------------------------------------------------------
-# OLS + Borda combined heatmaps (symmetric version)
+# Likert Score + Borda combined heatmaps (symmetric version)
 # ------------------------------------------------------------
 create_combined_tri_heatmap(
   file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
@@ -373,7 +373,7 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non,
   top_model_label = "Borda",
-  bottom_model_label = "OLS"
+  bottom_model_label = "Likert Score"
 )
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
@@ -389,7 +389,7 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non,
   top_model_label = "Borda",
-  bottom_model_label = "OLS",
+  bottom_model_label = "Likert Score",
   highlight_cells = data.frame(
     row = c(2, 3, 3),
     col = c(1, 1, 2)
@@ -411,7 +411,7 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non,
   top_model_label = "Borda",
-  bottom_model_label = "OLS",
+  bottom_model_label = "Likert Score",
   highlight_cells = data.frame(
     row = c(5, 6, 6),
     col = c(4, 4, 5)
@@ -433,7 +433,7 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non,
   top_model_label = "Borda",
-  bottom_model_label = "OLS",
+  bottom_model_label = "Likert Score",
   highlight_cells = data.frame(
     row = c(4, 4, 4, 5, 5, 5, 6, 6, 6),
     col = c(1, 2, 3, 1, 2, 3, 1, 2, 3)
@@ -455,7 +455,7 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non,
   top_model_label = "Borda",
-  bottom_model_label = "OLS",
+  bottom_model_label = "Likert Score",
   highlight_cells = data.frame(
     row = c(8, 8, 8, 9, 9, 9, 10, 10, 10),
     col = c(1, 2, 3, 1, 2, 3, 1, 2, 3)
@@ -477,5 +477,5 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non,
   top_model_label = "Borda",
-  bottom_model_label = "OLS"
+  bottom_model_label = "Likert Score"
 )
