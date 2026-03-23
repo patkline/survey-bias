@@ -69,6 +69,8 @@ ensure_symmetry <- function(df) {
 create_combined_tri_heatmap <- function(file_path,
                                         sheet_pl           = "pairwise_summary",
                                         sheet_borda        = "pairwise_summary_borda",
+                                        model_pl           = NULL,
+                                        model_borda        = NULL,
                                         all_flag           = TRUE,
                                         title              = "",
                                         filename           = "heatmap_combined.png",
@@ -77,6 +79,8 @@ create_combined_tri_heatmap <- function(file_path,
                                         
                                         # one knob for BOTH arrow+text sizes
                                         label_size     = 5,
+                                        top_model_label    = "Borda",
+                                        bottom_model_label = "Plackett–Luce",
                                         
                                         # vertical offsets (smaller = closer to panel)
                                         top_vjust      = -0.7,
@@ -101,9 +105,27 @@ create_combined_tri_heatmap <- function(file_path,
   # --- read & prep ---
   pl_df    <- read.xlsx(file_path, sheet = sheet_pl)
   borda_df <- read.xlsx(file_path, sheet = sheet_borda)
+
+  # Optional model filtering for new-pipeline "correlation" sheet
+  if (!is.null(model_pl) && ("model" %in% names(pl_df))) {
+    pl_df <- dplyr::filter(pl_df, .data$model == model_pl)
+  }
+  if (!is.null(model_borda) && ("model" %in% names(borda_df))) {
+    borda_df <- dplyr::filter(borda_df, .data$model == model_borda)
+  }
   
-  if ("all_firms" %in% names(pl_df))    pl_df    <- dplyr::filter(pl_df,   all_firms == all_flag)
-  if ("all_firms" %in% names(borda_df)) borda_df <- dplyr::filter(borda_df, all_firms == all_flag)
+  # Keep "all" or "subset97" rows across old/new pipeline formats
+  subset_key <- if (isTRUE(all_flag)) "all" else "subset97"
+  if ("all_firms" %in% names(pl_df)) {
+    pl_df <- dplyr::filter(pl_df, all_firms == all_flag)
+  } else if ("subset" %in% names(pl_df)) {
+    pl_df <- dplyr::filter(pl_df, .data$subset == subset_key)
+  }
+  if ("all_firms" %in% names(borda_df)) {
+    borda_df <- dplyr::filter(borda_df, all_firms == all_flag)
+  } else if ("subset" %in% names(borda_df)) {
+    borda_df <- dplyr::filter(borda_df, .data$subset == subset_key)
+  }
   
   pl_df    <- ensure_symmetry(pl_df)
   borda_df <- ensure_symmetry(borda_df)
@@ -173,12 +195,12 @@ create_combined_tri_heatmap <- function(file_path,
     coord_cartesian(clip = "off") +
     annotate("text",
              x = cx, y = Inf,
-             label = "Borda \u27F6",     # long rightwards arrow
+             label = paste0(top_model_label, " \u27F6"),     # long rightwards arrow
              vjust = top_vjust, hjust = 0.5,
              size = label_size, fontface = "bold") +
     annotate("text",
              x = cx, y = -Inf,
-             label = "\u27F5 Plackett\u2013Luce",  # long leftwards arrow
+             label = paste0("\u27F5 ", bottom_model_label),  # long leftwards arrow
              vjust = bot_vjust, hjust = 0.5,
              size = label_size, fontface = "bold")
   
@@ -330,4 +352,130 @@ create_combined_tri_heatmap(
   filename    = file.path(figures, "heatmap_combined_full_overlap.png"),
   label_mapping = label_mapping,
   custom_order  = custom_order_non
+)
+
+
+
+
+
+# ------------------------------------------------------------
+# OLS + Borda combined heatmaps (symmetric version)
+# ------------------------------------------------------------
+create_combined_tri_heatmap(
+  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  sheet_pl     = "correlation",
+  sheet_borda  = "correlation",
+  model_pl     = "OLS",
+  model_borda  = "Borda",
+  all_flag     = TRUE,
+  title        = "",
+  filename     = file.path(figures, "heatmap_combined_full_ols_borda.png"),
+  label_mapping = label_mapping,
+  custom_order  = custom_order_non,
+  top_model_label = "Borda",
+  bottom_model_label = "OLS"
+)
+
+# Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
+create_combined_tri_heatmap(
+  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  sheet_pl     = "correlation",
+  sheet_borda  = "correlation",
+  model_pl     = "OLS",
+  model_borda  = "Borda",
+  all_flag     = TRUE,
+  title        = "",
+  filename     = file.path(figures, "heatmap_combined_full_ols_borda_highlight_1.png"),
+  label_mapping = label_mapping,
+  custom_order  = custom_order_non,
+  top_model_label = "Borda",
+  bottom_model_label = "OLS",
+  highlight_cells = data.frame(
+    row = c(2, 3, 3),
+    col = c(1, 1, 2)
+  ),
+  highlight_color = "purple",
+  highlight_linewidth = 2
+)
+
+# Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
+create_combined_tri_heatmap(
+  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  sheet_pl     = "correlation",
+  sheet_borda  = "correlation",
+  model_pl     = "OLS",
+  model_borda  = "Borda",
+  all_flag     = TRUE,
+  title        = "",
+  filename     = file.path(figures, "heatmap_combined_full_ols_borda_highlight_2.png"),
+  label_mapping = label_mapping,
+  custom_order  = custom_order_non,
+  top_model_label = "Borda",
+  bottom_model_label = "OLS",
+  highlight_cells = data.frame(
+    row = c(5, 6, 6),
+    col = c(4, 4, 5)
+  ),
+  highlight_color = "purple",
+  highlight_linewidth = 2
+)
+
+# Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
+create_combined_tri_heatmap(
+  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  sheet_pl     = "correlation",
+  sheet_borda  = "correlation",
+  model_pl     = "OLS",
+  model_borda  = "Borda",
+  all_flag     = TRUE,
+  title        = "",
+  filename     = file.path(figures, "heatmap_combined_full_ols_borda_highlight_3.png"),
+  label_mapping = label_mapping,
+  custom_order  = custom_order_non,
+  top_model_label = "Borda",
+  bottom_model_label = "OLS",
+  highlight_cells = data.frame(
+    row = c(4, 4, 4, 5, 5, 5, 6, 6, 6),
+    col = c(1, 2, 3, 1, 2, 3, 1, 2, 3)
+  ),
+  highlight_color = "purple",
+  highlight_linewidth = 2
+)
+
+# Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
+create_combined_tri_heatmap(
+  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  sheet_pl     = "correlation",
+  sheet_borda  = "correlation",
+  model_pl     = "OLS",
+  model_borda  = "Borda",
+  all_flag     = TRUE,
+  title        = "",
+  filename     = file.path(figures, "heatmap_combined_full_ols_borda_highlight_4.png"),
+  label_mapping = label_mapping,
+  custom_order  = custom_order_non,
+  top_model_label = "Borda",
+  bottom_model_label = "OLS",
+  highlight_cells = data.frame(
+    row = c(8, 8, 8, 9, 9, 9, 10, 10, 10),
+    col = c(1, 2, 3, 1, 2, 3, 1, 2, 3)
+  ),
+  highlight_color = "purple",
+  highlight_linewidth = 2
+)
+
+# Overlap-only
+create_combined_tri_heatmap(
+  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  sheet_pl     = "correlation",
+  sheet_borda  = "correlation",
+  model_pl     = "OLS",
+  model_borda  = "Borda",
+  all_flag     = FALSE,
+  title        = "",
+  filename     = file.path(figures, "heatmap_combined_full_ols_borda_overlap.png"),
+  label_mapping = label_mapping,
+  custom_order  = custom_order_non,
+  top_model_label = "Borda",
+  bottom_model_label = "OLS"
 )
