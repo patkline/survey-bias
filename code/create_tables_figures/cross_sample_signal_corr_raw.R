@@ -327,3 +327,29 @@ latex_lines <- c(
 out_tex <- file.path(tables, "cross_sample_corr_raw.tex")
 writeLines(latex_lines, out_tex)
 message("Raw correlation LaTeX table written to: ", out_tex)
+
+# -------------------------------------------------------------------
+# 6. Generate OLS + Borda version (corr-only; no p-value columns)
+# -------------------------------------------------------------------
+
+panelA_ols_borda <- panelD
+panelB_ols_borda <- panelB
+
+latex_lines_ols_borda <- c(
+  "  \\centering",
+  "  \\begin{tabular}{lcc}",
+  "    \\toprule",
+  "    & Discrimination Black & Discrimination Female \\\\",
+  "    \\midrule",
+  "    \\multicolumn{3}{l}{\\textbf{Panel A: Likert Score (Raw Correlation)}}\\\\",
+  panel_rows_corr_only(panelA_ols_borda),
+  "    \\addlinespace",
+  "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda (Raw Correlation)}}\\\\",
+  panel_rows_corr_only(panelB_ols_borda),
+  "    \\bottomrule",
+  "  \\end{tabular}"
+)
+
+out_tex_ols_borda <- file.path(tables, "cross_sample_corr_raw_ols_borda.tex")
+writeLines(latex_lines_ols_borda, out_tex_ols_borda)
+message("Raw correlation OLS+Borda LaTeX table written to: ", out_tex_ols_borda)
