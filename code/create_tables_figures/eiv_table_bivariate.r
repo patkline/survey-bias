@@ -380,3 +380,77 @@ build_comparison_table(
   cfg_age    = comparison_runs$age,
   out_tex    = file.path(tables, "EIV_bivariate_vs_univariate_wt.tex")
 )
+
+# ------------------------------------------------------------------------------
+# Build Table 8: EIV_bivariate_vs_univariate_wt_ols_borda.tex
+# Purpose: Likert Score + Borda panels; separate models only; race/gender only
+# ------------------------------------------------------------------------------
+
+table8_file <- "Plackett_Luce_Full_Sample.xlsx"
+
+table8_runs <- list(
+  ls_race = list(root = root_dir, lhs = "log_dif",        univariate_sheet = "EIV_BS"),
+  ls_gender = list(root = root_dir, lhs = "log_dif_gender", univariate_sheet = "EIV_BS"),
+  borda_race = list(root = root_dir, lhs = "log_dif",        univariate_sheet = "EIV_Bordaw"),
+  borda_gender = list(root = root_dir, lhs = "log_dif_gender", univariate_sheet = "EIV_Bordaw")
+)
+
+build_table8_row <- function(cfg) {
+  root <- cfg$root
+  lhs  <- cfg$lhs
+  sheet <- cfg$univariate_sheet
+
+  uni_nofe_sel <- pull_univariate_est(root, table8_file, lhs, "FirmSelective", 3L, sheet)
+  uni_nofe_dis <- pull_univariate_est(root, table8_file, lhs, "discretion", 3L, sheet)
+  uni_fe_sel <- pull_univariate_est(root, table8_file, lhs, "FirmSelective", 4L, sheet)
+  uni_fe_dis <- pull_univariate_est(root, table8_file, lhs, "discretion", 4L, sheet)
+
+  tibble(
+    Regressor = c("Selectivity", "Discretion"),
+    `Separate Models` = c(uni_nofe_sel, uni_nofe_dis),
+    `Separate Models (Industry FEs)` = c(uni_fe_sel, uni_fe_dis)
+  )
+}
+
+df_ls_race <- build_table8_row(table8_runs$ls_race)
+df_ls_gender <- build_table8_row(table8_runs$ls_gender)
+df_ls <- bind_rows(df_ls_race, df_ls_gender)
+
+df_borda_race <- build_table8_row(table8_runs$borda_race)
+df_borda_gender <- build_table8_row(table8_runs$borda_gender)
+df_borda <- bind_rows(df_borda_race, df_borda_gender)
+
+combined_df <- bind_rows(df_ls, df_borda)
+
+n_ls_race <- nrow(df_ls_race)
+n_ls_gender <- nrow(df_ls_gender)
+n_ls <- n_ls_race + n_ls_gender
+n_borda_race <- nrow(df_borda_race)
+n_borda_gender <- nrow(df_borda_gender)
+n_borda <- n_borda_race + n_borda_gender
+
+col_names <- colnames(combined_df)
+col_names <- gsub("Separate Models \\(Industry FEs\\)",
+                  "\\\\shortstack{Separate Models\\\\\\\\(Industry FEs)}",
+                  col_names)
+
+tex_code_table8 <- kable(
+  combined_df,
+  format    = "latex",
+  booktabs  = TRUE,
+  align     = c("l", rep("c", ncol(combined_df) - 1)),
+  col.names = col_names,
+  linesep   = "",
+  escape    = FALSE
+) %>%
+  pack_rows("Panel A: Likert Score", 1, n_ls) %>%
+  pack_rows("\\\\textit{Race}", 1, n_ls_race, italic = TRUE, escape = FALSE) %>%
+  pack_rows("\\\\textit{Gender}", n_ls_race + 1, n_ls, italic = TRUE, escape = FALSE) %>%
+  pack_rows("Panel B: Borda", n_ls + 1, n_ls + n_borda) %>%
+  pack_rows("\\\\textit{Race}", n_ls + 1, n_ls + n_borda_race, italic = TRUE, escape = FALSE) %>%
+  pack_rows("\\\\textit{Gender}", n_ls + n_borda_race + 1, n_ls + n_borda, italic = TRUE, escape = FALSE)
+
+out_tex_table8 <- file.path(tables, "EIV_univariate_wt_ols_borda.tex")
+dir.create(dirname(out_tex_table8), showWarnings = FALSE, recursive = TRUE)
+writeLines(tex_code_table8, out_tex_table8)
+message("✓ LaTeX Table 8 saved to: ", out_tex_table8)
