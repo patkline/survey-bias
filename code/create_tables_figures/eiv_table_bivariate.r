@@ -43,7 +43,9 @@ default_filemap <- tibble(
              "Looking for a Job",
              "Not Looking for a Job",
              "Feared Discrimination",
-             "Did Not Fear Discrimination"),
+             "Did Not Fear Discrimination",
+             "40 Years or Older",
+             "Less than 40 Years Old"),
   file  = c("Plackett_Luce_Full_Sample.xlsx",
             "Plackett_Luce_Subset_Black.xlsx",
             "Plackett_Luce_Subset_White.xlsx",
@@ -52,7 +54,9 @@ default_filemap <- tibble(
             "Plackett_Luce_Subset_Looking.xlsx",
             "Plackett_Luce_Subset_Not_Looking.xlsx",
             "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx")
+            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
+            "Plackett_Luce_Subset_Age_gte40.xlsx",
+            "Plackett_Luce_Subset_Age_lt40.xlsx")
 )
 
 # ---------- BUILD DF FOR ONE CONFIG ----------

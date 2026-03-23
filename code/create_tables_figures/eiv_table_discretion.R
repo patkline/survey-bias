@@ -56,7 +56,9 @@ default_filemap <- tibble(
              "Looking for a Job",
              "Not Looking for a Job",
              "Feared Discrimination",
-             "Did Not Fear Discrimination"),
+             "Did Not Fear Discrimination",
+             "40 Years or Older",
+             "Less than 40 Years Old"),
   file  = c("Plackett_Luce_Full_Sample.xlsx",
             "Plackett_Luce_Subset_Black.xlsx",
             "Plackett_Luce_Subset_White.xlsx",
@@ -65,7 +67,9 @@ default_filemap <- tibble(
             "Plackett_Luce_Subset_Looking.xlsx",
             "Plackett_Luce_Subset_Not_Looking.xlsx",
             "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx")
+            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
+            "Plackett_Luce_Subset_Age_gte40.xlsx",
+            "Plackett_Luce_Subset_Age_lt40.xlsx")
 )
 
 # ---------- BUILD DF FOR ONE PANEL (TWO COLUMNS) ----------
@@ -231,34 +235,36 @@ make_disc_cfg <- function(root, model, coef1 = 1L, coef2 = 2L) {
 
 # ---------- BUILD TABLES ----------
 
-# Unweighted (coef 1/2)
-build_four_panel_eiv_table_two_cols(
-  cfg_pl    = make_disc_cfg(root_dir, "PL"),
-  cfg_borda = make_disc_cfg(root_dir, "Borda"),
-  cfg_ols   = make_disc_cfg(root_dir, "OLS"),
-  cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
-  cfg_ol    = make_disc_cfg(root_dir, "OL"),
-  out_tex   = file.path(tables, "EIV_discretion_four_panel.tex")
-)
+if (FALSE) {
+  # Unweighted (coef 1/2)
+  build_four_panel_eiv_table_two_cols(
+    cfg_pl    = make_disc_cfg(root_dir, "PL"),
+    cfg_borda = make_disc_cfg(root_dir, "Borda"),
+    cfg_ols   = make_disc_cfg(root_dir, "OLS"),
+    cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
+    cfg_ol    = make_disc_cfg(root_dir, "OL"),
+    out_tex   = file.path(tables, "EIV_discretion_four_panel.tex")
+  )
 
-# Weighted (same coefs in new pipeline since weights are baked in)
-build_four_panel_eiv_table_two_cols(
-  cfg_pl    = make_disc_cfg(root_dir, "PL"),
-  cfg_borda = make_disc_cfg(root_dir, "Borda"),
-  cfg_ols   = make_disc_cfg(root_dir, "OLS"),
-  cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
-  cfg_ol    = make_disc_cfg(root_dir, "OL"),
-  out_tex   = file.path(tables, "EIV_discretion_four_panel_wt.tex")
-)
+  # Weighted (same coefs in new pipeline since weights are baked in)
+  build_four_panel_eiv_table_two_cols(
+    cfg_pl    = make_disc_cfg(root_dir, "PL"),
+    cfg_borda = make_disc_cfg(root_dir, "Borda"),
+    cfg_ols   = make_disc_cfg(root_dir, "OLS"),
+    cfg_olsc  = make_disc_cfg(root_dir, "OLSC"),
+    cfg_ol    = make_disc_cfg(root_dir, "OL"),
+    out_tex   = file.path(tables, "EIV_discretion_four_panel_wt.tex")
+  )
 
-# Weighted two-panel legacy output name: PL + Borda
-build_two_panel_eiv_table_two_cols(
-  cfg_left   = make_disc_cfg(root_dir, "PL"),
-  cfg_right  = make_disc_cfg(root_dir, "Borda"),
-  out_tex    = file.path(tables, "EIV_discretion_two_panel_wt.tex"),
-  left_label = "Panel A: Plackett--Luce",
-  right_label = "Panel B: Borda"
-)
+  # Weighted two-panel legacy output name: PL + Borda
+  build_two_panel_eiv_table_two_cols(
+    cfg_left   = make_disc_cfg(root_dir, "PL"),
+    cfg_right  = make_disc_cfg(root_dir, "Borda"),
+    out_tex    = file.path(tables, "EIV_discretion_two_panel_wt.tex"),
+    left_label = "Panel A: Plackett--Luce",
+    right_label = "Panel B: Borda"
+  )
+}
 
 # Weighted two-panel OLS + Borda version
 build_two_panel_eiv_table_two_cols(
