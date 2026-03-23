@@ -149,7 +149,6 @@ build_four_panel_eiv_table_two_cols <- function(cfg_pl, cfg_borda, cfg_ols, cfg_
       linesep   = "",
       escape    = FALSE
     ) %>%
-      kable_styling(full_width = FALSE, position = "center") %>%
       pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
       pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
       pack_rows("Panel C: Ordered Logit", cum_borda + 1, cum_ol) %>%
@@ -170,7 +169,6 @@ build_four_panel_eiv_table_two_cols <- function(cfg_pl, cfg_borda, cfg_ols, cfg_
       linesep   = "",
       escape    = FALSE
     ) %>%
-      kable_styling(full_width = FALSE, position = "center") %>%
       pack_rows("Panel A: Plackett--Luce", 1, cum_pl) %>%
       pack_rows("Panel B: Borda", cum_pl + 1, cum_borda) %>%
       pack_rows("Panel C: Likert Score", cum_borda + 1, cum_ols) %>%
@@ -207,7 +205,6 @@ build_two_panel_eiv_table_two_cols <- function(cfg_left, cfg_right, out_tex,
     linesep   = "",
     escape    = FALSE
   ) %>%
-    kable_styling(full_width = FALSE, position = "center") %>%
     pack_rows(left_label, 1, n_left) %>%
     pack_rows(right_label, n_left + 1, n_left + n_right)
 
