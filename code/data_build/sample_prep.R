@@ -77,7 +77,7 @@ industry_map <- read_excel(file.path(processed, "industry_map.xlsx")) %>%
 data <- left_join(data, industry_map, by = c("firm" = "firm_clean"))
 
 # Keep observations with non-missing and non-literal-"nan" firm values for merge and non-missing aer_naics2 checks
-data_non_missing_firm <- data %>% filter(!is.na(firm) & firm != "nan")
+data_non_missing_firm <- data[!is.na(data$firm) & data$firm != "nan", ]
 
 # Assert all observations with non-missing firm values match to industry map by firm name
 stopifnot(
