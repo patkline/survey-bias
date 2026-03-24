@@ -305,4 +305,110 @@ run_analysis_pipeline <- function(
   openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
   message("✅ Step 5 Complete. Saved: ", output_path)
 
+################################################################################
+## Step 5b: Within/Between Industry EIV
+################################################################################
+  message("Building Within/Between Industry EIV")
+
+  # RHS outcomes for within (demeaned) and between (industry means)
+  dm_rhs_outcomes <- c(
+    "FirmCont_favor_white_dm", "conduct_favor_white_dm", "pooled_favor_white_dm",
+    "FirmCont_favor_male_dm",  "conduct_favor_male_dm",  "pooled_favor_male_dm",
+    "conduct_favor_younger_dm"
+  )
+  im_rhs_outcomes <- c(
+    "FirmCont_favor_white_im", "conduct_favor_white_im", "pooled_favor_white_im",
+    "FirmCont_favor_male_im",  "conduct_favor_male_im",  "pooled_favor_male_im",
+    "conduct_favor_younger_im"
+  )
+
+  # Build noise matrices for _dm and _im outcomes
+  noise_dm_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
+  noise_im_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
+
+  for (m in models_to_build) {
+    noise_dm_97[[m]] <- build_noise_matrix(
+      variance_df, covariance_df, outcomes = dm_rhs_outcomes,
+      subset_value = "subset97", model_value = m
+    )
+    noise_im_97[[m]] <- build_noise_matrix(
+      variance_df, covariance_df, outcomes = im_rhs_outcomes,
+      subset_value = "subset97", model_value = m
+    )
+  }
+
+  # Compute demeaned LHS vars (experimental outcomes demeaned by industry)
+  lhs_to_demean <- c("log_dif", "log_dif_gender", "log_dif_age")
+  for (lv in lhs_to_demean) {
+    if (lv %in% names(coef_firm_wide)) {
+      coef_firm_wide[[paste0(lv, "_dm")]] <- ave(
+        coef_firm_wide[[lv]],
+        coef_firm_wide$model, coef_firm_wide$aer_naics2,
+        FUN = function(x) x - mean(x, na.rm = TRUE)
+      )
+    }
+  }
+
+  # Within-industry EIV specs (no industry FE — already demeaned)
+  regs_within <- list(
+    list(lhs = "log_dif_dm",        rhs = c("FirmCont_favor_white_dm")),
+    list(lhs = "log_dif_dm",        rhs = c("conduct_favor_white_dm")),
+    list(lhs = "log_dif_dm",        rhs = c("pooled_favor_white_dm")),
+    list(lhs = "log_dif_gender_dm", rhs = c("FirmCont_favor_male_dm")),
+    list(lhs = "log_dif_gender_dm", rhs = c("conduct_favor_male_dm")),
+    list(lhs = "log_dif_gender_dm", rhs = c("pooled_favor_male_dm")),
+    list(lhs = "log_dif_age_dm",    rhs = c("conduct_favor_younger_dm"))
+  )
+
+  write_eiv_sheet(
+    wb, sheet_name = "EIV_within",
+    regs = regs_within,
+    coef_df_wide = coef_firm_wide,
+    noise_mats_97 = noise_dm_97,
+    models = models_to_run_eiv,
+    id_col = "entity_id",
+    model_col = "model",
+    use_fe = FALSE
+  )
+
+  # Between-industry: build industry-level dataframe
+  # Compute industry means of experimental LHS vars from firm data
+  lhs_im <- coef_firm_wide |>
+    dplyr::group_by(model, aer_naics2) |>
+    dplyr::summarize(
+      log_dif_im        = mean(log_dif, na.rm = TRUE),
+      log_dif_gender_im = mean(log_dif_gender, na.rm = TRUE),
+      log_dif_age_im    = mean(log_dif_age, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(entity_id = as.integer(aer_naics2)) |>
+    dplyr::select(-aer_naics2)
+
+  coef_ind_eiv <- dplyr::left_join(coef_ind_wide, lhs_im, by = c("model", "entity_id"))
+
+  # Between-industry EIV specs (no FE — each row is an industry)
+  regs_between <- list(
+    list(lhs = "log_dif_im",        rhs = c("FirmCont_favor_white_im")),
+    list(lhs = "log_dif_im",        rhs = c("conduct_favor_white_im")),
+    list(lhs = "log_dif_im",        rhs = c("pooled_favor_white_im")),
+    list(lhs = "log_dif_gender_im", rhs = c("FirmCont_favor_male_im")),
+    list(lhs = "log_dif_gender_im", rhs = c("conduct_favor_male_im")),
+    list(lhs = "log_dif_gender_im", rhs = c("pooled_favor_male_im")),
+    list(lhs = "log_dif_age_im",    rhs = c("conduct_favor_younger_im"))
+  )
+
+  write_eiv_sheet(
+    wb, sheet_name = "EIV_between",
+    regs = regs_between,
+    coef_df_wide = coef_ind_eiv,
+    noise_mats_97 = noise_im_97,
+    models = models_to_run_eiv,
+    id_col = "entity_id",
+    model_col = "model",
+    use_fe = FALSE
+  )
+
+  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
+  message("✅ Step 5b Complete. Saved: ", output_path)
+
 }

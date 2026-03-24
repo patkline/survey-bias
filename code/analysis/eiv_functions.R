@@ -12,11 +12,12 @@ run_eiv_one <- function(
     id_col = "entity_id",      # set "firm_id" if needed
     model_col = "model",
     fe_col = "aer_naics2",
-    weights_col = NULL         # e.g. "njobs" or "weights"; if NULL => equal weights
+    weights_col = NULL,        # e.g. "njobs" or "weights"; if NULL => equal weights
+    use_fe = TRUE              # set FALSE for within/between industry EIV (no FE)
 ) {
   stopifnot(is.data.frame(coef_df_wide))
   stopifnot(model_col %in% names(coef_df_wide))
-  stopifnot(fe_col %in% names(coef_df_wide))
+  if (use_fe) stopifnot(fe_col %in% names(coef_df_wide))
   stopifnot(id_col %in% names(coef_df_wide))
   stopifnot(length(rhs_vars) >= 1)
   
@@ -32,7 +33,7 @@ run_eiv_one <- function(
   }
   
   # --- required columns check ---
-  need_cols <- unique(c(id_col, fe_col, lhs_var, rhs_vars, "weight"))
+  need_cols <- unique(c(id_col, if (use_fe) fe_col, lhs_var, rhs_vars, "weight"))
   miss_cols <- setdiff(need_cols, names(df_m))
   if (length(miss_cols) > 0) {
     stop(
@@ -40,29 +41,21 @@ run_eiv_one <- function(
       paste(miss_cols, collapse = ", ")
     )
   }
-  
 
-  
+
+
   reg_data <- df_m |>
     dplyr::select(dplyr::all_of(need_cols)) |>
-    dplyr::filter(
-      !is.na(.data[[lhs_var]]),
-      !is.na(.data[[fe_col]])
-    )
+    dplyr::filter(!is.na(.data[[lhs_var]]))
+
+  if (use_fe) {
+    reg_data <- reg_data |> dplyr::filter(!is.na(.data[[fe_col]]))
+  }
   
   for (rv in rhs_vars) {
     reg_data <- reg_data |> dplyr::filter(!is.na(.data[[rv]]))
   }
   
-  
-  # --- 3) Build FE dummies from aer_naics2 ---
-  fe_mat <- stats::model.matrix(
-    stats::as.formula(paste0("~ factor(", fe_col, ") - 1")),
-    data = reg_data
-  )
-  colnames(fe_mat) <- paste0("fe_", seq_len(ncol(fe_mat)))
-  reg_data <- dplyr::bind_cols(reg_data, as.data.frame(fe_mat))
-  fe_cols <- colnames(fe_mat)
   
   # --- Build Sigma_error for RHS vars ---
   if (is.null(dimnames(noise_mat)) || is.null(rownames(noise_mat)) || is.null(colnames(noise_mat))) {
@@ -72,21 +65,33 @@ run_eiv_one <- function(
     missN <- setdiff(rhs_vars, intersect(rownames(noise_mat), colnames(noise_mat)))
     stop("run_eiv_one(): RHS vars missing from noise_mat dimnames: ", paste(missN, collapse = ", "))
   }
-  
+
   Sigma1 <- as.matrix(noise_mat[rhs_vars, rhs_vars, drop = FALSE])
-  
-  Sigma2 <- matrix(
-    0,
-    nrow = length(rhs_vars) + length(fe_cols),
-    ncol = length(rhs_vars) + length(fe_cols),
-    dimnames = list(c(rhs_vars, fe_cols), c(rhs_vars, fe_cols))
-  )
-  Sigma2[rhs_vars, rhs_vars] <- Sigma1
-  
+
   # --- formulas ---
   rhs_part <- paste(rhs_vars, collapse = " + ")
   f_no_fe  <- stats::as.formula(paste(lhs_var, "~", rhs_part))
-  f_fe     <- stats::as.formula(paste(lhs_var, "~ 0 +", paste(c(rhs_vars, fe_cols), collapse = " + ")))
+
+  # --- FE dummies and FE formula (only when use_fe = TRUE) ---
+  if (use_fe) {
+    fe_mat <- stats::model.matrix(
+      stats::as.formula(paste0("~ factor(", fe_col, ") - 1")),
+      data = reg_data
+    )
+    colnames(fe_mat) <- paste0("fe_", seq_len(ncol(fe_mat)))
+    reg_data <- dplyr::bind_cols(reg_data, as.data.frame(fe_mat))
+    fe_cols <- colnames(fe_mat)
+
+    Sigma2 <- matrix(
+      0,
+      nrow = length(rhs_vars) + length(fe_cols),
+      ncol = length(rhs_vars) + length(fe_cols),
+      dimnames = list(c(rhs_vars, fe_cols), c(rhs_vars, fe_cols))
+    )
+    Sigma2[rhs_vars, rhs_vars] <- Sigma1
+
+    f_fe <- stats::as.formula(paste(lhs_var, "~ 0 +", paste(c(rhs_vars, fe_cols), collapse = " + ")))
+  }
   
   # --- helper to extract coef + se for RHS vars only ---
   extract_coef_rows <- function(fit, coef_tag) {
@@ -119,15 +124,19 @@ run_eiv_one <- function(
     error = function(e) NULL
   )
   
-  fit2 <- tryCatch(
-    eivreg(f_fe, data = reg_data, Sigma_error = Sigma2, weights = reg_data[["weight"]]),
-    error = function(e) NULL
-  )
-  
-  dplyr::bind_rows(
-    extract_coef_rows(fit1, coef_tag = 1L),
-    extract_coef_rows(fit2, coef_tag = 2L)
-  )
+  if (use_fe) {
+    fit2 <- tryCatch(
+      eivreg(f_fe, data = reg_data, Sigma_error = Sigma2, weights = reg_data[["weight"]]),
+      error = function(e) NULL
+    )
+
+    dplyr::bind_rows(
+      extract_coef_rows(fit1, coef_tag = 1L),
+      extract_coef_rows(fit2, coef_tag = 2L)
+    )
+  } else {
+    extract_coef_rows(fit1, coef_tag = 1L)
+  }
 }
 
 # ==============================================================================
@@ -149,7 +158,8 @@ run_eiv_suite <- function(
     id_col = "entity_id",
     model_col = "model",
     fe_col = "aer_naics2",
-    weights_col = NULL
+    weights_col = NULL,
+    use_fe = TRUE
 ) {
   stopifnot(is.list(regs), is.data.frame(coef_df_wide))
   stopifnot(is.list(noise_mats_97))
@@ -177,7 +187,8 @@ run_eiv_suite <- function(
         id_col       = id_col,
         model_col    = model_col,
         fe_col       = fe_col,
-        weights_col  = weights_col
+        weights_col  = weights_col,
+        use_fe       = use_fe
       )
       
       if (!is.null(out_df) && nrow(out_df) > 0) {
@@ -204,7 +215,8 @@ write_eiv_sheet <- function(
     id_col = "entity_id",
     model_col = "model",
     fe_col = "aer_naics2",
-    weights_col = NULL
+    weights_col = NULL,
+    use_fe = TRUE
 ) {
   eiv_df <- run_eiv_suite(
     regs         = regs,
@@ -214,7 +226,8 @@ write_eiv_sheet <- function(
     id_col       = id_col,
     model_col    = model_col,
     fe_col       = fe_col,
-    weights_col  = weights_col
+    weights_col  = weights_col,
+    use_fe       = use_fe
   )
   
   remove_sheet_safely(wb, sheet_name)
