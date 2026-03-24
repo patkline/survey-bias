@@ -1123,6 +1123,171 @@ create_plots_and_tables_from_sheets <- function(excel_path,
 }
 
 
+# -------------------------------------------------------------------
+# Within/between-industry variance table (Likert + Borda)
+# - Uses unweighted decomposition outcomes from pipeline:
+#     *_dm (within-industry) and *_im (between-industry)
+# - Produces two-panel table with same columns as Table 3 format
+# -------------------------------------------------------------------
+write_variance_biascorrected_ols_borda_within_between <- function(
+    excel_path,
+    outcomes,
+    tables_dir,
+    label_mapping = NULL,
+    csv_name = "variance_biascorrected_ols_borda_within_between_industry.csv",
+    tex_name = "variance_biascorrected_ols_borda_within_between_industry.tex",
+    latex_decimals = 3,
+    borda_mult = 1
+) {
+  var_df <- tryCatch(readxl::read_excel(excel_path, sheet = "variance"),
+                     error = function(e) NULL)
+  if (is.null(var_df) || !"model" %in% names(var_df)) {
+    message("Could not read new-format variance sheet with model column from: ", excel_path)
+    return(invisible(NULL))
+  }
+  
+  need_cols <- c("subset", "model", "outcome", "variance", "signal", "sigma2_hat", "Vhat")
+  if (!all(need_cols %in% names(var_df))) {
+    message("variance sheet missing columns: ", paste(setdiff(need_cols, names(var_df)), collapse = ", "))
+    return(invisible(NULL))
+  }
+  
+  target_outcomes <- c(paste0(outcomes, "_dm"), paste0(outcomes, "_im"))
+  
+  var_df <- var_df %>%
+    dplyr::filter(.data$subset == "all", .data$outcome %in% target_outcomes) %>%
+    dplyr::mutate(
+      t_stat = ifelse(
+        is.finite(Vhat) & Vhat > 0,
+        sigma2_hat / sqrt(Vhat),
+        NA_real_
+      )
+    )
+  
+  if (nrow(var_df) == 0) {
+    message("No within/between-industry outcomes found in variance sheet.")
+    return(invisible(NULL))
+  }
+  
+  build_model_cols <- function(df, mdl, prefix, mult = 1) {
+    mdf <- df %>% dplyr::filter(.data$model == mdl)
+    if (nrow(mdf) == 0) return(NULL)
+    mdf %>% dplyr::transmute(
+      outcome,
+      !!paste0(prefix, "_sd")                := sqrt(pmax(variance, 0)) * mult,
+      !!paste0(prefix, "_sd_bias_corrected") := sqrt(pmax(signal, 0)) * mult,
+      !!paste0(prefix, "_t_stat")            := as.numeric(t_stat)
+    )
+  }
+  
+  ols_df <- build_model_cols(var_df, "OLS", "OLS")
+  borda_df <- build_model_cols(var_df, "Borda", "Borda", mult = borda_mult)
+  
+  tab <- dplyr::full_join(ols_df, borda_df, by = "outcome")
+  tab <- dplyr::full_join(
+    data.frame(outcome = target_outcomes, stringsAsFactors = FALSE),
+    tab, by = "outcome"
+  )
+  tab <- tab %>%
+    dplyr::mutate(
+      Borda_var_norm = ifelse(
+        is.finite(.data$Borda_sd_bias_corrected),
+        (.data$Borda_sd_bias_corrected / borda_mult)^2 / 0.0844,
+        NA_real_
+      ),
+      panel = dplyr::case_when(
+        grepl("_dm$", .data$outcome) ~ "Panel A: Within-industry",
+        grepl("_im$", .data$outcome) ~ "Panel B: Between-industry",
+        TRUE                           ~ "Panel ?: Unknown"
+      ),
+      base_outcome = sub("_(dm|im)$", "", .data$outcome)
+    )
+  
+  map_label <- function(x) {
+    if (!is.null(label_mapping)) {
+      lbl <- unname(label_mapping[x])
+      lbl[is.na(lbl)] <- x[is.na(lbl)]
+      return(lbl)
+    }
+    x
+  }
+  tab$Outcome_display <- map_label(tab$base_outcome)
+  
+  tab <- tab %>%
+    dplyr::mutate(
+      panel_order = ifelse(.data$panel == "Panel A: Within-industry", 1L, 2L),
+      outcome_order = match(.data$base_outcome, outcomes),
+      outcome_order = ifelse(is.na(.data$outcome_order), Inf, .data$outcome_order)
+    ) %>%
+    dplyr::arrange(.data$panel_order, .data$outcome_order, .data$base_outcome)
+  
+  csv_out_path <- file.path(tables_dir, csv_name)
+  out_csv <- data.frame(
+    Panel = tab$panel,
+    Outcome = tab$Outcome_display,
+    `Likert: sd` = tab$OLS_sd,
+    `Likert: bias corrected sd` = tab$OLS_sd_bias_corrected,
+    `Likert: t-stat` = tab$OLS_t_stat,
+    `Borda: sd` = tab$Borda_sd,
+    `Borda: bias corrected sd` = tab$Borda_sd_bias_corrected,
+    `Borda: t-stat` = tab$Borda_t_stat,
+    `Borda: normed variance` = tab$Borda_var_norm,
+    check.names = FALSE
+  )
+  utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
+  
+  fmt_dec <- function(x, k = latex_decimals) {
+    z <- suppressWarnings(as.numeric(x))
+    out <- rep("", length(z))
+    ok <- is.finite(z)
+    out[ok] <- formatC(z[ok], format = "f", digits = k, drop0trailing = FALSE)
+    out
+  }
+  
+  panel_rows <- function(df_panel) {
+    if (nrow(df_panel) == 0) return(character(0))
+    paste0(
+      "    ", df_panel$Outcome_display, " & ",
+      fmt_dec(df_panel$OLS_sd), " & ",
+      fmt_dec(df_panel$OLS_sd_bias_corrected), " & ",
+      fmt_dec(df_panel$OLS_t_stat), " & ",
+      fmt_dec(df_panel$Borda_sd), " & ",
+      fmt_dec(df_panel$Borda_sd_bias_corrected), " & ",
+      fmt_dec(df_panel$Borda_t_stat), " & ",
+      fmt_dec(df_panel$Borda_var_norm), " \\\\"
+    )
+  }
+  
+  panel_a <- tab %>% dplyr::filter(.data$panel == "Panel A: Within-industry")
+  panel_b <- tab %>% dplyr::filter(.data$panel == "Panel B: Between-industry")
+  
+  latex_lines <- c(
+    "  \\centering",
+    "  \\begin{tabular}{lccccccc}",
+    "    \\toprule",
+    "    & \\multicolumn{3}{c}{Likert} & \\multicolumn{4}{c}{Borda} \\\\",
+    "    \\cmidrule(lr){2-4} \\cmidrule(lr){5-8}",
+    "    Outcome & Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & \\shortstack{Normed\\\\Variance} \\\\",
+    "    \\midrule",
+    "    \\multicolumn{8}{l}{\\textbf{Panel A: Within-industry}}\\\\",
+    panel_rows(panel_a),
+    "    \\addlinespace",
+    "    \\multicolumn{8}{l}{\\textbf{Panel B: Between-industry}}\\\\",
+    panel_rows(panel_b),
+    "    \\bottomrule",
+    "  \\end{tabular}"
+  )
+  
+  tex_out_path <- file.path(tables_dir, tex_name)
+  writeLines(latex_lines, tex_out_path)
+  
+  cat("Within/between-industry variance table saved:",
+      basename(csv_out_path), "and", basename(tex_out_path), "\n")
+  
+  invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+}
+
+
 
 # -------------------------------
 # Example calls
@@ -1158,6 +1323,14 @@ create_plots_and_tables_from_sheets(
   label_mapping = label_mapping,
   add_45_line = TRUE,
   scale_borda_to_100 = FALSE
+)
+
+write_variance_biascorrected_ols_borda_within_between(
+  excel_path = excel_path,
+  outcomes = outs,
+  tables_dir = tables,
+  label_mapping = label_mapping,
+  borda_mult = 1
 )
 
 # -------------------------------
