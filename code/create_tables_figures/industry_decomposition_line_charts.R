@@ -31,22 +31,14 @@ ind_name_lookup <- setNames(
   as.character(ind_names$aer_naics2)
 )
 
-# --- EB shrinkage toward zero ---
-eb_shrink <- function(estimate, se) {
-  J <- length(estimate)
-  sigma2 <- max(0, (sum(estimate^2) - sum(se^2)) / J)
-  shrink <- sigma2 / (sigma2 + se^2)
-  shrink * estimate
-}
-
-# --- helper: extract data for one outcome/model, compute EB ---
+# --- helper: extract data for one outcome/model, read EB from pipeline ---
 get_eb <- function(outcome, mdl, etype) {
   d <- coef[coef$outcome == outcome &
               coef$model == mdl &
               coef$entity_type == etype &
               coef$subset == "all", ]
   stopifnot(nrow(d) > 0)
-  d$eb <- eb_shrink(d$estimate, d$se)
+  stopifnot(!all(is.na(d$eb)))
   d
 }
 

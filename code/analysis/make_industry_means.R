@@ -163,7 +163,16 @@ add_industry_means_to_results <- function(
       eb          = NA_real_,
       stringsAsFactors = FALSE
     )
-    
+
+    # EB shrinkage (uses eb_two_step from EB_procedure.R)
+    if (exists("eb_two_step", mode = "function")) {
+      ok <- is.finite(out_tbl$estimate) & is.finite(out_tbl$rse) & out_tbl$rse > 0
+      if (sum(ok) >= 2) {
+        eb_fit <- eb_two_step(theta_hat = out_tbl$estimate[ok], s = pmax(out_tbl$rse[ok], 1e-8))
+        out_tbl$eb[ok] <- eb_fit$theta_eb
+      }
+    }
+
     # optional weight column passthrough
     if (!is.null(weight_col)) {
       out_tbl[[weight_col]] <- if (is.null(out_weight)) NA_real_ else as.numeric(out_weight)
