@@ -8,7 +8,6 @@ source(file.path(analysis, "load_all.R"))
 
 # --- Config ---
 output_path     <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
-industry_map_path <- file.path(processed, "industry_map.xlsx")
 
 survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
                  "FirmHire_favor_white", "FirmHire_black", "FirmHire_white",
@@ -26,13 +25,24 @@ wb <- openxlsx::loadWorkbook(output_path)
 variance_df   <- openxlsx::read.xlsx(output_path, sheet = "variance")
 covariance_df <- openxlsx::read.xlsx(output_path, sheet = "covariance")
 
-industry_map <- openxlsx::read.xlsx(industry_map_path, sheet = 1) %>%
-  dplyr::select(firm_id, aer_naics2) %>%
-  dplyr::mutate(firm_id = as.integer(firm_id))
-
-# --- Weights from data ---
+# --- Weights from data and industry map ---
 file_path <- file.path(processed, "long_survey_final.csv")
 data <- read.csv(file_path, stringsAsFactors = FALSE)
+
+# Map from firms to industries using aer_naics2 already merged into analysis data
+industry_map <- data %>%
+  dplyr::select(firm_id, aer_naics2) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(firm_id = as.integer(firm_id))
+
+# Assert firm_id and aer_naics2 variables exist in analysis data
+stopifnot(all(c("firm_id", "aer_naics2") %in% names(data)))
+
+# Assert there is one unique aer_naics2 value per firm_id in industry map
+stopifnot(nrow(industry_map) == dplyr::n_distinct(industry_map$firm_id))
+
+# Assert aer_naics2 is non-missing for all firm_id values in industry map
+stopifnot(sum(is.na(industry_map$aer_naics2)) == 0)
 
 weights <- data %>%
   dplyr::select(firm_id, njobs) %>%
