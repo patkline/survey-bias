@@ -9,10 +9,14 @@
 source("code/globals.R")
 
 # ----------------------------------------------------------------------------------------------------
-# Build cached theta vectors for every model-sample-outcome combination
+# Build cached theta vectors and signal/total variance scalars for every 
+# model-sample-outcome combination
 # ----------------------------------------------------------------------------------------------------
 # Initialize list to store cached `entity_id`-`theta` vectors
 theta_vectors <- list()
+
+# Initialize list to store cached signal and total variance scalars
+signal_total_variance_scalars <- list()
 
 # Define local that defines the set of samples we are looping over here, where the name corresponds to the Plackett-Luce file suffixes
 sample_list <- c("Black", "White", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40", "College", "No_College", "Convenience", "Probability", "Conf_Gender_N", "Conf_Gender_Y", "Conf_Race_N", "Conf_Race_Y")
@@ -21,70 +25,26 @@ sample_list <- c("Black", "White", "Female", "Male", "Looking", "Not_Looking", "
 # Loop over sample excel sheets
 for (sample in sample_list) {
 
-  # Assign `Coefficient` sheet in excel to a data frame
+  ## Import and assign theta estimates for current sample to a data frame 
+  # Assign `Coefficients` sheet in excel to a data frame
   theta_vector_sample <- readxl::read_xlsx(
-    # File path 
+    # File path
     file.path(excel, paste0("Plackett_Luce_Subset_", sample, ".xlsx")),
     # Sheet name
     sheet = "Coefficients"
   )
 
-  # Assert unique on entity_type x subset x model x outcome x entity_id 
+  # Assert unique on entity_type x subset x model x outcome x entity_id
   stopifnot(anyDuplicated(theta_vector_sample[, c("entity_type", "subset", "model", "outcome", "entity_id")]) == 0L)
 
-  # Keep observations where entity_type is firm and subset is all 
+  # Keep observations where entity_type is firm and subset is all
   theta_vector_sample <- theta_vector_sample %>%
     dplyr::filter(.data$entity_type == "Firm", .data$subset == "all")
 
-  # Loop over models
-  for (model in c("OLS", "Borda")) {
-    # Loop over outcomes 
-    for (outcome in c("pooled_favor_white", "pooled_favor_male")) {
-      # Print current sample, model, and outcome 
-      print(paste("🎃 Processing theta for sample:", sample, "| model:", model, "| outcome:", outcome))
-
-      # Keep necessary observations for current model x outcome
-      theta_vector_sample_model_outcome <- theta_vector_sample %>%
-        dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
-        
-      # Keep only entity_id and estimate columns, renaming estimate to theta
-      theta_vector_sample_model_outcome <- theta_vector_sample_model_outcome %>%  
-        dplyr::transmute(entity_id = .data$entity_id, theta = .data$estimate)
-
-      # Assert non-missing entity_id and theta
-      stopifnot(!anyNA(theta_vector_sample_model_outcome$entity_id), !anyNA(theta_vector_sample_model_outcome$theta))
-
-      # Assert uniqueness on entity_id
-      stopifnot(anyDuplicated(theta_vector_sample_model_outcome$entity_id) == 0L)
-
-      # Assert 164 observations (one for each firm)
-      stopifnot(nrow(theta_vector_sample_model_outcome) == 164L)
-
-      # Define lookup key as `model'_`sample'_'`outcome`
-      theta_key <- paste("theta", model, sample, outcome, sep = "_")
-
-      # Store current model x outcome theta vector in cache with underscore-joined key
-      theta_vectors[[theta_key]] <- theta_vector_sample_model_outcome
-    }
-  }
-}
-
-# Print cached theta list
-print(names(theta_vectors))
-
-# ----------------------------------------------------------------------------------------------------
-# Build cached signal and total variance vectors for every model-sample-outcome 
-# combination
-# ----------------------------------------------------------------------------------------------------
-# Initialize list to store cached `total_variance`-`signal` vectors
-signal_total_variance_vectors <- list()
-
-# Loop over sample excel sheets
-for (sample in sample_list) {
-
-  # Assign `variance` sheet in excel to a data frame
+  ## Import and assign variance estimates for current sample to a data frame 
+  # Assign `variance` sheet from the same file to a data frame
   signal_total_variance_sample <- readxl::read_xlsx(
-    # File paths
+    # File path
     file.path(excel, paste0("Plackett_Luce_Subset_", sample, ".xlsx")),
     # Sheet name
     sheet = "variance"
@@ -99,36 +59,63 @@ for (sample in sample_list) {
 
   # Loop over models
   for (model in c("OLS", "Borda")) {
-    # Loop over outcomes 
+    # Loop over outcomes
     for (outcome in c("pooled_favor_white", "pooled_favor_male")) {
-      # Print current sample, model, and outcome 
-      print(paste("🎃 Processing variance for sample:", sample, "| model:", model, "| outcome:", outcome))
+      # Print current sample, model, and outcome
+      print(paste("🎃 Processing theta and variance for sample:", sample, "| model:", model, "| outcome:", outcome))
 
-      # Keep necessary observations for current model x outcome
+      ## Theta vector caching
+      # Keep necessary observations for current model x outcome (coefficients)
+      theta_vector_sample_model_outcome <- theta_vector_sample %>%
+        dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
+
+      # Keep only entity_id and estimate columns, renaming estimate to theta
+      theta_vector_sample_model_outcome <- theta_vector_sample_model_outcome %>%
+        dplyr::transmute(entity_id = .data$entity_id, theta = .data$estimate)
+
+      # Assert non-missing entity_id and theta
+      stopifnot(!anyNA(theta_vector_sample_model_outcome$entity_id), !anyNA(theta_vector_sample_model_outcome$theta))
+
+      # Assert uniqueness on entity_id
+      stopifnot(anyDuplicated(theta_vector_sample_model_outcome$entity_id) == 0L)
+
+      # Assert 164 observations (one for each firm)
+      stopifnot(nrow(theta_vector_sample_model_outcome) == 164L)
+
+      # Define lookup key as `theta_model_sample_outcome`
+      theta_key <- paste("theta", model, sample, outcome, sep = "_")
+
+      # Store current model x outcome theta vector in cache with underscore-joined key
+      theta_vectors[[theta_key]] <- theta_vector_sample_model_outcome
+
+      ## Signal and total variance caching
+      # Keep necessary observations for current model x outcome (variance)
       signal_total_variance_sample_model_outcome <- signal_total_variance_sample %>%
         dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
-        
-      # Keep only variance and signal columns, renaming variance to total_variance
-      signal_total_variance_sample_model_outcome <- signal_total_variance_sample_model_outcome %>%  
-        dplyr::transmute(total_variance = as.numeric(.data$variance), signal = as.numeric(.data$signal))
 
       # Assert non-missing total variance and signal
-      stopifnot(!anyNA(signal_total_variance_sample_model_outcome$total_variance), !anyNA(signal_total_variance_sample_model_outcome$signal))
+      stopifnot(!anyNA(signal_total_variance_sample_model_outcome$variance), !anyNA(signal_total_variance_sample_model_outcome$signal))
 
       # Assert one observation
       stopifnot(nrow(signal_total_variance_sample_model_outcome) == 1L)
 
-      # Define lookup key as `model'_`sample'_'`outcome`
+      # Define lookup key as `signal_total_variance_model_sample_outcome`
       signal_key <- paste("signal_total_variance", model, sample, outcome, sep = "_")
 
-      # Store current model x outcome signal/variance vector in cache with underscore-joined key
-      signal_total_variance_vectors[[signal_key]] <- signal_total_variance_sample_model_outcome
+      # Store total variance and signal as named numeric scalars
+      signal_total_variance_scalars[[signal_key]] <- list(
+        total_variance = as.numeric(signal_total_variance_sample_model_outcome$variance[1]),
+        signal         = as.numeric(signal_total_variance_sample_model_outcome$signal[1])
+      )
     }
   }
 }
 
+# Print cached theta list
+print(names(theta_vectors))
+
 # Print cached signal and total variance list
-print(names(signal_total_variance_vectors))
+print(names(signal_total_variance_scalars))
 
 # ----------------------------------------------------------------------------------------------------
 # Run cross-sample correlations, and save outputs in a model x sample pair x 
@@ -185,8 +172,8 @@ for (sample_pair in sample_pair_list) {
       stopifnot(
         !is.null(theta_vectors[[paste("theta", model, sample_pair$sample_1, outcome, sep = "_")]]),
         !is.null(theta_vectors[[paste("theta", model, sample_pair$sample_2, outcome, sep = "_")]]),
-        !is.null(signal_total_variance_vectors[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]),
-        !is.null(signal_total_variance_vectors[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]])
+        !is.null(signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]),
+        !is.null(signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]])
       )
 
       # Merge theta vectors on common entity IDs (i.e., firms)
@@ -220,17 +207,17 @@ for (sample_pair in sample_pair_list) {
       theta_covariance <- mean(theta_values_1_centered * theta_values_2_centered, na.rm = TRUE)
       
       ## Compute signal correlation as Cov(x, y) / sqrt(SignalVar(x) * SignalVar(y)), where signal variance is pulled from the `variance` sheet in excel (and stored in cache above)
-      # Pull first sample total variance
-      total_variance_1 <- signal_total_variance_vectors[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]$total_variance[1]
+      # Pull signal and total variance scalar caches for both samples
+      signal_total_variance_sample_1 <- signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]
+      signal_total_variance_sample_2 <- signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]]
 
-      # Pull second sample total variance
-      total_variance_2 <- signal_total_variance_vectors[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]]$total_variance[1]
+      # Pull first sample total and signal variances
+      total_variance_1  <- signal_total_variance_sample_1$total_variance
+      signal_variance_1 <- signal_total_variance_sample_1$signal
 
-      # Pull first sample signal variance
-      signal_variance_1 <- signal_total_variance_vectors[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]$signal[1]
-
-      # Pull second sample signal variance
-      signal_variance_2 <- signal_total_variance_vectors[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]]$signal[1]
+      # Pull second sample total and signal variances
+      total_variance_2  <- signal_total_variance_sample_2$total_variance
+      signal_variance_2 <- signal_total_variance_sample_2$signal
 
       # Compute denominator for signal correlation
       signal_correlation_denominator <- sqrt(signal_variance_1 * signal_variance_2)
