@@ -28,6 +28,7 @@ source(file.path(create_tables_figures, "cross_sample_signal_corr_raw.R"))
 source(file.path(create_tables_figures, "cross_sample_signal_corr_placebo.R"))
 source(file.path(create_tables_figures, "cross_model_corr.R"))
 source(file.path(create_tables_figures, "valence_correlation_bars.R"))
+source(file.path(create_tables_figures, "opposite_valence_corr_table.R"))
 
 message("🎃 Tables and figures complete")
 

@@ -142,7 +142,8 @@ required_r_packages <- c(
   "ggpattern",
   "ragg",
   "rlang",
-  "ordinal"
+  "ordinal",
+  "readr"
 )
 
 # Identify missing R packages
@@ -197,7 +198,8 @@ if (!file.exists(python_venv_installation)) {
 # Define list of required Python packages
 required_python_packages <- c(
   "numpy",
-  "pandas"
+  "pandas",
+  "openpyxl"
 )
 
 # Initialize vector to hold missing Python packages
