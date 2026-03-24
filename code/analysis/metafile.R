@@ -66,35 +66,6 @@ subset_var <- NULL
 subset_value <- NULL
 output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
 
-
-system.time({
-  run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                        subset_var = subset_var, subset_value = subset_value,
-                        firms97 = firms97,
-                        output_path = output_path,
-                        industry_map_path = industry_map_path,
-                        generate_wide = FALSE,
-                        ordered_logit = FALSE,
-                        process_outcomes = FALSE,
-                        run_bootstrap = FALSE,
-                        run_bs_eiv = FALSE,
-                        eiv_summary = FALSE,
-                        eiv_bivariate = FALSE,
-                        run_pairwise_process = FALSE,
-                        run_pairwise_process_ol = TRUE,
-                        borda_score = FALSE,
-                        borda_bs_w = FALSE,
-                        run_borda_eiv = FALSE,
-                        borda_eiv_summary = FALSE,
-                        run_pairwise_process_borda = FALSE,
-                        borda_eiv_bivariate = FALSE,
-                        sum_signal_noise = FALSE,
-                        sim_pl_to_borda = FALSE,
-                        exact_pl_to_borda = FALSE,
-                        diagnostic = FALSE,
-                        B = 1)
-})
-
 # Function Call Female
 system.time({
   run_analysis_pipeline(
