@@ -9,7 +9,7 @@
 run_analysis_pipeline <- function(
     data, respondent_col, survey_vars, experimental_vars = NULL,
     subset_var = NULL, subset_value = NULL, 
-    output_path, industry_map_path, firms97 = NULL,
+    output_path, firms97 = NULL,
     run_ol = FALSE, run_pl = FALSE, run_borda = FALSE, run_ols = FALSE, run_ols_centered = FALSE,
     combine_valences = FALSE, valence_triples = NULL, industry_means = FALSE,
     seed = 123
@@ -31,9 +31,6 @@ run_analysis_pipeline <- function(
   
   # load workbook
   wb <- if (file.exists(output_path)) openxlsx::loadWorkbook(output_path) else openxlsx::createWorkbook()
-  
-  # (still read industry_map here if other functions expect it in scope)
-  #industry_map <- openxlsx::read.xlsx(industry_map_path, sheet = 1) %>%
   
   # Map from firms to industries using aer_naics2 already merged into analysis data
   industry_map <- data %>%

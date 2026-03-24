@@ -60,7 +60,6 @@ respondent_col <- "ResponseId"
 firm_col <- "firm"
 
 firms97 <- data %>% dplyr::filter(!is.na(dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
-industry_map_path <- file.path(processed,"industry_map.xlsx")
 
 subset_var <- NULL
 subset_value <- NULL
@@ -71,7 +70,7 @@ system.time({
   run_analysis_pipeline(
     data, respondent_col, survey_vars, experimental_vars,
     subset_var = subset_var, subset_value = subset_value,
-    output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
+    output_path = output_path, firms97 = firms97,
     run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
     combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
     seed = 123
@@ -121,12 +120,11 @@ for (i in seq_len(nrow(runs))) {
     run_analysis_pipeline(
       data, respondent_col, survey_vars, experimental_vars,
       subset_var = subset_var, subset_value = subset_value,
-      output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
+      output_path = output_path, firms97 = firms97,
       run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
       combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
       seed = 123
     ) 
   })
 }
-
 

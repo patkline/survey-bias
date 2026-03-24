@@ -507,7 +507,7 @@ cat("Saved correlation + LR workbook to:", out_path, "\n")
 # 7. Build LaTeX table (using all_firms == TRUE and p-values from PL only)
 # -------------------------------------------------------------------
 
-dir.create("tables", showWarnings = FALSE, recursive = TRUE)
+#dir.create("tables", showWarnings = FALSE, recursive = TRUE)
 
 fmt_corr <- function(x) {
   if (is.na(x)) return("")
