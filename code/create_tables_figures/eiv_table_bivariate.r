@@ -5,10 +5,15 @@ source("code/globals.R")
 # Pretty 3-decimal formatter
 fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
-# Read one coef/se pair for bivariate models
-# For bivariate: coef 1 = selectivity, coef 3 = discretion
+# Read one coef/se pair for bivariate models from unified EIV_firm.
+# Legacy mapping:
+#   coef_num 1/2 -> FirmSelective (No FE / Industry FE)
+#   coef_num 3/4 -> discretion   (No FE / Industry FE)
 pull_bivariate_est <- function(root, file, lhs_var, coef_num,
-                               sheet = "EIV_BIVARIATE", divide_by_100 = FALSE) {
+                               model_filter = "PL",
+                               formula_var = "FirmSelective + discretion",
+                               sheet = "EIV_firm",
+                               divide_by_100 = FALSE) {
   path <- file.path(root, file)
   dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
                   error = function(e) tibble())
@@ -17,9 +22,15 @@ pull_bivariate_est <- function(root, file, lhs_var, coef_num,
   # Convert coef column to numeric
   dat$coef <- suppressWarnings(as.numeric(dat$coef))
 
-  # Filter using base R to avoid data masking issues in rowwise context
-  # Note: rhs is the same for all rows ("FirmSelective + discretion"), so we ignore it
-  out <- dat[dat$lhs == lhs_var & dat$coef == coef_num, ]
+  rhs_var <- if (coef_num %in% c(1L, 2L)) "FirmSelective" else "discretion"
+  coef_in_sheet <- if (coef_num %in% c(1L, 3L)) 1L else 2L
+
+  out <- dat[
+    dat$model == model_filter &
+      dat$lhs == lhs_var &
+      dat$formula == formula_var &
+      dat$rhs == rhs_var &
+      dat$coef == coef_in_sheet, ]
 
   if (!nrow(out)) return("NA (NA)")
 
@@ -43,7 +54,9 @@ default_filemap <- tibble(
              "Looking for a Job",
              "Not Looking for a Job",
              "Feared Discrimination",
-             "Did Not Fear Discrimination"),
+             "Did Not Fear Discrimination",
+             "40 Years or Older",
+             "Less than 40 Years Old"),
   file  = c("Plackett_Luce_Full_Sample.xlsx",
             "Plackett_Luce_Subset_Black.xlsx",
             "Plackett_Luce_Subset_White.xlsx",
@@ -52,7 +65,9 @@ default_filemap <- tibble(
             "Plackett_Luce_Subset_Looking.xlsx",
             "Plackett_Luce_Subset_Not_Looking.xlsx",
             "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx")
+            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
+            "Plackett_Luce_Subset_Age_gte40.xlsx",
+            "Plackett_Luce_Subset_Age_lt40.xlsx")
 )
 
 # ---------- BUILD DF FOR ONE CONFIG ----------
@@ -60,7 +75,9 @@ default_filemap <- tibble(
 
 build_bivariate_df <- function(cfg) {
   root        <- cfg$root
-  sheet_name  <- cfg$sheet_name  %||% "EIV_BIVARIATE"
+  sheet_name  <- cfg$sheet_name  %||% "EIV_firm"
+  model_filter <- cfg$model_filter %||% "PL"
+  formula_filter <- cfg$formula_filter %||% "FirmSelective + discretion"
   lhs         <- cfg$lhs
   coef1       <- cfg$coef1 %||% 1L  # Selectivity
   coef3       <- cfg$coef3 %||% 3L  # Discretion
@@ -75,7 +92,13 @@ build_bivariate_df <- function(cfg) {
   selectivity_row <- filemap %>%
     rowwise() %>%
     mutate(
-      value = pull_bivariate_est(root, file, lhs, coef1, sheet_name, scale_by_100)
+      value = pull_bivariate_est(
+        root, file, lhs, coef1,
+        model_filter = model_filter,
+        formula_var = formula_filter,
+        sheet = sheet_name,
+        divide_by_100 = scale_by_100
+      )
     ) %>%
     ungroup()
 
@@ -83,7 +106,13 @@ build_bivariate_df <- function(cfg) {
   discretion_row <- filemap %>%
     rowwise() %>%
     mutate(
-      value = pull_bivariate_est(root, file, lhs, coef3, sheet_name, scale_by_100)
+      value = pull_bivariate_est(
+        root, file, lhs, coef3,
+        model_filter = model_filter,
+        formula_var = formula_filter,
+        sheet = sheet_name,
+        divide_by_100 = scale_by_100
+      )
     ) %>%
     ungroup()
 
@@ -184,21 +213,24 @@ runs <- list(
   # Plackett-Luce
   pl_race = list(
     root        = root_dir,
-    sheet_name  = "EIV_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "PL",
     lhs         = "log_dif",
     coef1       = 1L,  # Selectivity
     coef3       = 3L   # Discretion
   ),
   pl_gender = list(
     root        = root_dir,
-    sheet_name  = "EIV_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "PL",
     lhs         = "log_dif_gender",
     coef1       = 1L,
     coef3       = 3L
   ),
   pl_age = list(
     root        = root_dir,
-    sheet_name  = "EIV_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "PL",
     lhs         = "log_dif_age",
     coef1       = 1L,
     coef3       = 3L
@@ -207,21 +239,24 @@ runs <- list(
   # Borda
   borda_race = list(
     root        = root_dir,
-    sheet_name  = "EIV_BORDA_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "Borda",
     lhs         = "log_dif",
     coef1       = 1L,
     coef3       = 3L
   ),
   borda_gender = list(
     root        = root_dir,
-    sheet_name  = "EIV_BORDA_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "Borda",
     lhs         = "log_dif_gender",
     coef1       = 1L,
     coef3       = 3L
   ),
   borda_age = list(
     root        = root_dir,
-    sheet_name  = "EIV_BORDA_BIVARIATE",
+    sheet_name  = "EIV_firm",
+    model_filter = "Borda",
     lhs         = "log_dif_age",
     coef1       = 1L,
     coef3       = 3L
@@ -256,6 +291,36 @@ pull_univariate_est <- function(root, file, lhs_var, rhs_var, coef_num,
   paste0(fmt3(est), " (", fmt3(se), ")")
 }
 
+# Pull estimates from unified EIV_firm sheet with model + formula filters
+pull_eiv_firm_est <- function(root, file, lhs_var, rhs_var, coef_num,
+                              formula_var, model_filter = "OLS",
+                              sheet = "EIV_firm", divide_by_100 = FALSE) {
+  path <- file.path(root, file)
+  dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
+                  error = function(e) tibble())
+  if (!nrow(dat)) return("NA (NA)")
+
+  dat$coef <- suppressWarnings(as.numeric(dat$coef))
+
+  out <- dat[
+    dat$model == model_filter &
+      dat$lhs == lhs_var &
+      dat$rhs == rhs_var &
+      dat$formula == formula_var &
+      dat$coef == coef_num, ]
+
+  if (!nrow(out)) return("NA (NA)")
+
+  est <- suppressWarnings(as.numeric(out$sample_est))
+  se  <- suppressWarnings(as.numeric(out$sample_se))
+
+  if (isTRUE(divide_by_100)) {
+    est <- est / 100
+    se  <- se  / 100
+  }
+  paste0(fmt3(est), " (", fmt3(se), ")")
+}
+
 # ---------- BUILD COMPARISON TABLE (BIVARIATE VS UNIVARIATE) ----------
 
 build_comparison_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
@@ -270,25 +335,40 @@ build_comparison_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
 
   build_panel <- function(cfg) {
     lhs <- cfg$lhs
-    bivariate_sheet <- cfg$bivariate_sheet
-    univariate_sheet <- cfg$univariate_sheet
+    model_filter <- cfg$model_filter %||% "PL"
+    bivariate_sheet <- cfg$bivariate_sheet %||% "EIV_firm"
 
     # Column 1: Bivariate No FE (coef1 = Selectivity, coef3 = Discretion)
-    biv_nofe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 1L, bivariate_sheet)
-    biv_nofe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 3L, bivariate_sheet)
+    biv_nofe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 1L,
+                                       model_filter = model_filter,
+                                       sheet = bivariate_sheet)
+    biv_nofe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 3L,
+                                       model_filter = model_filter,
+                                       sheet = bivariate_sheet)
 
     # Column 2: Bivariate With FE (coef2 = Selectivity, coef4 = Discretion)
-    biv_fe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 2L, bivariate_sheet)
-    biv_fe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 4L, bivariate_sheet)
+    biv_fe_sel <- pull_bivariate_est(root, full_sample_file, lhs, 2L,
+                                     model_filter = model_filter,
+                                     sheet = bivariate_sheet)
+    biv_fe_dis <- pull_bivariate_est(root, full_sample_file, lhs, 4L,
+                                     model_filter = model_filter,
+                                     sheet = bivariate_sheet)
 
-    # Column 3: Univariate No FE (coef1)
-    # NOTE: for univariate EIV_BS, weighted specs are coefs 3 (No FE) and 4 (Industry FEs)
-    uni_nofe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 3L, univariate_sheet)
-    uni_nofe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 3L, univariate_sheet)
+    # Column 3: Univariate No FE (coef1 in EIV_firm)
+    uni_nofe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 1L,
+                                      formula_var = "FirmSelective",
+                                      model_filter = model_filter)
+    uni_nofe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 1L,
+                                      formula_var = "discretion",
+                                      model_filter = model_filter)
 
-    # Column 4: Univariate With FE (coef2)
-    uni_fe_sel <- pull_univariate_est(root, full_sample_file, lhs, "FirmSelective", 4L, univariate_sheet)
-    uni_fe_dis <- pull_univariate_est(root, full_sample_file, lhs, "discretion", 4L, univariate_sheet)
+    # Column 4: Univariate With FE (coef2 in EIV_firm)
+    uni_fe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 2L,
+                                    formula_var = "FirmSelective",
+                                    model_filter = model_filter)
+    uni_fe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 2L,
+                                    formula_var = "discretion",
+                                    model_filter = model_filter)
 
     tibble(
       Regressor = c("Selectivity", "Discretion"),
@@ -339,6 +419,93 @@ build_comparison_table <- function(cfg_race, cfg_gender, cfg_age, out_tex) {
   message("✓ LaTeX comparison table (Bivariate vs Univariate) saved to: ", out_tex)
 }
 
+# ---------- BUILD COMPARISON TABLE FROM EIV_firm (MODEL-FILTERED) ----------
+
+build_comparison_table_eiv_firm <- function(cfg_race, cfg_gender, cfg_age, out_tex,
+                                            model_filter = "OLS") {
+  root <- cfg_race$root
+  full_sample_file <- "Plackett_Luce_Full_Sample.xlsx"
+
+  build_panel <- function(cfg) {
+    lhs <- cfg$lhs
+
+    # Column 1: Bivariate No FE (coef 1)
+    biv_nofe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 1L,
+                                      formula_var = "FirmSelective + discretion",
+                                      model_filter = model_filter)
+    biv_nofe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 1L,
+                                      formula_var = "FirmSelective + discretion",
+                                      model_filter = model_filter)
+
+    # Column 2: Bivariate With FE (coef 2)
+    biv_fe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 2L,
+                                    formula_var = "FirmSelective + discretion",
+                                    model_filter = model_filter)
+    biv_fe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 2L,
+                                    formula_var = "FirmSelective + discretion",
+                                    model_filter = model_filter)
+
+    # Column 3: Univariate No FE (coef 1)
+    uni_nofe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 1L,
+                                      formula_var = "FirmSelective",
+                                      model_filter = model_filter)
+    uni_nofe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 1L,
+                                      formula_var = "discretion",
+                                      model_filter = model_filter)
+
+    # Column 4: Univariate With FE (coef 2)
+    uni_fe_sel <- pull_eiv_firm_est(root, full_sample_file, lhs, "FirmSelective", 2L,
+                                    formula_var = "FirmSelective",
+                                    model_filter = model_filter)
+    uni_fe_dis <- pull_eiv_firm_est(root, full_sample_file, lhs, "discretion", 2L,
+                                    formula_var = "discretion",
+                                    model_filter = model_filter)
+
+    tibble(
+      Regressor = c("Selectivity", "Discretion"),
+      `Combined Model` = c(biv_nofe_sel, biv_nofe_dis),
+      `Combined Model (Industry FEs)` = c(biv_fe_sel, biv_fe_dis),
+      `Separate Models` = c(uni_nofe_sel, uni_nofe_dis),
+      `Separate Models (Industry FEs)` = c(uni_fe_sel, uni_fe_dis)
+    )
+  }
+
+  df_race   <- build_panel(cfg_race)
+  df_gender <- build_panel(cfg_gender)
+  df_age    <- build_panel(cfg_age)
+
+  combined_df <- bind_rows(df_race, df_gender, df_age)
+
+  n_race   <- nrow(df_race)
+  n_gender <- nrow(df_gender)
+  n_age    <- nrow(df_age)
+
+  col_names <- colnames(combined_df)
+  col_names <- gsub("Combined Model \\(Industry FEs\\)",
+                    "\\\\shortstack{Combined Model\\\\\\\\(Industry FEs)}",
+                    col_names)
+  col_names <- gsub("Separate Models \\(Industry FEs\\)",
+                    "\\\\shortstack{Separate Models\\\\\\\\(Industry FEs)}",
+                    col_names)
+
+  tex_code <- kable(
+    combined_df,
+    format    = "latex",
+    booktabs  = TRUE,
+    align     = c("l", rep("c", ncol(combined_df) - 1)),
+    col.names = col_names,
+    linesep   = "",
+    escape    = FALSE
+  ) %>%
+    pack_rows("\\\\textit{Race}", 1, n_race, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Gender}", n_race + 1, n_race + n_gender, italic = TRUE, escape = FALSE) %>%
+    pack_rows("\\\\textit{Age}", n_race + n_gender + 1, n_race + n_gender + n_age, italic = TRUE, escape = FALSE)
+
+  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
+  writeLines(tex_code, out_tex)
+  message("✓ LaTeX comparison table (Bivariate vs Univariate, ", model_filter, ") saved to: ", out_tex)
+}
+
 # ---------- BUILD THE TWO-PANEL TABLE ----------
 
 build_two_panel_bivariate_table(
@@ -357,20 +524,20 @@ comparison_runs <- list(
   race = list(
     root = root_dir,
     lhs = "log_dif",
-    bivariate_sheet = "EIV_BIVARIATE",
-    univariate_sheet = "EIV_BS"
+    model_filter = "PL",
+    bivariate_sheet = "EIV_firm"
   ),
   gender = list(
     root = root_dir,
     lhs = "log_dif_gender",
-    bivariate_sheet = "EIV_BIVARIATE",
-    univariate_sheet = "EIV_BS"
+    model_filter = "PL",
+    bivariate_sheet = "EIV_firm"
   ),
   age = list(
     root = root_dir,
     lhs = "log_dif_age",
-    bivariate_sheet = "EIV_BIVARIATE",
-    univariate_sheet = "EIV_BS"
+    model_filter = "PL",
+    bivariate_sheet = "EIV_firm"
   )
 )
 
@@ -380,3 +547,86 @@ build_comparison_table(
   cfg_age    = comparison_runs$age,
   out_tex    = file.path(tables, "EIV_bivariate_vs_univariate_wt.tex")
 )
+
+# ------------------------------------------------------------------------------
+# Build Table 8: EIV_bivariate_vs_univariate_wt_ols_borda.tex
+# Purpose: Likert + Borda panels; separate models only; race/gender only
+# ------------------------------------------------------------------------------
+
+table8_file <- "Plackett_Luce_Full_Sample.xlsx"
+
+table8_runs <- list(
+  ls_race = list(root = root_dir, lhs = "log_dif",        model_filter = "OLS"),
+  ls_gender = list(root = root_dir, lhs = "log_dif_gender", model_filter = "OLS"),
+  borda_race = list(root = root_dir, lhs = "log_dif",        model_filter = "Borda"),
+  borda_gender = list(root = root_dir, lhs = "log_dif_gender", model_filter = "Borda")
+)
+
+build_table8_row <- function(cfg) {
+  root <- cfg$root
+  lhs  <- cfg$lhs
+  model_filter <- cfg$model_filter
+
+  # Pull univariate rows from the unified EIV_firm sheet.
+  uni_nofe_sel <- pull_eiv_firm_est(root, table8_file, lhs, "FirmSelective", 1L,
+                                    formula_var = "FirmSelective",
+                                    model_filter = model_filter)
+  uni_nofe_dis <- pull_eiv_firm_est(root, table8_file, lhs, "discretion", 1L,
+                                    formula_var = "discretion",
+                                    model_filter = model_filter)
+  uni_fe_sel <- pull_eiv_firm_est(root, table8_file, lhs, "FirmSelective", 2L,
+                                  formula_var = "FirmSelective",
+                                  model_filter = model_filter)
+  uni_fe_dis <- pull_eiv_firm_est(root, table8_file, lhs, "discretion", 2L,
+                                  formula_var = "discretion",
+                                  model_filter = model_filter)
+
+  tibble(
+    Regressor = c("Selectivity", "Discretion"),
+    `Separate Models` = c(uni_nofe_sel, uni_nofe_dis),
+    `Separate Models (Industry FEs)` = c(uni_fe_sel, uni_fe_dis)
+  )
+}
+
+df_ls_race <- build_table8_row(table8_runs$ls_race)
+df_ls_gender <- build_table8_row(table8_runs$ls_gender)
+df_ls <- bind_rows(df_ls_race, df_ls_gender)
+
+df_borda_race <- build_table8_row(table8_runs$borda_race)
+df_borda_gender <- build_table8_row(table8_runs$borda_gender)
+df_borda <- bind_rows(df_borda_race, df_borda_gender)
+
+combined_df <- bind_rows(df_ls, df_borda)
+
+n_ls_race <- nrow(df_ls_race)
+n_ls_gender <- nrow(df_ls_gender)
+n_ls <- n_ls_race + n_ls_gender
+n_borda_race <- nrow(df_borda_race)
+n_borda_gender <- nrow(df_borda_gender)
+n_borda <- n_borda_race + n_borda_gender
+
+col_names <- colnames(combined_df)
+col_names <- gsub("Separate Models \\(Industry FEs\\)",
+                  "\\\\shortstack{Separate Models\\\\\\\\(Industry FEs)}",
+                  col_names)
+
+tex_code_table8 <- kable(
+  combined_df,
+  format    = "latex",
+  booktabs  = TRUE,
+  align     = c("l", rep("c", ncol(combined_df) - 1)),
+  col.names = col_names,
+  linesep   = "",
+  escape    = FALSE
+) %>%
+  pack_rows("Panel A: Likert", 1, n_ls) %>%
+  pack_rows("\\\\textit{Race}", 1, n_ls_race, italic = TRUE, escape = FALSE) %>%
+  pack_rows("\\\\textit{Gender}", n_ls_race + 1, n_ls, italic = TRUE, escape = FALSE) %>%
+  pack_rows("Panel B: Borda", n_ls + 1, n_ls + n_borda) %>%
+  pack_rows("\\\\textit{Race}", n_ls + 1, n_ls + n_borda_race, italic = TRUE, escape = FALSE) %>%
+  pack_rows("\\\\textit{Gender}", n_ls + n_borda_race + 1, n_ls + n_borda, italic = TRUE, escape = FALSE)
+
+out_tex_table8 <- file.path(tables, "EIV_univariate_wt_ols_borda.tex")
+dir.create(dirname(out_tex_table8), showWarnings = FALSE, recursive = TRUE)
+writeLines(tex_code_table8, out_tex_table8)
+message("✓ LaTeX Table 8 saved to: ", out_tex_table8)

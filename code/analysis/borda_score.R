@@ -1,3 +1,8 @@
+# ------------------------------------------------------------------------------
+# Purpose: Calculate Borda Scores
+#
+# Created: Jordan Cammarota 03-06-2026
+# ------------------------------------------------------------------------------
 # ------------------------------------------------------------
 # Individual-level Borda scores from WIDE rankings (with id_map)
 # - data_wide: columns "resp_id", "firm1"..."firmN"; values 0 (not ranked) or 1..K
@@ -41,6 +46,8 @@ compute_borda_individual_wide <- function(data_wide,
   X[] <- lapply(X, function(x) suppressWarnings(as.numeric(x)))
   M <- as.matrix(X)
   M[M <= 0] <- NA_real_
+  
+  N <- dim(X)[[2]] - length(ref_firm_ids)
   
   out_list <- vector("list", nrow(M))
   
@@ -99,7 +106,8 @@ compute_borda_individual_wide <- function(data_wide,
       
       B_nr <- wins_nr + 0.5 * ties_nr
       if (normalize) {
-        B_nr <- B_nr / (k_nonref - 1)
+        B_nr <- 1/(2*N) + (N-1)/N * (B_nr / (k_nonref - 1))
+        #B_nr <- (B_nr / (k_nonref - 1))
       }
       
       # Overwrite B_out *only* for non-reference firms
@@ -120,128 +128,4 @@ compute_borda_individual_wide <- function(data_wide,
   
   out
 }
-
-
-# ------------------------------------------------------------
-# Summarize Borda by firm: mean, N, SE = sd/sqrt(N)
-# ------------------------------------------------------------
-summarize_borda_by_firm <- function(B_indiv, weights = NULL) {
-  if (is.null(weights)) {
-    B_indiv$w <- 1
-  } else {
-    B_indiv$w <- weights
-  }
-
-  B_indiv %>%
-    dplyr::group_by(firm_id, firm) %>%
-    dplyr::summarise(
-      n_obs  = dplyr::n(),                                  # explicit sample size
-      mean_B = sum(B * w) / sum(w),
-      var_B  = sum(w * (B - mean_B)^2) / (sum(w) * (n_obs - 1)),
-      se_B   = sqrt(var_B),
-      .groups = "drop"
-    )
-}
-
-#------------------------------------------------------------------------------
-# Sandwich-style robust covariance for firm-level Borda means
-#
-# Inputs:
-#   B_indiv   : data.frame with columns: id_var (e.g. resp_id), firm_id, B,
-#               and optionally a weight column (weight_var)
-#   firm_order: integer vector of firm_ids in the order you want Sigma_B
-#   id_var    : respondent id column (default "resp_id")
-#   weight_var: optional column name giving respondent-level weights.
-#               If NULL, treats all weights as 1 (unweighted).
-#
-# Returns:
-#   Sigma_B: J x J matrix, robust ("sandwich") covariance of firm means
-#------------------------------------------------------------------------------
-compute_borda_sandwich_cov <- function(B_indiv,
-                                       firm_order = NULL,
-                                       id_var = "resp_id",
-                                       weight_var = NULL) {
-  stopifnot(all(c(id_var, "firm_id", "B") %in% names(B_indiv)))
-  
-  # weights: default to 1 if not provided
-  if (!is.null(weight_var)) {
-    stopifnot(weight_var %in% names(B_indiv))
-    B_indiv <- B_indiv %>%
-      dplyr::mutate(.w = pmax(as.numeric(.data[[weight_var]]), 0))
-  } else {
-    B_indiv <- B_indiv %>%
-      dplyr::mutate(.w = 1)
-  }
-  
-  # Per-firm weighted counts and means
-  stats_firm <- B_indiv %>%
-    dplyr::group_by(firm_id) %>%
-    dplyr::summarise(
-      n_j = sum(.w),
-      mu  = ifelse(n_j > 0, sum(.w * B) / n_j, NA_real_),
-      .groups = "drop"
-    )
-  
-  # Firm order: either provided or sorted
-  if (is.null(firm_order)) {
-    firm_order <- sort(unique(stats_firm$firm_id))
-  }
-  
-  # Ensure stats_firm is in the desired order
-  stats_firm <- stats_firm[match(firm_order, stats_firm$firm_id), , drop = FALSE]
-  
-  # Center B by firm mean and build S matrix (rows = respondents, cols = firms)
-  B_cent <- B_indiv %>%
-    dplyr::mutate(
-      Bc = B - stats_firm$mu[match(firm_id, stats_firm$firm_id)]
-    ) %>%
-    dplyr::select(!!rlang::sym(id_var), firm_id, Bc, .w)
-  
-  # Wide by respondent, one row per respondent, columns are firm_ids
-  wide <- tidyr::pivot_wider(
-    B_cent,
-    names_from  = firm_id,
-    values_from = Bc,
-    values_fill = list(Bc = 0)
-  )
-  
-  # Ensure all firm columns present in the specified order
-  miss_cols <- setdiff(as.character(firm_order), names(wide))
-  for (mc in miss_cols) wide[[mc]] <- 0
-  
-  wide <- wide[, c(id_var, as.character(firm_order)), drop = FALSE]
-  
-  S_raw <- as.matrix(wide[, -1, drop = FALSE])  # rows: respondents, cols: firms
-  
-  # respondent-level weights (one per id)
-  w_resp <- B_cent %>%
-    dplyr::distinct(!!rlang::sym(id_var), .w) %>%
-    dplyr::arrange(!!rlang::sym(id_var)) %>%
-    dplyr::pull(.w)
-  
-  # align w_resp to row order of 'wide'
-  id_order <- wide[[id_var]]
-  w_resp   <- w_resp[match(id_order,
-                           B_cent %>% dplyr::distinct(!!rlang::sym(id_var)) %>% dplyr::pull(!!rlang::sym(id_var)))]
-  
-  w_sqrt <- sqrt(pmax(w_resp, 0))
-  W_mat  <- matrix(w_sqrt, nrow = nrow(S_raw), ncol = ncol(S_raw))
-  S_w    <- S_raw * W_mat
-  
-  # Meat: sum of S_i S_i' over respondents, with weights
-  M <- crossprod(S_w)   # J x J
-  
-  # Bread inverse: diag(1 / n_j)
-  J <- nrow(M)
-  G_inv <- diag(1 / stats_firm$n_j, nrow = J, ncol = J)
-  
-  # Sandwich covariance for firm-level means
-  Sigma_B <- G_inv %*% M %*% G_inv
-  
-  Sigma_B
-}
-
-
-
-
 

@@ -19,22 +19,95 @@ create_plots_and_tables_from_sheets <- function(excel_path,
                                                 gap_width = 3,    # <-- # of blank slots between bottom/top groups
                                                 scale_borda_to_100 = FALSE,  # rescale Borda 0–1 -> 0–100
                                                 variance_csv_name = "variance_biascorrected_pl_borda.csv",
-                                                variance_tex_name = "variance_biascorrected_pl_borda.tex") {
+                                                variance_tex_name = "variance_biascorrected_pl_borda.tex",
+                                                variance_ols_csv_name = "variance_biascorrected_ols_borda.csv",
+                                                variance_ols_tex_name = "variance_biascorrected_ols_borda.tex") {
   
   # scale controls for Borda
   borda_mult   <- if (isTRUE(scale_borda_to_100)) 100 else 1
   borda_max    <- if (isTRUE(scale_borda_to_100)) 100 else 1
   borda_breaks <- if (borda_max == 100) seq(0, 100, 10) else seq(0, 1, 0.1)
   
-  # read core sheets (must have columns: firm, firm_id, <outcomes...>)
-  df_coef <- read_excel(excel_path, sheet = "Coefficients")
-  df_eb   <- read_excel(excel_path, sheet = "Coefficients (EB)")
-  df_eb2  <- tryCatch(read_excel(excel_path, sheet = "Coefficients (EB) V2"), error = function(e) NULL)
-  df_avg  <- read_excel(excel_path, sheet = "Average Ratings")
-  df_n    <- read_excel(excel_path, sheet = "Ratings Observations")
-  # Borda sheets (wide: firm, firm_id, <outcomes...>)
-  df_borda    <- tryCatch(read_excel(excel_path, sheet = "borda_score"),    error = function(e) NULL)
-  df_borda_eb <- tryCatch(read_excel(excel_path, sheet = "borda_score_eb"), error = function(e) NULL)
+  # read core sheets -- new pipeline has a `model` column in Coefficients/EB
+  df_coef_raw <- read_excel(excel_path, sheet = "Coefficients")
+  has_model_col <- "model" %in% names(df_coef_raw)
+  df_coef_ols <- NULL
+  df_eb_ols <- NULL
+
+  if (has_model_col) {
+    # New pipeline: convert long Coefficients format into legacy wide format
+    to_wide_coef <- function(df, model_name) {
+      model_df <- df %>% dplyr::filter(.data$model == model_name)
+
+      if (all(c("outcome", "estimate") %in% names(model_df))) {
+        if ("subset" %in% names(model_df)) {
+          model_df <- model_df %>% dplyr::filter(.data$subset == "all")
+        }
+        if ("entity_type" %in% names(model_df)) {
+          model_df <- model_df %>%
+            dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
+        }
+
+        id_col <- if ("firm_id" %in% names(model_df)) {
+          "firm_id"
+        } else if ("entity_id" %in% names(model_df)) {
+          "entity_id"
+        } else {
+          NULL
+        }
+
+        name_col <- if ("firm" %in% names(model_df)) {
+          "firm"
+        } else if ("entity" %in% names(model_df)) {
+          "entity"
+        } else {
+          NULL
+        }
+
+        if (!is.null(id_col) && !is.null(name_col)) {
+          return(
+            model_df %>%
+              dplyr::transmute(
+                firm    = as.character(.data[[name_col]]),
+                firm_id = suppressWarnings(as.integer(.data[[id_col]])),
+                outcome = as.character(.data$outcome),
+                estimate = suppressWarnings(as.numeric(.data$estimate))
+              ) %>%
+              dplyr::filter(!is.na(.data$firm_id), !is.na(.data$outcome)) %>%
+              dplyr::distinct(.data$firm_id, .data$outcome, .keep_all = TRUE) %>%
+              tidyr::pivot_wider(names_from = outcome, values_from = estimate)
+          )
+        }
+      }
+
+      model_df %>% dplyr::select(-model)
+    }
+
+    df_coef <- to_wide_coef(df_coef_raw, "PL")
+    df_coef_ols <- to_wide_coef(df_coef_raw, "OLS")
+    df_borda <- to_wide_coef(df_coef_raw, "Borda")
+
+    df_eb_raw <- tryCatch(read_excel(excel_path, sheet = "EB Coefficients"), error = function(e) NULL)
+    if (!is.null(df_eb_raw) && "model" %in% names(df_eb_raw)) {
+      df_eb <- df_eb_raw %>% dplyr::filter(.data$model == "PL") %>% dplyr::select(-model)
+      df_eb_ols <- df_eb_raw %>% dplyr::filter(.data$model == "OLS") %>% dplyr::select(-model)
+      df_borda_eb <- df_eb_raw %>% dplyr::filter(.data$model == "Borda") %>% dplyr::select(-model)
+    } else {
+      df_eb <- tryCatch(read_excel(excel_path, sheet = "Coefficients (EB)"), error = function(e) NULL)
+      df_borda_eb <- NULL
+    }
+    df_eb2 <- NULL
+  } else {
+    # Old pipeline: separate sheets
+    df_coef <- df_coef_raw
+    df_eb   <- read_excel(excel_path, sheet = "Coefficients (EB)")
+    df_eb2  <- tryCatch(read_excel(excel_path, sheet = "Coefficients (EB) V2"), error = function(e) NULL)
+    df_borda    <- tryCatch(read_excel(excel_path, sheet = "borda_score"),    error = function(e) NULL)
+    df_borda_eb <- tryCatch(read_excel(excel_path, sheet = "borda_score_eb"), error = function(e) NULL)
+  }
+
+  df_avg  <- tryCatch(read_excel(excel_path, sheet = "Average Ratings"), error = function(e) NULL)
+  df_n    <- tryCatch(read_excel(excel_path, sheet = "Ratings Observations"), error = function(e) NULL)
   
   # Try combined Win_Share sheet (older style); filter by ws_type if present
   df_ws_combined <- tryCatch(read_excel(excel_path, sheet = "Win_Share"), error = function(e) NULL)
@@ -44,6 +117,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   
   # helper for unique file suffix by settings
   suffix <- if (!is.null(ws_type) && nzchar(ws_type)) paste0("_", ws_type) else ""
+  ols_borda_dualaxis_outcomes <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")
   
   # helper to pick EB key (prefer Two-Step)
   choose_pl_eb_key <- function(df_old, df_new) {
@@ -88,102 +162,170 @@ create_plots_and_tables_from_sheets <- function(excel_path,
                                                  tex_name = "variance_biascorrected_pl_borda.tex",
                                                  latex_decimals = 3,
                                                  borda_mult = 1) {
-    ssn <- tryCatch(readxl::read_excel(excel_path, sheet = "sum_signal_noise"),
-                    error = function(e) NULL)
-    if (is.null(ssn)) {
-      message("⚠️ Could not read sheet 'sum_signal_noise' from: ", excel_path)
-      return(invisible(NULL))
-    }
-    
-    need_cols <- c("outcome","variance","signal","Borda","PL", "Vhat", "sigma2_hat")
-    if (!all(need_cols %in% names(ssn))) {
-      message("⚠️ 'sum_signal_noise' must contain columns: ",
-              paste(need_cols, collapse = ", "))
-      return(invisible(NULL))
-    }
-    
-    # If all_firms column exists, keep only all_firms == TRUE
-    if ("all_firms" %in% names(ssn)) {
-      ssn <- ssn %>%
-        dplyr::filter(all_firms %in% TRUE)
-    }
-    
-    # normalize logicals
-    to_logical <- function(x) {
-      if (is.logical(x)) return(x)
-      if (is.numeric(x)) return(x != 0)
-      if (is.character(x)) return(toupper(trimws(x)) %in% "TRUE")
-      rep(NA, length(x))
-    }
-    ssn$Borda <- to_logical(ssn$Borda)
-    ssn$PL    <- to_logical(ssn$PL)
-    
-    if (!is.null(outcomes) && length(outcomes)) {
-      ssn <- dplyr::filter(ssn, .data$outcome %in% outcomes)
-    }
 
-    # --- Build t-stats ---
-    ssn <- ssn %>%
-      dplyr::mutate(
-        t_stat = ifelse(
-          is.finite(Vhat) & Vhat > 0,
-          sigma2_hat / sqrt(Vhat),
-          NA_real_
+    # Try new pipeline "variance" sheet first, then fall back to old "sum_signal_noise"
+    var_df <- tryCatch(readxl::read_excel(excel_path, sheet = "variance"),
+                       error = function(e) NULL)
+    use_new_format <- !is.null(var_df) && "model" %in% names(var_df)
+
+    if (use_new_format) {
+      # --- New pipeline: variance sheet with model column ---
+      need_cols <- c("subset", "model", "outcome", "variance", "signal", "sigma2_hat", "Vhat")
+      if (!all(need_cols %in% names(var_df))) {
+        message("variance sheet missing columns: ", paste(setdiff(need_cols, names(var_df)), collapse = ", "))
+        return(invisible(NULL))
+      }
+
+      # Filter to subset == "all" (equivalent to old all_firms == TRUE)
+      var_df <- var_df %>% dplyr::filter(.data$subset == "all")
+
+      if (!is.null(outcomes) && length(outcomes)) {
+        var_df <- dplyr::filter(var_df, .data$outcome %in% outcomes)
+      }
+
+      # Add t-stats
+      var_df <- var_df %>%
+        dplyr::mutate(
+          t_stat = ifelse(
+            is.finite(Vhat) & Vhat > 0,
+            sigma2_hat / sqrt(Vhat),
+            NA_real_
+          )
         )
-      )
 
-    
-     # --- Build PL SDs + reliability (PL == TRUE rows only) ---
-    pl_df <- ssn %>%
-      dplyr::filter(.data$PL %in% TRUE)
-    
-    if ("reliability" %in% names(pl_df)) {
-      # use reliability from the sheet if present
-      pl_df <- pl_df %>%
-        dplyr::transmute(
+      # Helper to build per-model columns
+      build_model_cols <- function(df, mdl, prefix, mult = 1) {
+        mdf <- df %>% dplyr::filter(.data$model == mdl)
+        if (nrow(mdf) == 0) return(NULL)
+        mdf %>% dplyr::transmute(
           outcome,
-          PL_sd                   = sqrt(pmax(variance, 0)),
-          PL_sd_bias_corrected    = sqrt(pmax(signal,   0)),
-          PL_reliability          = as.numeric(reliability),
-          PL_t_stat               = as.numeric(t_stat)
+          !!paste0(prefix, "_sd")                := sqrt(pmax(variance, 0)) * mult,
+          !!paste0(prefix, "_sd_bias_corrected")  := sqrt(pmax(signal, 0)) * mult,
+          !!paste0(prefix, "_t_stat")             := as.numeric(t_stat)
         )
+      }
+
+      pl_df    <- build_model_cols(var_df, "PL", "PL")
+      borda_df <- build_model_cols(var_df, "Borda", "Borda", mult = borda_mult)
+      ol_df    <- build_model_cols(var_df, "OL", "OL")
+      ols_df   <- build_model_cols(var_df, "OLS", "OLS")
+      olsc_df  <- build_model_cols(var_df, "OLSC", "OLSC")
+
+      # Add PL reliability
+      if (!is.null(pl_df)) {
+        pl_raw <- var_df %>% dplyr::filter(.data$model == "PL")
+        if ("reliability" %in% names(pl_raw)) {
+          pl_df$PL_reliability <- as.numeric(pl_raw$reliability)
+        } else {
+          sig <- pl_raw$signal
+          rel <- ifelse(is.finite(sig), (sig / 1.64) / (1 + sig / 1.64), NA_real_)
+          rel[!is.finite(rel)] <- NA_real_
+          pl_df$PL_reliability <- rel
+        }
+      }
+
+      # Add Borda normed variance
+      if (!is.null(borda_df)) {
+        borda_raw <- var_df %>% dplyr::filter(.data$model == "Borda")
+        borda_df$Borda_var_norm <- as.numeric(pmax(borda_raw$signal, 0)) / 0.0844
+      }
+
+      # Merge all models
+      tab <- pl_df
+      if (!is.null(borda_df)) tab <- dplyr::full_join(tab, borda_df, by = "outcome")
+      if (!is.null(ol_df))    tab <- dplyr::full_join(tab, ol_df, by = "outcome")
+      if (!is.null(ols_df))   tab <- dplyr::full_join(tab, ols_df, by = "outcome")
+      if (!is.null(olsc_df))  tab <- dplyr::full_join(tab, olsc_df, by = "outcome")
+
     } else {
-      # otherwise compute reliability from signal
-      pl_df <- pl_df %>%
+      # --- Old pipeline: sum_signal_noise sheet ---
+      ssn <- tryCatch(readxl::read_excel(excel_path, sheet = "sum_signal_noise"),
+                      error = function(e) NULL)
+      if (is.null(ssn)) {
+        message("Could not read 'variance' or 'sum_signal_noise' from: ", excel_path)
+        return(invisible(NULL))
+      }
+
+      need_cols <- c("outcome", "variance", "signal", "Borda", "PL", "Vhat", "sigma2_hat")
+      if (!all(need_cols %in% names(ssn))) {
+        message("'sum_signal_noise' must contain columns: ", paste(need_cols, collapse = ", "))
+        return(invisible(NULL))
+      }
+
+      if ("all_firms" %in% names(ssn)) {
+        ssn <- ssn %>% dplyr::filter(all_firms %in% TRUE)
+      }
+
+      to_logical <- function(x) {
+        if (is.logical(x)) return(x)
+        if (is.numeric(x)) return(x != 0)
+        if (is.character(x)) return(toupper(trimws(x)) %in% "TRUE")
+        rep(NA, length(x))
+      }
+      ssn$Borda <- to_logical(ssn$Borda)
+      ssn$PL    <- to_logical(ssn$PL)
+
+      if (!is.null(outcomes) && length(outcomes)) {
+        ssn <- dplyr::filter(ssn, .data$outcome %in% outcomes)
+      }
+
+      ssn <- ssn %>%
+        dplyr::mutate(
+          t_stat = ifelse(
+            is.finite(Vhat) & Vhat > 0,
+            sigma2_hat / sqrt(Vhat),
+            NA_real_
+          )
+        )
+
+      pl_df <- ssn %>%
+        dplyr::filter(.data$PL %in% TRUE)
+
+      if ("reliability" %in% names(pl_df)) {
+        pl_df <- pl_df %>%
+          dplyr::transmute(
+            outcome,
+            PL_sd                   = sqrt(pmax(variance, 0)),
+            PL_sd_bias_corrected    = sqrt(pmax(signal, 0)),
+            PL_reliability          = as.numeric(reliability),
+            PL_t_stat               = as.numeric(t_stat)
+          )
+      } else {
+        pl_df <- pl_df %>%
+          dplyr::transmute(
+            outcome,
+            PL_sd                   = sqrt(pmax(variance, 0)),
+            PL_sd_bias_corrected    = sqrt(pmax(signal, 0)),
+            PL_reliability          = {
+              sig <- signal
+              rel <- ifelse(is.finite(sig), (sig / 1.64) / (1 + sig / 1.64), NA_real_)
+              rel[!is.finite(rel)] <- NA_real_
+              rel
+            },
+            PL_t_stat               = as.numeric(t_stat)
+          )
+      }
+
+      borda_df <- ssn %>%
+        dplyr::filter(.data$Borda %in% TRUE) %>%
         dplyr::transmute(
           outcome,
-          PL_sd                   = sqrt(pmax(variance, 0)),
-          PL_sd_bias_corrected    = sqrt(pmax(signal,   0)),
-          PL_reliability          = {
-            sig <- signal
-            rel <- ifelse(is.finite(sig), (sig / 1.64) / (1 + sig / 1.64), NA_real_)
-            rel[!is.finite(rel)] <- NA_real_
-            rel
-          },
-          PL_t_stat               = as.numeric(t_stat)
+          Borda_sd                = sqrt(pmax(variance, 0)) * borda_mult,
+          Borda_sd_bias_corrected = sqrt(pmax(signal, 0)) * borda_mult,
+          Borda_t_stat            = as.numeric(t_stat),
+          Borda_var_norm          = as.numeric(pmax(signal, 0)) / 0.0844
         )
-    }
-    
-    # --- Build Borda SDs (Borda == TRUE rows only) ---
-    borda_df <- ssn %>%
-      dplyr::filter(.data$Borda %in% TRUE) %>%
-      dplyr::transmute(
-        outcome,
-        Borda_sd                = sqrt(pmax(variance, 0)) * borda_mult,
-        Borda_sd_bias_corrected = sqrt(pmax(signal,   0)) * borda_mult,
-        Borda_t_stat            = as.numeric(t_stat),
-        Borda_var_norm          = as.numeric(pmax(signal, 0))/0.0844
-      )
 
-    # Merge; ensure requested outcomes present
-    tab <- dplyr::full_join(pl_df, borda_df, by = "outcome")
+      tab <- dplyr::full_join(pl_df, borda_df, by = "outcome")
+    }
+
     if (!is.null(outcomes) && length(outcomes)) {
       tab <- dplyr::full_join(
         data.frame(outcome = unique(outcomes), stringsAsFactors = FALSE),
         tab, by = "outcome"
       )
     }
-    
+
     # Display label mapping
     map_label <- function(x) {
       if (!is.null(label_mapping)) {
@@ -194,27 +336,43 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       x
     }
     tab$Outcome_display <- map_label(tab$outcome)
-    
+
     # Sort by displayed label then raw id
     tab <- tab %>%
       dplyr::arrange(.data$Outcome_display, .data$outcome)
-    
+
     # CSV (numeric, full precision)
     csv_out_path <- file.path(tables_dir, csv_name)
-    out_csv <- tab %>%
-      dplyr::transmute(
-        Outcome = .data$Outcome_display,
-        `PL: sd`                         = .data$PL_sd,
-        `PL: bias corrected sd`          = .data$PL_sd_bias_corrected,
-        `PL: t-stat`                     = .data$PL_t_stat,
-        `PL: reliability`                = .data$PL_reliability,
-        `Borda: sd`                      = .data$Borda_sd,
-        `Borda: bias corrected sd`       = .data$Borda_sd_bias_corrected,
-        `Borda: t-stat`                  = .data$Borda_t_stat,
-        `Borda: normed variance`         = .data$Borda_var_norm
-      )
+    csv_cols <- list(
+      Outcome = tab$Outcome_display,
+      `PL: sd` = tab$PL_sd,
+      `PL: bias corrected sd` = tab$PL_sd_bias_corrected,
+      `PL: t-stat` = tab$PL_t_stat,
+      `PL: reliability` = tab$PL_reliability,
+      `Borda: sd` = tab$Borda_sd,
+      `Borda: bias corrected sd` = tab$Borda_sd_bias_corrected,
+      `Borda: t-stat` = tab$Borda_t_stat,
+      `Borda: normed variance` = tab$Borda_var_norm
+    )
+    # Add OL/OLS/OLSC columns if present
+    if ("OL_sd" %in% names(tab)) {
+      csv_cols[["OL: sd"]] <- tab$OL_sd
+      csv_cols[["OL: bias corrected sd"]] <- tab$OL_sd_bias_corrected
+      csv_cols[["OL: t-stat"]] <- tab$OL_t_stat
+    }
+    if ("OLS_sd" %in% names(tab)) {
+      csv_cols[["Likert: sd"]] <- tab$OLS_sd
+      csv_cols[["Likert: bias corrected sd"]] <- tab$OLS_sd_bias_corrected
+      csv_cols[["Likert: t-stat"]] <- tab$OLS_t_stat
+    }
+    if ("OLSC_sd" %in% names(tab)) {
+      csv_cols[["Likert Centered: sd"]] <- tab$OLSC_sd
+      csv_cols[["Likert Centered: bias corrected sd"]] <- tab$OLSC_sd_bias_corrected
+      csv_cols[["Likert Centered: t-stat"]] <- tab$OLSC_t_stat
+    }
+    out_csv <- as.data.frame(csv_cols, check.names = FALSE)
     utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
-    
+
     # --- formatter: fixed decimals, padded zeros ---
     fmt_dec <- function(x, k = latex_decimals) {
       z <- suppressWarnings(as.numeric(x))
@@ -223,38 +381,125 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       out[ok] <- formatC(z[ok], format = "f", digits = k, drop0trailing = FALSE)
       out
     }
-    
-    # LaTeX table
-    latex_df <- tab %>%
-      dplyr::transmute(
-        Outcome = .data$Outcome_display,
-        `Standard deviation`                   = fmt_dec(.data$PL_sd,                   latex_decimals),
-        `Bias-corrected standard deviation`    = fmt_dec(.data$PL_sd_bias_corrected,    latex_decimals),
-        `t-statistic`                          = fmt_dec(.data$PL_t_stat,               latex_decimals),
-        `Reliability`                          = fmt_dec(.data$PL_reliability,          latex_decimals),
-        `Standard deviation.2`                 = fmt_dec(.data$Borda_sd,                latex_decimals),
-        `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals),
-        `t-statistic.2`                        = fmt_dec(.data$Borda_t_stat,            latex_decimals),
-        `var_norm`                             = fmt_dec(.data$Borda_var_norm,          latex_decimals)
+
+    # Build LaTeX table -- include OLS/OLSC if present
+    has_ol   <- "OL_sd" %in% names(tab)
+    has_ols  <- "OLS_sd" %in% names(tab)
+    has_olsc <- "OLSC_sd" %in% names(tab)
+
+    if (has_ol || has_ols || has_olsc) {
+      # Extended table with all four models
+      latex_cols <- list(
+        Outcome = tab$Outcome_display,
+        `PL SD` = fmt_dec(tab$PL_sd, latex_decimals),
+        `PL Sig SD` = fmt_dec(tab$PL_sd_bias_corrected, latex_decimals),
+        `PL t` = fmt_dec(tab$PL_t_stat, latex_decimals),
+        `PL ICC` = fmt_dec(tab$PL_reliability, latex_decimals),
+        `Borda SD` = fmt_dec(tab$Borda_sd, latex_decimals),
+        `Borda Sig SD` = fmt_dec(tab$Borda_sd_bias_corrected, latex_decimals),
+        `Borda t` = fmt_dec(tab$Borda_t_stat, latex_decimals),
+        `Borda NV` = fmt_dec(tab$Borda_var_norm, latex_decimals)
       )
-    
-    xt <- xtable::xtable(latex_df, align = c("l","l","c","c","c","c","c","c","c","c"))
-    
-    header <- paste0(
-      "\\toprule\n",
-      " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{4}{c}{Borda} \\\\\n",
-      "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}\n",
-      "Outcome & Std Dev & ",
-      "\\shortstack{Signal\\\\Std Dev} & ",
-      "\\shortstack{T-stat\\\\no signal} & ",
-      "ICC & ",
-      "Std Dev & ",
-      "\\shortstack{Signal\\\\Std Dev} & ",
-      "\\shortstack{T-stat\\\\no signal} &",
-      "\\shortstack{Normed\\\\Variance} \\\\\n",
-      "\\midrule\n"
-    )
-    
+      ncol_base <- 9
+      align_str <- c("l", "l", rep("c", 8))
+
+      if (has_ol) {
+        latex_cols[["OL SD"]] <- fmt_dec(tab$OL_sd, latex_decimals)
+        latex_cols[["OL Sig SD"]] <- fmt_dec(tab$OL_sd_bias_corrected, latex_decimals)
+        latex_cols[["OL t"]] <- fmt_dec(tab$OL_t_stat, latex_decimals)
+        ncol_base <- ncol_base + 3
+        align_str <- c(align_str, "c", "c", "c")
+      }
+      if (has_ols) {
+        latex_cols[["OLS SD"]] <- fmt_dec(tab$OLS_sd, latex_decimals)
+        latex_cols[["OLS Sig SD"]] <- fmt_dec(tab$OLS_sd_bias_corrected, latex_decimals)
+        latex_cols[["OLS t"]] <- fmt_dec(tab$OLS_t_stat, latex_decimals)
+        ncol_base <- ncol_base + 3
+        align_str <- c(align_str, "c", "c", "c")
+      }
+      if (has_olsc) {
+        latex_cols[["OLSC SD"]] <- fmt_dec(tab$OLSC_sd, latex_decimals)
+        latex_cols[["OLSC Sig SD"]] <- fmt_dec(tab$OLSC_sd_bias_corrected, latex_decimals)
+        latex_cols[["OLSC t"]] <- fmt_dec(tab$OLSC_t_stat, latex_decimals)
+        ncol_base <- ncol_base + 3
+        align_str <- c(align_str, "c", "c", "c")
+      }
+
+      latex_df <- as.data.frame(latex_cols, check.names = FALSE)
+      xt <- xtable::xtable(latex_df, align = align_str)
+
+      # Build header with cmidrules
+      extra_hdr <- ""
+      extra_col_hdr <- ""
+      cmidrules <- "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}"
+      col_idx <- 10
+      if (has_ol) {
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Ordered Logit}")
+        extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & ")
+        cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
+        col_idx <- col_idx + 3
+      }
+      if (has_ols) {
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Likert}")
+        extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal} & ")
+        cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
+        col_idx <- col_idx + 3
+      }
+      if (has_olsc) {
+        extra_hdr <- paste0(extra_hdr, " & \\multicolumn{3}{c}{Likert Centered}")
+        extra_col_hdr <- paste0(extra_col_hdr, "Std Dev & \\shortstack{Signal\\\\Std Dev} & \\shortstack{T-stat\\\\no signal}")
+        cmidrules <- paste0(cmidrules, " \\cmidrule(lr){", col_idx, "-", col_idx + 2, "}")
+      }
+
+      header <- paste0(
+        "\\toprule\n",
+        " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{4}{c}{Borda}",
+        extra_hdr, " \\\\\n",
+        cmidrules, "\n",
+        "Outcome & Std Dev & ",
+        "\\shortstack{Signal\\\\Std Dev} & ",
+        "\\shortstack{T-stat\\\\no signal} & ",
+        "ICC & ",
+        "Std Dev & ",
+        "\\shortstack{Signal\\\\Std Dev} & ",
+        "\\shortstack{T-stat\\\\no signal} & ",
+        "\\shortstack{Normed\\\\Variance} & ",
+        extra_col_hdr, " \\\\\n",
+        "\\midrule\n"
+      )
+    } else {
+      # Original two-model table
+      latex_df <- tab %>%
+        dplyr::transmute(
+          Outcome = .data$Outcome_display,
+          `Standard deviation`                   = fmt_dec(.data$PL_sd, latex_decimals),
+          `Bias-corrected standard deviation`    = fmt_dec(.data$PL_sd_bias_corrected, latex_decimals),
+          `t-statistic`                          = fmt_dec(.data$PL_t_stat, latex_decimals),
+          `Reliability`                          = fmt_dec(.data$PL_reliability, latex_decimals),
+          `Standard deviation.2`                 = fmt_dec(.data$Borda_sd, latex_decimals),
+          `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals),
+          `t-statistic.2`                        = fmt_dec(.data$Borda_t_stat, latex_decimals),
+          `var_norm`                             = fmt_dec(.data$Borda_var_norm, latex_decimals)
+        )
+
+      xt <- xtable::xtable(latex_df, align = c("l", "l", "c", "c", "c", "c", "c", "c", "c", "c"))
+
+      header <- paste0(
+        "\\toprule\n",
+        " & \\multicolumn{4}{c}{Plackett--Luce} & \\multicolumn{4}{c}{Borda} \\\\\n",
+        "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}\n",
+        "Outcome & Std Dev & ",
+        "\\shortstack{Signal\\\\Std Dev} & ",
+        "\\shortstack{T-stat\\\\no signal} & ",
+        "ICC & ",
+        "Std Dev & ",
+        "\\shortstack{Signal\\\\Std Dev} & ",
+        "\\shortstack{T-stat\\\\no signal} &",
+        "\\shortstack{Normed\\\\Variance} \\\\\n",
+        "\\midrule\n"
+      )
+    }
+
     tex_out_path <- file.path(tables_dir, tex_name)
     print(
       xt,
@@ -267,15 +512,15 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       floating = FALSE,
       comment = FALSE
     )
-    cat("✅ Variance / SD table with PL reliability (all_firms == TRUE only) saved:",
+    cat("Variance / SD table saved:",
         basename(csv_out_path), "and", basename(tex_out_path), "\n")
-    
+
     invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
   }
   
   
   # Call remains the same:
-  write_variance_biascorrected_table(
+  variance_tables <- write_variance_biascorrected_table(
     excel_path    = excel_path,
     outcomes      = outcomes,
     tables_dir    = tables_dir,
@@ -283,6 +528,102 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     borda_mult    = borda_mult,
     csv_name      = variance_csv_name,
     tex_name      = variance_tex_name
+  )
+
+  # -------------------------------------------------------------------
+  # Generate OLS + Borda version of the variance / SD table
+  # -------------------------------------------------------------------
+  write_variance_biascorrected_ols_borda_table <- function(tab,
+                                                            tables_dir,
+                                                            csv_name = "variance_biascorrected_ols_borda.csv",
+                                                            tex_name = "variance_biascorrected_ols_borda.tex",
+                                                            latex_decimals = 3) {
+    if (is.null(tab)) return(invisible(NULL))
+
+    need_numeric <- c(
+      "OLS_sd", "OLS_sd_bias_corrected", "OLS_t_stat",
+      "Borda_sd", "Borda_sd_bias_corrected", "Borda_t_stat", "Borda_var_norm"
+    )
+    for (nm in need_numeric) {
+      if (!nm %in% names(tab)) tab[[nm]] <- NA_real_
+    }
+    if (!"Outcome_display" %in% names(tab)) {
+      tab$Outcome_display <- tab$outcome
+    }
+
+    csv_out_path <- file.path(tables_dir, csv_name)
+    out_csv <- data.frame(
+      Outcome = tab$Outcome_display,
+      `Likert: sd` = tab$OLS_sd,
+      `Likert: bias corrected sd` = tab$OLS_sd_bias_corrected,
+      `Likert: t-stat` = tab$OLS_t_stat,
+      `Borda: sd` = tab$Borda_sd,
+      `Borda: bias corrected sd` = tab$Borda_sd_bias_corrected,
+      `Borda: t-stat` = tab$Borda_t_stat,
+      `Borda: normed variance` = tab$Borda_var_norm,
+      check.names = FALSE
+    )
+    utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
+
+    fmt_dec <- function(x, k = latex_decimals) {
+      z <- suppressWarnings(as.numeric(x))
+      out <- rep("", length(z))
+      ok <- is.finite(z)
+      out[ok] <- formatC(z[ok], format = "f", digits = k, drop0trailing = FALSE)
+      out
+    }
+
+    latex_df <- tab %>%
+      dplyr::transmute(
+        Outcome = .data$Outcome_display,
+        `Standard deviation`                   = fmt_dec(.data$OLS_sd, latex_decimals),
+        `Bias-corrected standard deviation`    = fmt_dec(.data$OLS_sd_bias_corrected, latex_decimals),
+        `t-statistic`                          = fmt_dec(.data$OLS_t_stat, latex_decimals),
+        `Standard deviation.2`                 = fmt_dec(.data$Borda_sd, latex_decimals),
+        `Bias-corrected standard deviation.2`  = fmt_dec(.data$Borda_sd_bias_corrected, latex_decimals),
+        `t-statistic.2`                        = fmt_dec(.data$Borda_t_stat, latex_decimals),
+        `var_norm`                             = fmt_dec(.data$Borda_var_norm, latex_decimals)
+      )
+
+    xt <- xtable::xtable(latex_df, align = c("l", "l", "c", "c", "c", "c", "c", "c", "c"))
+
+    header <- paste0(
+      "\\toprule\n",
+      " & \\multicolumn{3}{c}{Likert} & \\multicolumn{4}{c}{Borda} \\\\\n",
+      "\\cmidrule(lr){2-4} \\cmidrule(lr){5-8}\n",
+      "Outcome & Std Dev & ",
+      "\\shortstack{Signal\\\\Std Dev} & ",
+      "\\shortstack{T-stat\\\\no signal} & ",
+      "Std Dev & ",
+      "\\shortstack{Signal\\\\Std Dev} & ",
+      "\\shortstack{T-stat\\\\no signal} &",
+      "\\shortstack{Normed\\\\Variance} \\\\\n",
+      "\\midrule\n"
+    )
+
+    tex_out_path <- file.path(tables_dir, tex_name)
+    print(
+      xt,
+      include.rownames = FALSE,
+      include.colnames = FALSE,
+      file = tex_out_path,
+      add.to.row = list(pos = list(0), command = header),
+      sanitize.text.function = identity,
+      booktabs = TRUE,
+      floating = FALSE,
+      comment = FALSE
+    )
+    cat("Variance / SD table saved:",
+        basename(csv_out_path), "and", basename(tex_out_path), "\n")
+
+    invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+  }
+
+  write_variance_biascorrected_ols_borda_table(
+    tab       = variance_tables$data,
+    tables_dir = tables_dir,
+    csv_name   = variance_ols_csv_name,
+    tex_name   = variance_ols_tex_name
   )
   
   for (new_outcome in outcomes) {
@@ -295,23 +636,44 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       out
     }
     
-    coeff_df        <- get_one(df_coef, new_outcome, "Estimate")
-    coeff_df_eb_old <- get_one(df_eb,   new_outcome, "Estimate_eb_old")
+    if (!all(cols_needed %in% names(df_coef))) {
+      message("Skipping outcome ", new_outcome, ": not found in Coefficients sheet.")
+      next
+    }
+    coeff_df <- get_one(df_coef, new_outcome, "Estimate")
+    if (!is.null(df_eb) && all(cols_needed %in% names(df_eb))) {
+      coeff_df_eb_old <- get_one(df_eb, new_outcome, "Estimate_eb_old")
+    } else {
+      coeff_df_eb_old <- coeff_df %>% transmute(firm, firm_id, Estimate_eb_old = NA_real_)
+    }
     if (!is.null(df_eb2) && all(cols_needed %in% names(df_eb2))) {
       coeff_df_eb_new <- get_one(df_eb2, new_outcome, "Estimate_eb_new")
     } else {
       coeff_df_eb_new <- coeff_df %>%
         transmute(firm, firm_id, Estimate_eb_new = NA_real_)
     }
-    avg_df          <- get_one(df_avg,  new_outcome, "avg_rating")
-    nobs_df         <- get_one(df_n,    new_outcome, "num_observations")
-    
+    if (!is.null(df_eb_ols) && all(cols_needed %in% names(df_eb_ols))) {
+      coeff_df_eb_ols <- get_one(df_eb_ols, new_outcome, "Estimate_eb_ols")
+    } else {
+      coeff_df_eb_ols <- coeff_df %>% transmute(firm, firm_id, Estimate_eb_ols = NA_real_)
+    }
+    if (!is.null(df_avg) && all(cols_needed %in% names(df_avg))) {
+      avg_df <- get_one(df_avg, new_outcome, "avg_rating")
+    } else {
+      avg_df <- coeff_df %>% transmute(firm, firm_id, avg_rating = NA_real_)
+    }
+    if (!is.null(df_n) && all(cols_needed %in% names(df_n))) {
+      nobs_df <- get_one(df_n, new_outcome, "num_observations")
+    } else {
+      nobs_df <- coeff_df %>% transmute(firm, firm_id, num_observations = NA_integer_)
+    }
+
     # merge the core metrics
     merged_df <- coeff_df %>%
       inner_join(coeff_df_eb_old, by = c("firm","firm_id")) %>%
       left_join(coeff_df_eb_new,  by = c("firm","firm_id")) %>%
-      inner_join(avg_df,          by = c("firm","firm_id")) %>%
-      inner_join(nobs_df,         by = c("firm","firm_id"))
+      left_join(avg_df,           by = c("firm","firm_id")) %>%
+      left_join(nobs_df,          by = c("firm","firm_id"))
     
     # ---- Borda columns for this outcome ----
     borda_cols_needed <- c("firm", "firm_id", new_outcome)
@@ -469,12 +831,30 @@ create_plots_and_tables_from_sheets <- function(excel_path,
           name     = "Plackett–Luce Item Worth (EB)",
           sec.axis = sec_axis(~ inv_to_borda(.), name = "Borda Score (EB)")
         ) +
-        scale_color_manual(values = c("PL (EB)" = "steelblue", "Borda (EB)" = "darkorange")) +
+        scale_color_manual(
+          values = c("PL (EB)" = "steelblue", "Borda (EB)" = "darkorange"),
+          breaks = c("PL (EB)", "Borda (EB)"),
+          labels = c("PL (EB)" = "Plackett–Luce", "Borda (EB)" = "Borda Score")
+        ) +
+        guides(color = guide_legend(
+          override.aes = list(
+            shape = c(16, 17),
+            linetype = c("solid", "dashed"),
+            linewidth = c(0.7, 0.7),
+            alpha = c(0.9, 0.9)
+          )
+        )) +
         labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
         theme_minimal(base_size = 14) +
         theme(
           axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
-          legend.position = "none",
+          legend.position = c(0.985, 0.03),
+          legend.justification = c(1, 0),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 8, color = "black"),
+          legend.key = element_blank(),
+          legend.key.height = grid::unit(10, "pt"),
+          legend.background = element_rect(fill = scales::alpha("white", 0.85), color = NA),
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(),
           panel.background = element_rect(fill = "white", color = "black"),
@@ -487,6 +867,113 @@ create_plots_and_tables_from_sheets <- function(excel_path,
       ggsave(file.path(plots_dir, paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, suffix, ".png")),
              p_tb_bordaEB_dual, width = 16, height = 8, dpi = 300)
       cat("✅ Saved: ", paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, suffix, ".png "), "\n")
+    }
+
+    # -------------------------------
+    # NEW) Top/Bottom N by Borda EB with OLS EB for selected outcomes
+    # -------------------------------
+    if (new_outcome %in% ols_borda_dualaxis_outcomes) {
+      eb_dual_ols <- coeff_df_eb_ols %>%
+        dplyr::rename(EB_OLS = Estimate_eb_ols) %>%
+        dplyr::left_join(borda_eb_df, by = c("firm","firm_id")) %>%
+        dplyr::select(firm, firm_id, EB_OLS, Borda_EB)
+
+      if (all(is.na(eb_dual_ols$EB_OLS)) || all(is.na(eb_dual_ols$Borda_EB))) {
+        message("⚠️ Missing OLS EB or Borda EB for outcome: ", new_outcome, " — skipping OLS/Borda dual-axis Top/Bottom plot.")
+      } else {
+        mean_borda_all_ols <- mean(eb_dual_ols$Borda_EB, na.rm = TRUE)
+        ranked_dual_ols <- eb_dual_ols %>% dplyr::mutate(.rank_key = Borda_EB)
+        topN_dual_ols <- ranked_dual_ols %>% dplyr::slice_max(order_by = .rank_key, n = n_keep_overlay, with_ties = FALSE)
+        botN_dual_ols <- ranked_dual_ols %>% dplyr::slice_min(order_by = .rank_key, n = n_keep_overlay, with_ties = FALSE)
+        botN_dual_ols <- botN_dual_ols %>% arrange(Borda_EB, firm)
+        topN_dual_ols <- topN_dual_ols %>% arrange(Borda_EB, firm)
+
+        spacer_ols <- tibble(
+          firm            = paste0("__gap", seq_len(gap_width), "__"),
+          firm_id         = NA_integer_,
+          EB_OLS          = NA_real_,
+          Borda_EB        = NA_real_,
+          Borda_scaled_to_OLS = NA_real_
+        )
+        subset_dual_ols <- bind_rows(botN_dual_ols, spacer_ols, topN_dual_ols)
+
+        s_ols <- stats::sd(subset_dual_ols$EB_OLS, na.rm = TRUE); if (!is.finite(s_ols) || s_ols == 0) s_ols <- 1
+        s_bd  <- stats::sd(subset_dual_ols$Borda_EB, na.rm = TRUE); if (!is.finite(s_bd) || s_bd == 0) s_bd <- 1
+        a_ols <- s_ols / s_bd
+        b_ols <- -a_ols * mean_borda_all_ols
+
+        subset_dual_ols <- subset_dual_ols %>%
+          mutate(
+            firm = factor(firm, levels = firm, ordered = TRUE),
+            Borda_scaled_to_OLS = a_ols * Borda_EB + b_ols
+          )
+        inv_to_borda_ols <- function(y) (y - b_ols) / a_ols
+
+        guides_dual_ols <- subset_dual_ols %>%
+          group_by(firm) %>%
+          summarise(
+            ymin = suppressWarnings(pmin(EB_OLS, Borda_scaled_to_OLS, na.rm = TRUE)),
+            ymax = suppressWarnings(pmax(EB_OLS, Borda_scaled_to_OLS, na.rm = TRUE)),
+            .groups = "drop"
+          )
+        n_bottom_ols <- nrow(botN_dual_ols)
+        gap_start_ols <- n_bottom_ols + 0.5
+        gap_end_ols   <- n_bottom_ols + gap_width + 0.5
+        hide_gap_labels <- function(x) ifelse(grepl("^__gap\\d+__$", x), "", x)
+
+        p_tb_bordaEB_dual_ols <- ggplot(subset_dual_ols, aes(x = firm)) +
+          geom_segment(data = guides_dual_ols,
+                       aes(x = firm, xend = firm, y = ymin, yend = ymax),
+                       inherit.aes = FALSE, linewidth = 0.3, alpha = 0.35) +
+          geom_point(aes(y = EB_OLS,             color = "Likert Score (EB)"), size = 2.6, alpha = 0.9) +
+          geom_line (aes(y = EB_OLS,             color = "Likert Score (EB)", group = 1), linewidth = 0.7, alpha = 0.9) +
+          geom_point(aes(y = Borda_scaled_to_OLS, color = "Borda (EB)"), size = 2.6, alpha = 0.9, shape = 17) +
+          geom_line (aes(y = Borda_scaled_to_OLS, color = "Borda (EB)", group = 1),
+                     linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
+          geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+          geom_vline(xintercept = gap_start_ols, linetype = "dashed", linewidth = 0.6, color = "grey55") +
+          geom_vline(xintercept = gap_end_ols,   linetype = "dashed", linewidth = 0.6, color = "grey55") +
+          scale_y_continuous(
+            name     = "Likert Score (EB)",
+            sec.axis = sec_axis(~ inv_to_borda_ols(.), name = "Borda Score (EB)")
+          ) +
+          scale_color_manual(
+            values = c("Likert Score (EB)" = "steelblue", "Borda (EB)" = "darkorange"),
+            breaks = c("Likert Score (EB)", "Borda (EB)"),
+            labels = c("Likert Score (EB)" = "Likert Score", "Borda (EB)" = "Borda Score")
+          ) +
+          guides(color = guide_legend(
+            override.aes = list(
+              shape = c(16, 17),
+              linetype = c("solid", "dashed"),
+              linewidth = c(0.7, 0.7),
+              alpha = c(0.9, 0.9)
+            )
+          )) +
+          labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
+          theme_minimal(base_size = 14) +
+          theme(
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+            legend.position = c(0.985, 0.03),
+            legend.justification = c(1, 0),
+            legend.title = element_blank(),
+            legend.text = element_text(size = 8, color = "black"),
+            legend.key = element_blank(),
+            legend.key.height = grid::unit(10, "pt"),
+            legend.background = element_rect(fill = scales::alpha("white", 0.85), color = NA),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.background = element_rect(fill = "white", color = "black"),
+            plot.background  = element_rect(fill = "white", color = NA),
+            plot.margin      = margin(t = 10, r = 20, b = 80, l = 90)
+          ) +
+          scale_x_discrete(labels = hide_gap_labels, expand = expansion(add = 0.8)) +
+          coord_cartesian(clip = "off")
+
+        ggsave(file.path(plots_dir, paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, "_ols_borda", suffix, ".png")),
+               p_tb_bordaEB_dual_ols, width = 16, height = 8, dpi = 300)
+        cat("✅ Saved: ", paste0("topbottom_by_bordaEB_dualaxis_", new_outcome, "_ols_borda", suffix, ".png "), "\n")
+      }
     }
     
     # -------------------------------
@@ -718,5 +1205,7 @@ create_plots_and_tables_from_sheets(
   add_45_line = TRUE,
   scale_borda_to_100 = FALSE,
   variance_csv_name = "variance_biascorrected_pl_borda_alternate.csv",
-  variance_tex_name = "variance_biascorrected_pl_borda_alternate.tex"
+  variance_tex_name = "variance_biascorrected_pl_borda_alternate.tex",
+  variance_ols_csv_name = "variance_biascorrected_ols_borda_alternate.csv",
+  variance_ols_tex_name = "variance_biascorrected_ols_borda_alternate.tex"
 )

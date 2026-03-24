@@ -27,6 +27,5 @@ system2(python_venv_installation,
 system2(python_venv_installation,
         args = file.path(build, "create_firm_industry_crosswalk_industry_map.py"))
 
-# Create final 
-# Run sample preparation script
+# Create final working datasets 
 source(file.path(build, "sample_prep.R"))

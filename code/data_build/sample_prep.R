@@ -188,7 +188,30 @@ restricted_sample_analysis <- restricted_sample %>%
 restricted_sample_analysis <- restricted_sample_analysis %>%
   mutate(educ = educ_0_1,
          age = age_gt40,
-         log_dif_gender_sq = log_dif_gener^2 - log_dif_gender_se^2)
+         log_dif_gender_sq = log_dif_gender^2 - log_dif_gender_se^2)
+
+# Flip Valences so they have same meaning
+# 1 = Very Likely to Discriminate against Black/Female/Older Candidates
+# 5 = Very Unlikely to Discriminate against Black/Female/Older Candidates
+restricted_sample_analysis <- restricted_sample_analysis %>%
+  mutate(conduct_white = 6 - conduct_white,
+         conduct_male = 6 - conduct_male,
+         conduct_younger = 6 - conduct_younger,
+         FirmCont_black = 6 - FirmCont_black,
+         FirmHire_black = 6 - FirmHire_black,
+         FirmCont_female = 6 - FirmCont_female,
+         FirmHire_female = 6 - FirmHire_female
+         ) 
+
+restricted_sample_analysis <- restricted_sample_analysis %>%
+  mutate(pooled_black       = coalesce(na_if(FirmCont_black, -1),
+                                           na_if(conduct_black,  -1)),
+         pooled_white       = coalesce(na_if(FirmCont_white, -1),
+                                           na_if(conduct_white,  -1)),
+         pooled_male        = coalesce(na_if(FirmCont_male, -1),
+                                       na_if(conduct_male,  -1)),
+         pooled_female      = coalesce(na_if(FirmCont_female, -1),
+                                       na_if(conduct_female,  -1)),)
 
 # --- export analysis-ready version (NO -1s) ---
 write.csv(restricted_sample_analysis,

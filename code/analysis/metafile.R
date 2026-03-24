@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # Purpose: Metafile for analysis
 #
-# Created: Nico Rotundo 2026-01-11
+# Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
 
 # Run globals
@@ -39,9 +39,23 @@ survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
                  "conduct_favor_male", "conduct_male", "conduct_female",
                  "conduct_favor_younger", "conduct_younger", "conduct_older", 
                  "discretion", "FirmSelective", "FirmDesire",
-                 "pooled_favor_white","pooled_favor_male")
+                 "pooled_favor_white","pooled_favor_male", 
+                 "pooled_white", "pooled_black",
+                 "pooled_male", "pooled_female")
 
-experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "cb_central_full")
+valence_triples <- list(
+  list(valence1 = "conduct_black",     valence2 = "conduct_white",     new_outcome = "conduct_favor_white_ep"),
+  list(valence1 = "FirmCont_black",    valence2 = "FirmCont_white",    new_outcome = "FirmCont_favor_white_ep"),
+  list(valence1 = "FirmHire_black",    valence2 = "FirmHire_white",    new_outcome = "FirmHire_favor_white_ep"),
+  list(valence1 = "pooled_black",      valence2 = "pooled_white",    new_outcome = "pooled_favor_white_ep"),
+  list(valence1 = "conduct_female",     valence2 = "conduct_male",     new_outcome = "conduct_favor_male_ep"),
+  list(valence1 = "FirmCont_female",    valence2 = "FirmCont_male",    new_outcome = "FirmCont_favor_male_ep"),
+  list(valence1 = "FirmHire_female",    valence2 = "FirmHire_male",    new_outcome = "FirmHire_favor_male_ep"),
+  list(valence1 = "pooled_female",      valence2 = "pooled_male",    new_outcome = "pooled_favor_male_ep"),
+  list(valence1 = "conduct_older",     valence2 = "conduct_younger",     new_outcome = "conduct_favor_younger_ep")
+)
+
+experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "cb_central_full")
 respondent_col <- "ResponseId"
 firm_col <- "firm"
 
@@ -52,61 +66,16 @@ subset_var <- NULL
 subset_value <- NULL
 output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
 
-
-system.time({
-  run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                        subset_var = subset_var, subset_value = subset_value,
-                        firms97 = firms97,
-                        output_path = output_path,
-                        industry_map_path = industry_map_path,
-                        generate_wide = FALSE,
-                        ordered_logit = FALSE,
-                        process_outcomes = FALSE,
-                        run_bootstrap = FALSE,
-                        run_bs_eiv = FALSE,
-                        eiv_summary = FALSE,
-                        eiv_bivariate = FALSE,
-                        run_pairwise_process = FALSE,
-                        run_pairwise_process_ol = TRUE,
-                        borda_score = FALSE,
-                        borda_bs_w = FALSE,
-                        run_borda_eiv = FALSE,
-                        borda_eiv_summary = FALSE,
-                        run_pairwise_process_borda = FALSE,
-                        borda_eiv_bivariate = FALSE,
-                        sum_signal_noise = FALSE,
-                        sim_pl_to_borda = FALSE,
-                        exact_pl_to_borda = FALSE,
-                        diagnostic = FALSE,
-                        B = 1)
-})
-
 # Function Call Female
 system.time({
-  run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                        subset_var = subset_var, subset_value = subset_value,
-                        firms97 = firms97,
-                        output_path = output_path,
-                        industry_map_path = industry_map_path,
-                        generate_wide = TRUE,
-                        ordered_logit = TRUE,
-                        process_outcomes = TRUE,
-                        run_bootstrap = TRUE,
-                        run_bs_eiv = TRUE,
-                        eiv_summary = TRUE,
-                        eiv_bivariate = TRUE,
-                        run_pairwise_process = TRUE,
-                        borda_score = TRUE,
-                        borda_bs_w = TRUE,
-                        run_borda_eiv = TRUE,
-                        borda_eiv_summary = TRUE,
-                        run_pairwise_process_borda = TRUE,
-                        borda_eiv_bivariate = TRUE,
-                        sum_signal_noise = TRUE,
-                        sim_pl_to_borda = FALSE,
-                        exact_pl_to_borda = FALSE,
-                        diagnostic = FALSE,
-                        B = 1)
+  run_analysis_pipeline(
+    data, respondent_col, survey_vars, experimental_vars,
+    subset_var = subset_var, subset_value = subset_value,
+    output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
+    run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+    combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
+    seed = 123
+  ) 
 })
 
 
@@ -149,29 +118,14 @@ for (i in seq_len(nrow(runs))) {
       "===\n")
 
   results[[i]] <- system.time({
-    run_analysis_pipeline(data, respondent_col, firm_col, survey_vars, experimental_vars,
-                          subset_var = subset_var, subset_value = subset_value,
-                          firms97 = firms97,
-                          output_path = output_path,
-                          industry_map_path = industry_map_path,
-                          generate_wide = TRUE,
-                          process_outcomes = TRUE,
-                          run_bootstrap = TRUE,
-                          run_bs_eiv = TRUE,
-                          eiv_summary = TRUE,
-                          eiv_bivariate = TRUE,
-                          run_pairwise_process = TRUE,
-                          borda_score = TRUE,
-                          borda_bs_w = TRUE,
-                          run_borda_eiv = TRUE,
-                          borda_eiv_summary = TRUE,
-                          run_pairwise_process_borda = TRUE,
-                          borda_eiv_bivariate = TRUE,
-                          sum_signal_noise = TRUE,
-                          sim_pl_to_borda = FALSE,
-                          exact_pl_to_borda = FALSE,
-                          diagnostic = FALSE,
-                          B = 1)
+    run_analysis_pipeline(
+      data, respondent_col, survey_vars, experimental_vars,
+      subset_var = subset_var, subset_value = subset_value,
+      output_path = output_path, industry_map_path = industry_map_path, firms97 = firms97,
+      run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+      combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
+      seed = 123
+    ) 
   })
 }
 

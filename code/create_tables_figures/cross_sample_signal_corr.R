@@ -1,5 +1,12 @@
 source("code/globals.R")
 
+# Resolve firm identifier column across old/new pipeline formats
+get_firm_id_col <- function(df) {
+  if ("firm_id" %in% names(df)) return("firm_id")
+  if ("entity_id" %in% names(df)) return("entity_id")
+  stop("Could not find firm identifier column (expected `firm_id` or `entity_id`).")
+}
+
 # -------------------------------------------------------------------
 # 0. User inputs
 # -------------------------------------------------------------------
@@ -78,51 +85,166 @@ outcomes <- c("pooled_favor_white", "pooled_favor_male")
 
 exp_coef_path <- file.path(excel, full_sample_file)
 
-exp_firm_ids <- readxl::read_xlsx(exp_coef_path, sheet = "Coefficients") %>%
-  dplyr::filter(!is.na(.data$dif)) %>%   # firms with experimental data
-  dplyr::pull(firm_id) %>%
-  unique() %>%
-  sort()
+exp_coef_raw <- readxl::read_xlsx(exp_coef_path, sheet = "Coefficients")
+id_col <- get_firm_id_col(exp_coef_raw)
+
+# New pipeline has model column; filter to one model to avoid duplicates
+if ("model" %in% names(exp_coef_raw)) {
+  exp_coef_raw <- exp_coef_raw %>%
+    dplyr::filter(.data$model == dplyr::first(unique(.data$model)))
+}
+
+# In new long format, keep firm rows and use subset == "all" for baseline IDs
+if ("entity_type" %in% names(exp_coef_raw)) {
+  exp_coef_raw <- exp_coef_raw %>%
+    dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
+}
+if ("subset" %in% names(exp_coef_raw)) {
+  exp_coef_raw <- exp_coef_raw %>% dplyr::filter(.data$subset == "all")
+}
+
+if (all(c("outcome", "estimate") %in% names(exp_coef_raw))) {
+  if (any(exp_coef_raw$outcome == "dif")) {
+    exp_firm_ids <- exp_coef_raw %>%
+      dplyr::filter(.data$outcome == "dif", !is.na(.data$estimate)) %>%
+      dplyr::pull(!!rlang::sym(id_col)) %>%
+      unique() %>%
+      sort()
+  } else {
+    exp_firm_ids <- exp_coef_raw %>%
+      dplyr::pull(!!rlang::sym(id_col)) %>%
+      unique() %>%
+      sort()
+  }
+} else if ("dif" %in% names(exp_coef_raw)) {
+  exp_firm_ids <- exp_coef_raw %>%
+    dplyr::filter(!is.na(.data$dif)) %>%
+    dplyr::pull(!!rlang::sym(id_col)) %>%
+    unique() %>%
+    sort()
+} else {
+  exp_firm_ids <- exp_coef_raw %>%
+    dplyr::pull(!!rlang::sym(id_col)) %>%
+    unique() %>%
+    sort()
+}
+
+if (length(exp_firm_ids) == 0L) {
+  exp_firm_ids <- exp_coef_raw %>%
+    dplyr::pull(!!rlang::sym(id_col)) %>%
+    unique() %>%
+    sort()
+}
 
 cat("Identified", length(exp_firm_ids),
-    "experimental firms from 'dif' in Coefficients sheet.\n")
+    "experimental firms from Coefficients sheet.\n")
 
 # -------------------------------------------------------------------
 # 1. Helper: read theta (no SEs needed now)
 # -------------------------------------------------------------------
-read_theta <- function(excel, file, outcome, model = c("pl", "borda")) {
+read_theta <- function(excel, file, outcome,
+                       model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
   path  <- file.path(excel, file)
-  
-  if (model == "pl") {
-    coef_sheet <- "Coefficients"
-    coef_col   <- outcome
-  } else {
-    coef_sheet <- "borda_score"
-    coef_col   <- outcome
+
+  # Map model arg to model column values and old-style sheet names
+  model_map <- list(
+    pl    = list(filter = "PL",    old_sheet = "Coefficients"),
+    borda = list(filter = "Borda", old_sheet = "borda_score"),
+    ol    = list(filter = "OL",    old_sheet = "Coefficients"),
+    ols   = list(filter = "OLS",   old_sheet = "Coefficients"),
+    olsc  = list(filter = "OLSC",  old_sheet = "Coefficients")
+  )
+
+  coef_sheet <- "Coefficients"
+  df <- readxl::read_xlsx(path, sheet = coef_sheet)
+
+  if ("model" %in% names(df)) {
+    # New pipeline: filter by model column
+    model_val <- model_map[[model]]$filter
+    df <- df %>% dplyr::filter(.data$model == model_val)
+  } else if (model == "borda") {
+    # Old pipeline: Borda in separate sheet
+    df <- readxl::read_xlsx(path, sheet = "borda_score")
   }
   
-  readxl::read_xlsx(path, sheet = coef_sheet) %>%
-    dplyr::select(firm_id, !!sym(coef_col)) %>%
-    dplyr::rename(theta = !!sym(coef_col))
+  id_col <- get_firm_id_col(df)
+  
+  if (all(c("outcome", "estimate") %in% names(df))) {
+    if ("entity_type" %in% names(df)) {
+      df <- df %>%
+        dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
+    }
+    if ("subset" %in% names(df)) {
+      df <- df %>% dplyr::filter(.data$subset == "all")
+    }
+    
+    out <- df %>%
+      dplyr::filter(.data$outcome == !!outcome) %>%
+      dplyr::select(!!rlang::sym(id_col), estimate) %>%
+      dplyr::rename(
+        firm_id = !!rlang::sym(id_col),
+        theta   = estimate
+      )
+  } else {
+    out <- df %>%
+      dplyr::select(!!rlang::sym(id_col), !!rlang::sym(outcome)) %>%
+      dplyr::rename(
+        firm_id = !!rlang::sym(id_col),
+        theta   = !!rlang::sym(outcome)
+      )
+  }
+  
+  out %>%
+    dplyr::mutate(
+      firm_id = suppressWarnings(as.numeric(.data$firm_id)),
+      theta   = suppressWarnings(as.numeric(.data$theta))
+    ) %>%
+    dplyr::filter(!is.na(.data$firm_id)) %>%
+    dplyr::distinct(.data$firm_id, .keep_all = TRUE)
 }
 
 # -------------------------------------------------------------------
 # 2. Helper: read signal & tot_var from pl_s_/b_s_ sheets
 # -------------------------------------------------------------------
-read_signal_info <- function(excel, file, outcome, model = c("pl", "borda")) {
+read_signal_info <- function(excel, file, outcome,
+                             model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
   path  <- file.path(excel, file)
-  
+
+  model_filter_map <- c(pl = "PL", borda = "Borda", ol = "OL", ols = "OLS", olsc = "OLSC")
+
+  # Try new pipeline "variance" sheet first
+  var_df <- tryCatch(readxl::read_xlsx(path, sheet = "variance"),
+                     error = function(e) NULL)
+
+  if (!is.null(var_df) && "model" %in% names(var_df)) {
+    # New pipeline: read from variance sheet
+    model_val <- model_filter_map[model]
+    sig_df <- var_df %>%
+      dplyr::filter(
+        .data$model == model_val,
+        .data$outcome == !!outcome
+      ) %>%
+      dplyr::transmute(
+        all_firms = (.data$subset == "all"),
+        tot_var   = as.numeric(.data$variance),
+        signal    = as.numeric(.data$signal)
+      )
+    return(sig_df)
+  }
+
+  # Old pipeline: read from model-specific signal sheets
   if (model == "pl") {
     sheet_name <- paste0("pl_s_", outcome)
-  } else {
+  } else if (model == "borda") {
     sheet_name <- paste0("b_s_", outcome)
+  } else {
+    # OLS/OLSC not available in old pipeline
+    return(tibble::tibble(all_firms = logical(), tot_var = numeric(), signal = numeric()))
   }
-  
+
   sig_df <- readxl::read_xlsx(path, sheet = sheet_name)
-  
-  # we need iter 0 row, both all_firms TRUE and FALSE
   sig_df %>%
     dplyr::filter(iter == 0) %>%
     dplyr::select(all_firms, tot_var, sigma2_dot) %>%
@@ -238,7 +360,7 @@ compute_corr_row <- function(theta1, theta2,
   signal2  <- sig2_row$signal[1]
   
   denom <- sqrt(signal1 * signal2)
-  corr_c <- if (denom > 0) covariance / denom else NA_real_
+  corr_c <- if (is.finite(denom) && denom > 0) covariance / denom else NA_real_
   
   tibble::tibble(
     model      = model,
@@ -259,7 +381,7 @@ compute_corr_row <- function(theta1, theta2,
 # -------------------------------------------------------------------
 # 5. Main loop: build tables for PL and Borda (with LR for PL)
 # -------------------------------------------------------------------
-build_corr_table <- function(model = c("pl", "borda"),
+build_corr_table <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
                              excel,
                              sample_filemap,
                              sample_pairs,
@@ -354,9 +476,15 @@ build_corr_table <- function(model = c("pl", "borda"),
 # 6. Run and write to Excel
 # -------------------------------------------------------------------
 
-pl_corr <- build_corr_table("pl",    excel, sample_filemap, sample_pairs,
-                            outcomes, exp_firm_ids, full_sample_file)
+pl_corr    <- build_corr_table("pl",    excel, sample_filemap, sample_pairs,
+                               outcomes, exp_firm_ids, full_sample_file)
 borda_corr <- build_corr_table("borda", excel, sample_filemap, sample_pairs,
+                               outcomes, exp_firm_ids, full_sample_file)
+ol_corr    <- build_corr_table("ol",    excel, sample_filemap, sample_pairs,
+                               outcomes, exp_firm_ids, full_sample_file)
+ols_corr   <- build_corr_table("ols",   excel, sample_filemap, sample_pairs,
+                               outcomes, exp_firm_ids, full_sample_file)
+olsc_corr  <- build_corr_table("olsc",  excel, sample_filemap, sample_pairs,
                                outcomes, exp_firm_ids, full_sample_file)
 
 out_path <- file.path(excel, "subset_correlations_signal_based_with_LR.xlsx")
@@ -365,6 +493,12 @@ openxlsx::addWorksheet(wb, "PL")
 openxlsx::writeData(wb, "PL", pl_corr)
 openxlsx::addWorksheet(wb, "Borda")
 openxlsx::writeData(wb, "Borda", borda_corr)
+openxlsx::addWorksheet(wb, "OL")
+openxlsx::writeData(wb, "OL", ol_corr)
+openxlsx::addWorksheet(wb, "OLS")
+openxlsx::writeData(wb, "OLS", ols_corr)
+openxlsx::addWorksheet(wb, "OLSC")
+openxlsx::writeData(wb, "OLSC", olsc_corr)
 openxlsx::saveWorkbook(wb, out_path, overwrite = TRUE)
 
 cat("Saved correlation + LR workbook to:", out_path, "\n")
@@ -402,7 +536,7 @@ row_specs <- tibble::tribble(
   "At Least Some College vs HS Diploma or less", "At Least Some College", "HS Diploma or Less",
   "Convenience vs Probability",      "Convenience",            "Probability",
   "Confident vs Not (Gender)",       "Not Confident (Gender)", "Confident (Gender)",
-  "Confident vs Not (Race)",       "Not Confident (Race)", "Confident (Race)"
+  "Confident vs Not (Race)",         "Not Confident (Race)",   "Confident (Race)"
 )
 
 # Outcomes and their display labels
@@ -473,6 +607,18 @@ get_panel_matrix <- function(df_corr,
 # Use all_firms == TRUE in the LaTeX table
 panelA <- get_panel_matrix(pl_corr,    pl_corr,    all_firms_flag = TRUE, with_pvalues = TRUE)
 panelB <- get_panel_matrix(borda_corr, pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+panelC <- get_panel_matrix(ol_corr,    pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+panelD <- get_panel_matrix(ols_corr,   pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+panelE <- get_panel_matrix(olsc_corr,  pl_corr,    all_firms_flag = TRUE, with_pvalues = FALSE)
+
+# Helper to emit panel rows
+panel_rows <- function(panel) {
+  paste0("    ", panel$Row, " & ",
+         panel$`Discrimination Black`, " & ",
+         panel$`p (Discrimination Black)`, " & ",
+         panel$`Discrimination Female`, " & ",
+         panel$`p (Discrimination Female)`, " \\\\")
+}
 
 # LaTeX writer ---------------------------------------------------------
 latex_lines <- c(
@@ -480,21 +626,22 @@ latex_lines <- c(
   "  \\begin{tabular}{lcccc}",
   "    \\toprule",
   "    & \\multicolumn{2}{c}{Discrimination Black} & \\multicolumn{2}{c}{Discrimination Female} \\\\",
-  "    & Corr & p-value (=1) & Corr & p-value (=1) \\\\",
+  "    & Corr & p-value & Corr & p-value \\\\",
   "    \\midrule",
   "    \\multicolumn{5}{l}{\\textbf{Panel A: Plackett--Luce}}\\\\",
-  paste0("    ", panelA$Row, " & ",
-         panelA$`Discrimination Black`, " & ",
-         panelA$`p (Discrimination Black)`, " & ",
-         panelA$`Discrimination Female`, " & ",
-         panelA$`p (Discrimination Female)`, " \\\\"),
+  panel_rows(panelA),
   "    \\addlinespace",
   "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
-  paste0("    ", panelB$Row, " & ",
-         panelB$`Discrimination Black`, " & ",
-         panelB$`p (Discrimination Black)`, " & ",
-         panelB$`Discrimination Female`, " & ",
-         panelB$`p (Discrimination Female)`, " \\\\"),
+  panel_rows(panelB),
+  "    \\addlinespace",
+  "    \\multicolumn{5}{l}{\\textbf{Panel C: Ordered Logit}}\\\\",
+  panel_rows(panelC),
+  "    \\addlinespace",
+  "    \\multicolumn{5}{l}{\\textbf{Panel D: Likert}}\\\\",
+  panel_rows(panelD),
+  "    \\addlinespace",
+  "    \\multicolumn{5}{l}{\\textbf{Panel E: Likert Centered}}\\\\",
+  panel_rows(panelE),
   "    \\bottomrule",
   "  \\end{tabular}"
 )
@@ -502,3 +649,35 @@ latex_lines <- c(
 out_tex <- file.path(tables, "pl_borda_corr_with_LR_pvals.tex")
 writeLines(latex_lines, out_tex)
 message("LaTeX table written to: ", out_tex)
+
+# -------------------------------------------------------------------
+# 8. Generate OLS + Borda version (corr-only; no p-value columns)
+# -------------------------------------------------------------------
+
+panelA_ols_borda <- get_panel_matrix(ols_corr,   pl_corr, all_firms_flag = TRUE, with_pvalues = FALSE)
+panelB_ols_borda <- get_panel_matrix(borda_corr, pl_corr, all_firms_flag = TRUE, with_pvalues = FALSE)
+
+panel_rows_corr_only <- function(panel) {
+  paste0("    ", panel$Row, " & ",
+         panel$`Discrimination Black`, " & ",
+         panel$`Discrimination Female`, " \\\\")
+}
+
+latex_lines_ols_borda <- c(
+  "  \\centering",
+  "  \\begin{tabular}{lcc}",
+  "    \\toprule",
+  "    & Discrimination Black & Discrimination Female \\\\",
+  "    \\midrule",
+  "    \\multicolumn{3}{l}{\\textbf{Panel A: Likert}}\\\\",
+  panel_rows_corr_only(panelA_ols_borda),
+  "    \\addlinespace",
+  "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda}}\\\\",
+  panel_rows_corr_only(panelB_ols_borda),
+  "    \\bottomrule",
+  "  \\end{tabular}"
+)
+
+out_tex_ols_borda <- file.path(tables, "ols_borda_corr_with_LR_pvals.tex")
+writeLines(latex_lines_ols_borda, out_tex_ols_borda)
+message("LaTeX table written to: ", out_tex_ols_borda)
