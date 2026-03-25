@@ -55,7 +55,7 @@ valence_triples <- list(
   list(valence1 = "conduct_older",     valence2 = "conduct_younger",     new_outcome = "conduct_favor_younger_ep")
 )
 
-experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "cb_central_full")
+experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "log_dif_sq", "cb_central_full")
 respondent_col <- "ResponseId"
 firm_col <- "firm"
 

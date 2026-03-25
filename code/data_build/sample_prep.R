@@ -188,7 +188,8 @@ restricted_sample_analysis <- restricted_sample %>%
 restricted_sample_analysis <- restricted_sample_analysis %>%
   mutate(educ = educ_0_1,
          age = age_gt40,
-         log_dif_gender_sq = log_dif_gender^2 - log_dif_gender_se^2)
+         log_dif_gender_sq = log_dif_gender^2 - log_dif_gender_se^2,
+         log_dif_sq = log_dif^2 - log_dif_se^2)
 
 # Flip Valences so they have same meaning
 # 1 = Very Likely to Discriminate against Black/Female/Older Candidates
