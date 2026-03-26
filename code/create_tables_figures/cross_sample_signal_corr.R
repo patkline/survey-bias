@@ -239,8 +239,8 @@ for (sample_pair in sample_pair_list) {
       # Compute Δ̂ = θ̂₁ - θ̂₂
       delta_hat <- theta_vector_merged$theta_sample_1 - theta_vector_merged$theta_sample_2
 
-      # V̂ = (V̂₁ + V̂₂) / 2, where V̂_k = noise_k * I_J (diagonal, equal noise per firm)
-      v_hat_scalar <- (noise_1 + noise_2) / 2
+      # V̂ = V̂₁ + V̂₂, where V̂_k = noise_k * I_J (diagonal, equal noise per firm)
+      v_hat_scalar <- noise_1 + noise_2
 
       # W = Δ̂' V̂⁻¹ Δ̂ = sum(Δ̂²) / v̂  ~ χ²(J)
       J <- nrow(theta_vector_merged)
