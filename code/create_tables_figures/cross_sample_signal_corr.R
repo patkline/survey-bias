@@ -231,22 +231,39 @@ for (sample_pair in sample_pair_list) {
       # Assert temporary and manual signal correlations are equal
       stopifnot(isTRUE(all.equal(signal_correlation, signal_correlation_temp, tolerance = 1e-12)))
 
+      ## Wald test for H0: theta_1 = theta_2
+      # Compute per-firm noise for each sample (noise = total_variance - signal)
+      noise_1 <- total_variance_1 - signal_variance_1
+      noise_2 <- total_variance_2 - signal_variance_2
+
+      # Compute Δ̂ = θ̂₁ - θ̂₂
+      delta_hat <- theta_vector_merged$theta_sample_1 - theta_vector_merged$theta_sample_2
+
+      # V̂ = (V̂₁ + V̂₂) / 2, where V̂_k = noise_k * I_J (diagonal, equal noise per firm)
+      v_hat_scalar <- (noise_1 + noise_2) / 2
+
+      # W = Δ̂' V̂⁻¹ Δ̂ = sum(Δ̂²) / v̂  ~ χ²(J)
+      J <- nrow(theta_vector_merged)
+      Wald_stat <- sum(delta_hat^2) / v_hat_scalar
+      Wald_df   <- J
+      Wald_pval <- pchisq(Wald_stat, df = Wald_df, lower.tail = FALSE)
+
       # Store current correlation row
       correlation_rows[[correlation_row_id]] <- tibble::tibble(
         model      = tolower(model),
         outcome    = outcome,
         sample_1    = sample_pair$sample_1,
         sample_2    = sample_pair$sample_2,
-        J_entities = nrow(theta_vector_merged),
+        J_entities = J,
         theta_covariance = theta_covariance,
         total_variance_sample_1   = total_variance_1,
         total_variance_sample_2   = total_variance_2,
         signal_variance_sample_1    = signal_variance_1,
         signal_variance_sample_2    = signal_variance_2,
-        signal_correlation     = signal_correlation #,
-        #Wald_stat  = NA_real_,
-        #Wald_df    = NA_integer_,
-        #Wald_pval  = NA_real_
+        signal_correlation     = signal_correlation,
+        Wald_stat  = Wald_stat,
+        Wald_df    = Wald_df,
+        Wald_pval  = Wald_pval
       )
 
       # Increment row counter
@@ -274,7 +291,7 @@ correlation_rows_data_frame <- correlation_rows_data_frame %>%
   tidyr::pivot_wider(
     id_cols = c("model", "sample_1", "sample_2"),
     names_from = "outcome",
-    values_from = c("J_entities", "theta_covariance", "total_variance_sample_1", "total_variance_sample_2", "signal_variance_sample_1", "signal_variance_sample_2", "signal_correlation" #, "Wald_stat", "Wald_df", "Wald_pval"
+    values_from = c("J_entities", "theta_covariance", "total_variance_sample_1", "total_variance_sample_2", "signal_variance_sample_1", "signal_variance_sample_2", "signal_correlation", "Wald_stat", "Wald_df", "Wald_pval"
     )
   )
 
@@ -320,7 +337,7 @@ correlation_rows_data_frame <- correlation_rows_data_frame %>%
 
 # Keep necessary variables for final table 
 correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  dplyr::select(model, order, row_label, signal_correlation_pooled_favor_white, signal_correlation_pooled_favor_male #, starts_with("Wald")
+  dplyr::select(model, order, row_label, signal_correlation_pooled_favor_white, Wald_pval_pooled_favor_white, signal_correlation_pooled_favor_male, Wald_pval_pooled_favor_male
   )
 
 #View(correlation_rows_data_frame)
@@ -364,9 +381,9 @@ for (row_index in seq_len(nrow(panel_ols))) {
       "    ",
       panel_ols$row_label[row_index], " & ",
       formatC(panel_ols$signal_correlation_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
-      "", " & ",
+      formatC(panel_ols$Wald_pval_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
       formatC(panel_ols$signal_correlation_pooled_favor_male[row_index], digits = 3, format = "f"), " & ",
-      "", " \\\\"
+      formatC(panel_ols$Wald_pval_pooled_favor_male[row_index], digits = 3, format = "f"), " \\\\"
     )
   )
 }
@@ -386,9 +403,9 @@ for (row_index in seq_len(nrow(panel_borda))) {
       "    ",
       panel_borda$row_label[row_index], " & ",
       formatC(panel_borda$signal_correlation_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
-      "", " & ",
+      formatC(panel_borda$Wald_pval_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
       formatC(panel_borda$signal_correlation_pooled_favor_male[row_index], digits = 3, format = "f"), " & ",
-      "", " \\\\"
+      formatC(panel_borda$Wald_pval_pooled_favor_male[row_index], digits = 3, format = "f"), " \\\\"
     )
   )
 }
