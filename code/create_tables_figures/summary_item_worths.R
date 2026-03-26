@@ -5,6 +5,7 @@
 # -------------------------------------------------------------------
 # Run globals
 source("code/globals.R")
+source(file.path(analysis, "katz_correct.R"))
 
 create_plots_and_tables_from_sheets <- function(excel_path,
                                                 outcomes,
@@ -1127,6 +1128,8 @@ create_plots_and_tables_from_sheets <- function(excel_path,
 # Within/between-industry variance table (Likert + Borda)
 # - Uses unweighted decomposition outcomes from pipeline:
 #     *_dm (within-industry) and *_im (between-industry)
+# - For _im (between-industry) outcomes, reweights variance/noise/signal
+#   by number of firms per industry so the table reflects firm-level variation
 # - Produces two-panel table with same columns as Table 3 format
 # -------------------------------------------------------------------
 write_variance_biascorrected_ols_borda_within_between <- function(
@@ -1145,15 +1148,15 @@ write_variance_biascorrected_ols_borda_within_between <- function(
     message("Could not read new-format variance sheet with model column from: ", excel_path)
     return(invisible(NULL))
   }
-  
+
   need_cols <- c("subset", "model", "outcome", "variance", "signal", "sigma2_hat", "Vhat")
   if (!all(need_cols %in% names(var_df))) {
     message("variance sheet missing columns: ", paste(setdiff(need_cols, names(var_df)), collapse = ", "))
     return(invisible(NULL))
   }
-  
+
   target_outcomes <- c(paste0(outcomes, "_dm"), paste0(outcomes, "_im"))
-  
+
   var_df <- var_df %>%
     dplyr::filter(.data$subset == "all", .data$outcome %in% target_outcomes) %>%
     dplyr::mutate(
@@ -1163,10 +1166,56 @@ write_variance_biascorrected_ols_borda_within_between <- function(
         NA_real_
       )
     )
-  
+
   if (nrow(var_df) == 0) {
     message("No within/between-industry outcomes found in variance sheet.")
     return(invisible(NULL))
+  }
+
+  # ---- Reweight _im outcomes by firm counts per industry ----
+  # The variance sheet computes _im stats unweighted across industries.
+  # To interpret as firm-level, reweight by n_k (firm count per industry),
+  # read from the Coefficients sheet where njobs = firm count for _im rows.
+  coef_df <- tryCatch(readxl::read_excel(excel_path, sheet = "Coefficients"),
+                      error = function(e) NULL)
+
+  if (!is.null(coef_df)) {
+    im_outcomes <- paste0(outcomes, "_im")
+
+    for (i in which(var_df$outcome %in% im_outcomes)) {
+      mdl    <- var_df$model[i]
+      im_out <- var_df$outcome[i]
+
+      # Read industry-level estimates + njobs (= firm count per industry)
+      im_rows <- coef_df %>%
+        dplyr::filter(.data$subset == "all", .data$entity_type == "Industry",
+                      .data$model == mdl, .data$outcome == im_out) %>%
+        dplyr::mutate(estimate = as.numeric(estimate),
+                      njobs = as.numeric(njobs))
+
+      if (nrow(im_rows) == 0 || all(is.na(im_rows$njobs))) next
+
+      beta <- im_rows$estimate
+      w    <- im_rows$njobs / sum(im_rows$njobs, na.rm = TRUE)  # normalized firm-count weights
+
+      # Firm-weighted variance: Σ w_k * beta_k^2
+      var_df$variance[i] <- sum(w * beta^2, na.rm = TRUE)
+
+      # Noise stays the same (average per-industry noise; per-industry values not available)
+      # sigma2_hat = weighted_variance - noise
+      var_df$sigma2_hat[i] <- var_df$variance[i] - as.numeric(var_df$noise[i])
+
+      # Scale Vhat for non-uniform weights: multiply by (K^2 * Σ w_k^2)
+      K <- length(w)
+      var_df$Vhat[i] <- as.numeric(var_df$Vhat[i]) * (sum(w^2) * K^2)
+
+      var_df$signal[i] <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
+      var_df$t_stat[i] <- ifelse(
+        is.finite(var_df$Vhat[i]) & var_df$Vhat[i] > 0,
+        var_df$sigma2_hat[i] / sqrt(var_df$Vhat[i]),
+        NA_real_
+      )
+    }
   }
   
   build_model_cols <- function(df, mdl, prefix, mult = 1) {
