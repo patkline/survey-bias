@@ -1,12 +1,9 @@
 # ------------------------------------------------------------------------------
-# Between-industry and within-industry dual-axis line charts (OLS "Likert" + Borda)
+# Within-industry and between-industry dual-axis line charts (OLS "Likert" + Borda)
 #
 # For each outcome:
-#   - "between": top/bottom 25 firms by demeaned (_dm) EB values, sorted by OLS
-#   - "within":  all industries by industry mean (_im) EB values, sorted by OLS
-#
-# EB shrinkage (toward zero): EB_i = sigma2 / (sigma2 + se_i^2) * estimate_i
-#   where sigma2 = max(0, (sum(est^2) - sum(se^2)) / J)
+#   - "within":  top/bottom 25 firms by demeaned (_dm) EB values, sorted by Borda
+#   - "between": all industries by industry mean (_im) EB values, sorted by Borda
 # ------------------------------------------------------------------------------
 source("code/globals.R")
 
@@ -128,7 +125,7 @@ make_dual_axis_chart <- function(df, ols_col, borda_col, name_col,
 }
 
 # ==============================================================================
-# Between-industry (demeaned): top/bottom 25 firms, sorted by Borda
+# Within-industry (demeaned): top/bottom 25 firms, sorted by Borda
 # ==============================================================================
 for (outcome_dm in outcomes_dm) {
   ols_dm  <- get_eb(outcome_dm, "OLS",   "Firm")
@@ -159,7 +156,7 @@ for (outcome_dm in outcomes_dm) {
 
   # strip outcome base name for file naming
   outcome_base <- sub("_dm$", "", outcome_dm)
-  fname <- paste0("between_industry_dualaxis_", outcome_base, ".png")
+  fname <- paste0("within_industry_dualaxis_", outcome_base, ".png")
 
   make_dual_axis_chart(
     df = subset_df,
@@ -175,9 +172,13 @@ for (outcome_dm in outcomes_dm) {
 }
 
 # ==============================================================================
-# Within-industry (industry means): all industries, sorted by Borda
+# Between-industry (industry means): all industries, sorted by Borda
+# Grand mean of firm-level EB added back to industry EB values
 # ==============================================================================
 for (outcome_im in outcomes_im) {
+  outcome_base <- sub("_im$", "", outcome_im)
+
+  # read industry-level EB
   ols_im  <- get_eb(outcome_im, "OLS",   "Industry")
   borda_im <- get_eb(outcome_im, "Borda", "Industry")
 
@@ -195,8 +196,7 @@ for (outcome_im in outcomes_im) {
   # sort by Borda EB
   merged <- merged[order(merged$EB_Borda), ]
 
-  outcome_base <- sub("_im$", "", outcome_im)
-  fname <- paste0("within_industry_dualaxis_", outcome_base, ".png")
+  fname <- paste0("between_industry_dualaxis_", outcome_base, ".png")
 
   make_dual_axis_chart(
     df = merged,
