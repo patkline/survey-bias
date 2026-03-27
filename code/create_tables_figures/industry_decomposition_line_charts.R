@@ -173,12 +173,10 @@ for (outcome_dm in outcomes_dm) {
 
 # ==============================================================================
 # Between-industry (industry means): all industries, sorted by Borda
-# Grand mean of firm-level EB added back to industry EB values
 # ==============================================================================
 for (outcome_im in outcomes_im) {
   outcome_base <- sub("_im$", "", outcome_im)
 
-  # read industry-level EB
   ols_im  <- get_eb(outcome_im, "OLS",   "Industry")
   borda_im <- get_eb(outcome_im, "Borda", "Industry")
 

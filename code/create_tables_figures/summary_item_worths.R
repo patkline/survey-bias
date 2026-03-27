@@ -118,7 +118,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   
   # helper for unique file suffix by settings
   suffix <- if (!is.null(ws_type) && nzchar(ws_type)) paste0("_", ws_type) else ""
-  ols_borda_dualaxis_outcomes <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")
+  ols_borda_dualaxis_outcomes <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger", "FirmSelective", "discretion")
   
   # helper to pick EB key (prefer Two-Step)
   choose_pl_eb_key <- function(df_old, df_new) {
