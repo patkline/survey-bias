@@ -71,7 +71,7 @@ system.time({
     data, respondent_col, survey_vars, experimental_vars,
     subset_var = subset_var, subset_value = subset_value,
     output_path = output_path, firms97 = firms97,
-    run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+    run_ol = FALSE, run_pl = FALSE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = FALSE,
     combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
     seed = 123
   ) 
@@ -121,7 +121,7 @@ for (i in seq_len(nrow(runs))) {
       data, respondent_col, survey_vars, experimental_vars,
       subset_var = subset_var, subset_value = subset_value,
       output_path = output_path, firms97 = firms97,
-      run_ol = TRUE, run_pl = TRUE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = TRUE,
+      run_ol = FALSE, run_pl = FALSE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = FALSE,
       combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
       seed = 123
     ) 
