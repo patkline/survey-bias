@@ -389,7 +389,10 @@ run_analysis_pipeline <- function(
     dplyr::mutate(entity_id = as.integer(aer_naics2)) |>
     dplyr::select(-aer_naics2)
 
-  coef_ind_eiv <- dplyr::left_join(coef_ind_wide, lhs_im, by = c("model", "entity_id"))
+  # Drop experimental LHS columns from coef_ind_wide before join to avoid .x/.y collision
+  lhs_im_cols <- setdiff(names(lhs_im), c("model", "entity_id"))
+  coef_ind_wide_clean <- coef_ind_wide[, !(names(coef_ind_wide) %in% lhs_im_cols), drop = FALSE]
+  coef_ind_eiv <- dplyr::left_join(coef_ind_wide_clean, lhs_im, by = c("model", "entity_id"))
 
   # Between-industry EIV specs (no FE — each row is an industry)
   regs_between <- list(
