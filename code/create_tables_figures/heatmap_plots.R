@@ -87,20 +87,17 @@ create_lower_left_heatmap <- function(data, title, filename, label_mapping, cust
 # ----------------------------------------------- 
 # Define Wrapper Function for Heatmap Generation 
 # ----------------------------------------------- 
-generate_heatmaps <- function(file_path, prefix, suffix, sheet, all,
+generate_heatmaps <- function(dir_path, prefix, suffix, sheet, all,
                               model_filter = NULL) {
 
-  # Try new pipeline "correlation" sheet with model filter
-  corr_sheet <- tryCatch(read.xlsx(file_path, sheet = "correlation"), error = function(e) NULL)
-  use_new <- !is.null(corr_sheet) && "model" %in% names(corr_sheet) && !is.null(model_filter)
+  corr_df <- read_parquet_sheet(dir_path, "correlation")
 
-  if (use_new) {
-    results_df <- corr_sheet %>%
+  if ("model" %in% names(corr_df) && !is.null(model_filter)) {
+    results_df <- corr_df %>%
       dplyr::filter(.data$model == model_filter) %>%
       dplyr::mutate(all_firms = (.data$subset == "all"))
   } else {
-    # Old pipeline: read from specified sheet
-    results_df <- read.xlsx(file_path, sheet = sheet)
+    results_df <- read_parquet_sheet(dir_path, sheet)
   }
   
   # Outcome List  
@@ -237,7 +234,7 @@ generate_heatmaps <- function(file_path, prefix, suffix, sheet, all,
 }   
 
 # Example Usage -- new pipeline (correlation sheet with model filter)
-fp <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+fp <- file.path(intermediate, "Full_Sample")
 
 # PL
 heatmap_prefix <- paste0(figures, "/")
@@ -273,17 +270,17 @@ generate_heatmaps(fp, heatmap_prefix, "_full_overlap_olsc", "pairwise_summary",
 
 
 # 
-# generate_heatmaps("excel/Plackett_Luce_Subset_Black.xlsx", "figures/heatmaps/", "_subset_black", "pairwise_summary", all = TRUE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_White.xlsx", "figures/heatmaps/", "_subset_white", "pairwise_summary", all = TRUE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Male.xlsx", "figures/heatmaps/", "_subset_male", "pairwise_summary", all = TRUE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Female.xlsx", "figures/heatmaps/", "_subset_female", "pairwise_summary", all = TRUE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Age_gte40.xlsx", "figures/heatmaps/", "_subset_age_gte40", "pairwise_summary", all = TRUE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Age_lt40.xlsx", "figures/heatmaps/", "_subset_age_lt40", "pairwise_summary", all = TRUE)
+# generate_heatmaps("excel/Subset_Black.xlsx", "figures/heatmaps/", "_subset_black", "pairwise_summary", all = TRUE)
+# generate_heatmaps("excel/Subset_White.xlsx", "figures/heatmaps/", "_subset_white", "pairwise_summary", all = TRUE)
+# generate_heatmaps("excel/Subset_Male.xlsx", "figures/heatmaps/", "_subset_male", "pairwise_summary", all = TRUE)
+# generate_heatmaps("excel/Subset_Female.xlsx", "figures/heatmaps/", "_subset_female", "pairwise_summary", all = TRUE)
+# generate_heatmaps("excel/Subset_Age_gte40.xlsx", "figures/heatmaps/", "_subset_age_gte40", "pairwise_summary", all = TRUE)
+# generate_heatmaps("excel/Subset_Age_lt40.xlsx", "figures/heatmaps/", "_subset_age_lt40", "pairwise_summary", all = TRUE)
 # 
 # 
-# generate_heatmaps("excel/Plackett_Luce_Subset_Black.xlsx", "figures/heatmaps/", "_subset_black_overlap", "pairwise_summary", all = FALSE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_White.xlsx", "figures/heatmaps/", "_subset_white_overlap", "pairwise_summary", all = FALSE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Male.xlsx", "figures/heatmaps/", "_subset_male_overlap", "pairwise_summary", all = FALSE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Female.xlsx", "figures/heatmaps/", "_subset_female_overlap", "pairwise_summary", all = FALSE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Age_gte40.xlsx", "figures/heatmaps/", "_subset_age_gte40_overlap", "pairwise_summary", all = FALSE)
-# generate_heatmaps("excel/Plackett_Luce_Subset_Age_lt40.xlsx", "figures/heatmaps/", "_subset_age_lt40_overlap", "pairwise_summary", all = FALSE)
+# generate_heatmaps("excel/Subset_Black.xlsx", "figures/heatmaps/", "_subset_black_overlap", "pairwise_summary", all = FALSE)
+# generate_heatmaps("excel/Subset_White.xlsx", "figures/heatmaps/", "_subset_white_overlap", "pairwise_summary", all = FALSE)
+# generate_heatmaps("excel/Subset_Male.xlsx", "figures/heatmaps/", "_subset_male_overlap", "pairwise_summary", all = FALSE)
+# generate_heatmaps("excel/Subset_Female.xlsx", "figures/heatmaps/", "_subset_female_overlap", "pairwise_summary", all = FALSE)
+# generate_heatmaps("excel/Subset_Age_gte40.xlsx", "figures/heatmaps/", "_subset_age_gte40_overlap", "pairwise_summary", all = FALSE)
+# generate_heatmaps("excel/Subset_Age_lt40.xlsx", "figures/heatmaps/", "_subset_age_lt40_overlap", "pairwise_summary", all = FALSE)

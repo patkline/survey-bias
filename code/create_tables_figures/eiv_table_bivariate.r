@@ -6,11 +6,11 @@ source("code/globals.R")
 fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
 # Pull estimates from unified EIV_firm sheet with model + formula filters
-pull_eiv_firm_est <- function(root, file, lhs_var, rhs_var, coef_num,
+pull_eiv_firm_est <- function(root, subdir, lhs_var, rhs_var, coef_num,
                               formula_var, model_filter = "OLS",
                               sheet = "EIV_firm", divide_by_100 = FALSE) {
-  path <- file.path(root, file)
-  dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
+  dir_path <- file.path(root, subdir)
+  dat <- tryCatch(read_parquet_sheet(dir_path, sheet),
                   error = function(e) tibble())
   if (!nrow(dat)) return("NA (NA)")
 
@@ -35,14 +35,14 @@ pull_eiv_firm_est <- function(root, file, lhs_var, rhs_var, coef_num,
   paste0(fmt3(est), " (", fmt3(se), ")")
 }
 
-root_dir <- excel
+root_dir <- intermediate
 
 # ------------------------------------------------------------------------------
 # Build Table: EIV_univariate_wt_ols_borda.tex
 # Purpose: Likert + Borda panels; separate models only; race/gender only
 # ------------------------------------------------------------------------------
 
-table8_file <- "Plackett_Luce_Full_Sample.xlsx"
+table8_subdir <- "Full_Sample"
 
 table8_runs <- list(
   ls_race = list(root = root_dir, lhs = "log_dif",        model_filter = "OLS"),
@@ -57,16 +57,16 @@ build_table8_row <- function(cfg) {
   model_filter <- cfg$model_filter
 
   # Pull univariate rows from the unified EIV_firm sheet.
-  uni_nofe_sel <- pull_eiv_firm_est(root, table8_file, lhs, "FirmSelective", 1L,
+  uni_nofe_sel <- pull_eiv_firm_est(root, table8_subdir, lhs, "FirmSelective", 1L,
                                     formula_var = "FirmSelective",
                                     model_filter = model_filter)
-  uni_nofe_dis <- pull_eiv_firm_est(root, table8_file, lhs, "discretion", 1L,
+  uni_nofe_dis <- pull_eiv_firm_est(root, table8_subdir, lhs, "discretion", 1L,
                                     formula_var = "discretion",
                                     model_filter = model_filter)
-  uni_fe_sel <- pull_eiv_firm_est(root, table8_file, lhs, "FirmSelective", 2L,
+  uni_fe_sel <- pull_eiv_firm_est(root, table8_subdir, lhs, "FirmSelective", 2L,
                                   formula_var = "FirmSelective",
                                   model_filter = model_filter)
-  uni_fe_dis <- pull_eiv_firm_est(root, table8_file, lhs, "discretion", 2L,
+  uni_fe_dis <- pull_eiv_firm_est(root, table8_subdir, lhs, "discretion", 2L,
                                   formula_var = "discretion",
                                   model_filter = model_filter)
 

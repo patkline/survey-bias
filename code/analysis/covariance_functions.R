@@ -98,9 +98,9 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   )
 }
 
-write_covariance_sheet <- function(results, wb, sheet_name = "covariance", survey_vars) {
+write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance", survey_vars) {
   # results: list(all=..., subset97=...)
-  # wb: openxlsx workbook
+  # output_dir: directory to write the parquet sheet into
   
   stopifnot(is.list(results), !is.null(results$all))
   
@@ -186,10 +186,8 @@ write_covariance_sheet <- function(results, wb, sheet_name = "covariance", surve
   }
   
   cov_df <- dplyr::bind_rows(rows)
-  
-  remove_sheet_safely(wb, sheet_name)
-  openxlsx::addWorksheet(wb, sheet_name)
-  openxlsx::writeData(wb, sheet_name, cov_df)
-  
+
+  write_parquet_sheet(output_dir, sheet_name, cov_df)
+
   invisible(cov_df)
 }

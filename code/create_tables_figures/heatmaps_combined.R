@@ -66,7 +66,7 @@ ensure_symmetry <- function(df) {
     boundary_edges
   }
 
-create_combined_tri_heatmap <- function(file_path,
+create_combined_tri_heatmap <- function(dir_path,
                                         sheet_pl           = "pairwise_summary",
                                         sheet_borda        = "pairwise_summary_borda",
                                         model_pl           = NULL,
@@ -103,8 +103,8 @@ create_combined_tri_heatmap <- function(file_path,
                                         trim_whitespace  = TRUE) {
   
   # --- read & prep ---
-  pl_df    <- read.xlsx(file_path, sheet = sheet_pl)
-  borda_df <- read.xlsx(file_path, sheet = sheet_borda)
+  pl_df    <- read_parquet_sheet(dir_path, sheet_pl)
+  borda_df <- read_parquet_sheet(dir_path, sheet_borda)
 
   # Optional model filtering for new-pipeline "correlation" sheet
   if (!is.null(model_pl) && ("model" %in% names(pl_df))) {
@@ -260,7 +260,7 @@ custom_order_non <- c(
 
 # Example call (full sample)
 create_combined_tri_heatmap(
-  file_path   = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
   sheet_borda = "pairwise_summary_borda",
   all_flag    = TRUE,
@@ -272,7 +272,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path   = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
   sheet_borda = "pairwise_summary_borda",
   all_flag    = TRUE,
@@ -290,7 +290,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path   = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
   sheet_borda = "pairwise_summary_borda",
   all_flag    = TRUE,
@@ -308,7 +308,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path   = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
   sheet_borda = "pairwise_summary_borda",
   all_flag    = TRUE,
@@ -326,7 +326,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path   = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
   sheet_borda = "pairwise_summary_borda",
   all_flag    = TRUE,
@@ -344,7 +344,7 @@ create_combined_tri_heatmap(
 
 # Overlap-only
 create_combined_tri_heatmap(
-  file_path   = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
   sheet_borda = "pairwise_summary_borda",
   all_flag    = FALSE,
@@ -362,7 +362,7 @@ create_combined_tri_heatmap(
 # Likert + Borda combined heatmaps (symmetric version)
 # ------------------------------------------------------------
 create_combined_tri_heatmap(
-  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path     = file.path(intermediate, "Full_Sample"),
   sheet_pl     = "correlation",
   sheet_borda  = "correlation",
   model_pl     = "OLS",
@@ -378,7 +378,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path     = file.path(intermediate, "Full_Sample"),
   sheet_pl     = "correlation",
   sheet_borda  = "correlation",
   model_pl     = "OLS",
@@ -400,7 +400,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path     = file.path(intermediate, "Full_Sample"),
   sheet_pl     = "correlation",
   sheet_borda  = "correlation",
   model_pl     = "OLS",
@@ -422,7 +422,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path     = file.path(intermediate, "Full_Sample"),
   sheet_pl     = "correlation",
   sheet_borda  = "correlation",
   model_pl     = "OLS",
@@ -444,7 +444,7 @@ create_combined_tri_heatmap(
 
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
-  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path     = file.path(intermediate, "Full_Sample"),
   sheet_pl     = "correlation",
   sheet_borda  = "correlation",
   model_pl     = "OLS",
@@ -466,7 +466,7 @@ create_combined_tri_heatmap(
 
 # Overlap-only
 create_combined_tri_heatmap(
-  file_path    = file.path(excel, "Plackett_Luce_Full_Sample.xlsx"),
+  dir_path     = file.path(intermediate, "Full_Sample"),
   sheet_pl     = "correlation",
   sheet_borda  = "correlation",
   model_pl     = "OLS",

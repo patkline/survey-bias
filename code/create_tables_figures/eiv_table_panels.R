@@ -6,11 +6,11 @@ source("code/globals.R")
 fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
 # Read one coef/se pair from the unified EIV sheet (new pipeline)
-pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
+pull_est <- function(root, subdir, lhs_var, rhs_var, coef_num,
                      sheet = "EIV_firm", model_filter = NULL,
                      formula_filter = NULL, divide_by_100 = FALSE) {
-  path <- file.path(root, file)
-  dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
+  dir_path <- file.path(root, subdir)
+  dat <- tryCatch(read_parquet_sheet(dir_path, sheet),
                   error = function(e) tibble())
   if (!nrow(dat)) return("NA (NA)")
 
@@ -42,7 +42,7 @@ pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
   paste0(fmt3(est), " (", fmt3(se), ")")
 }
 
-# Default sample -> file map
+# Default sample -> intermediate subdirectory map
 default_filemap <- tibble(
   Sample = c("Full Sample",
              "Black",
@@ -55,17 +55,17 @@ default_filemap <- tibble(
              "Did Not Fear Discrimination",
              "40 Years or Older",
              "Less than 40 Years Old"),
-  file  = c("Plackett_Luce_Full_Sample.xlsx",
-            "Plackett_Luce_Subset_Black.xlsx",
-            "Plackett_Luce_Subset_White.xlsx",
-            "Plackett_Luce_Subset_Female.xlsx",
-            "Plackett_Luce_Subset_Male.xlsx",
-            "Plackett_Luce_Subset_Looking.xlsx",
-            "Plackett_Luce_Subset_Not_Looking.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
-            "Plackett_Luce_Subset_Age_gte40.xlsx",
-            "Plackett_Luce_Subset_Age_lt40.xlsx")
+  subdir = c("Full_Sample",
+             "Subset_Black",
+             "Subset_White",
+             "Subset_Female",
+             "Subset_Male",
+             "Subset_Looking",
+             "Subset_Not_Looking",
+             "Subset_Feared_Discrimination_1",
+             "Subset_Feared_Discrimination_0",
+             "Subset_Age_gte40",
+             "Subset_Age_lt40")
 )
 
 # ---------- BUILD DF FOR ONE UNIVARIATE CONFIG ----------
@@ -90,15 +90,15 @@ build_eiv_df <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      `(1) Contact`               = pull_est(root, file, lhs, rhs_contact, coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `(2) Contact (Industry FE)` = pull_est(root, file, lhs, rhs_contact, coef2, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `(3) Conduct`               = pull_est(root, file, lhs, rhs_conduct, coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `(4) Conduct (Industry FE)` = pull_est(root, file, lhs, rhs_conduct, coef2, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `__col5`                    = pull_est(root, file, lhs, rhs_extra,   coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `__col6`                    = pull_est(root, file, lhs, rhs_extra,   coef2, sheet_name, model_filter, divide_by_100 = scale_by_100)
+      `(1) Contact`               = pull_est(root, subdir, lhs, rhs_contact, coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `(2) Contact (Industry FE)` = pull_est(root, subdir, lhs, rhs_contact, coef2, sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `(3) Conduct`               = pull_est(root, subdir, lhs, rhs_conduct, coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `(4) Conduct (Industry FE)` = pull_est(root, subdir, lhs, rhs_conduct, coef2, sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `__col5`                    = pull_est(root, subdir, lhs, rhs_extra,   coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `__col6`                    = pull_est(root, subdir, lhs, rhs_extra,   coef2, sheet_name, model_filter, divide_by_100 = scale_by_100)
     ) %>%
     ungroup() %>%
-    select(-file) %>%
+    select(-subdir) %>%
     rename(
       !!col5_label := `__col5`,
       !!col6_label := `__col6`
@@ -131,13 +131,13 @@ build_eiv_df_bivariate <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      `__col1` = pull_est(root, file, lhs, rhs1, coef1, sheet_name, model_filter, formula_filter, scale_by_100),
-      `__col2` = pull_est(root, file, lhs, rhs1, coef2, sheet_name, model_filter, formula_filter, scale_by_100),
-      `__col3` = pull_est(root, file, lhs, rhs2, coef1, sheet_name, model_filter, formula_filter, scale_by_100),
-      `__col4` = pull_est(root, file, lhs, rhs2, coef2, sheet_name, model_filter, formula_filter, scale_by_100)
+      `__col1` = pull_est(root, subdir, lhs, rhs1, coef1, sheet_name, model_filter, formula_filter, scale_by_100),
+      `__col2` = pull_est(root, subdir, lhs, rhs1, coef2, sheet_name, model_filter, formula_filter, scale_by_100),
+      `__col3` = pull_est(root, subdir, lhs, rhs2, coef1, sheet_name, model_filter, formula_filter, scale_by_100),
+      `__col4` = pull_est(root, subdir, lhs, rhs2, coef2, sheet_name, model_filter, formula_filter, scale_by_100)
     ) %>%
     ungroup() %>%
-    select(-file) %>%
+    select(-subdir) %>%
     rename(
       !!col1_label := `__col1`,
       !!col2_label := `__col2`,
@@ -304,7 +304,7 @@ make_bi_cfg <- function(root, model, lhs, rhs1 = "FirmSelective", rhs2 = "discre
 # UNIVARIATE FOUR-PANEL TABLES
 # ==========================================================================
 
-root_dir <- excel
+root_dir <- intermediate
 
 if (FALSE) {
   # ---- Race ----

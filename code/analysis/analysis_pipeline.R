@@ -8,30 +8,32 @@
 # ------------------------------------------------------------------------------
 run_analysis_pipeline <- function(
     data, respondent_col, survey_vars, experimental_vars = NULL,
-    subset_var = NULL, subset_value = NULL, 
-    output_path, firms97 = NULL,
+    subset_var = NULL, subset_value = NULL,
+    output_dir, firms97 = NULL,
     run_ol = FALSE, run_pl = FALSE, run_borda = FALSE, run_ols = FALSE, run_ols_centered = FALSE,
     combine_valences = FALSE, valence_triples = NULL, industry_means = FALSE,
     seed = 123
 ) {
-  
-  
+
+
 ################################################################################
 ## Step 0: Preliminaries
 ################################################################################
   set.seed(seed)
-  
+
   # Restrict to correct subset
   # Subset data if a subset variable and value are provided
   if (!is.null(subset_var) & !is.null(subset_value)) {
     data <- data %>% dplyr::filter(!!sym(subset_var) == subset_value)
   }
-  
+
   prefix_map <- list(OL = "ol", PL = "pl", Borda = "b", OLS = "ols", OLSC = "olsc")
-  
-  # load workbook
-  wb <- if (file.exists(output_path)) openxlsx::loadWorkbook(output_path) else openxlsx::createWorkbook()
-  
+
+  # Ensure output directory exists (one parquet file per sheet lives here)
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+
   # Map from firms to industries using aer_naics2 already merged into analysis data
   industry_map <- data %>%
     dplyr::select(firm_id, aer_naics2) %>%
@@ -57,8 +59,6 @@ run_analysis_pipeline <- function(
 ## Step 1a: Run Models
 ################################################################################ 
   results <- run_models(
-    wb = wb,
-    output_path = output_path,
     survey_vars = survey_vars,
     respondent_col = respondent_col,
     data_wide_list = data_wide_list,
@@ -77,10 +77,8 @@ run_analysis_pipeline <- function(
     combine_valences = combine_valences,
     valence_triples = valence_triples
   )
-  
-  # Save once at end
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  message("✅ Step 1 Complete. Saved: ", output_path)
+
+  message("✅ Step 1 Complete. Output directory: ", output_dir)
  
 ################################################################################
 ## Step 1b: Industry means + demeaned outcomes
@@ -119,25 +117,22 @@ run_analysis_pipeline <- function(
   message("Writing coefficient outputs after Step 2")
   coef_long_df <- write_coefficients_long_sheet(
     results = results,
-    wb = wb,
+    output_dir = output_dir,
     sheet_name = "Coefficients",
     include_sets = c("all","subset97"),
     data_for_experimental = data,
     experimental_vars = experimental_vars,
     industry_map = industry_map
   )
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  
+
 ################################################################################
 ## Step 2: Variance, Noise, Signal Variance
 ################################################################################
   ## See functions in "variance_functions.R"
   message("Variance Denoising")
-  variance_df <- write_variance_sheet(results, wb, sheet_name = "variance")
+  variance_df <- write_variance_sheet(results, output_dir, sheet_name = "variance")
 
-  # Save once at end
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  message("✅ Step 2 Complete. Saved: ", output_path)
+  message("✅ Step 2 Complete. Output directory: ", output_dir)
 
 ################################################################################
 ## Step 3: Covariance, Noise, Signal Covariance
@@ -151,11 +146,9 @@ run_analysis_pipeline <- function(
   } else {
     variables <- survey_vars
   }
-  covariance_df <- write_covariance_sheet(results, wb, sheet_name = "covariance", survey_vars = variables)
+  covariance_df <- write_covariance_sheet(results, output_dir, sheet_name = "covariance", survey_vars = variables)
 
-  # Save once at end
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  message("✅ Step 3 Complete. Saved: ", output_path)
+  message("✅ Step 3 Complete. Output directory: ", output_dir)
 
 ################################################################################
 ## Step 4: Correlation
@@ -163,13 +156,9 @@ run_analysis_pipeline <- function(
   message("Correlation Calculations")
   corr_df <- build_correlation_from_varcov(variance_df, covariance_df)
 
-  remove_sheet_safely(wb, "correlation")
-  openxlsx::addWorksheet(wb, "correlation")
-  openxlsx::writeData(wb, "correlation", corr_df)
+  write_parquet_sheet(output_dir, "correlation", corr_df)
 
-  # Save once at end
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  message("✅ Step 4 Complete. Saved: ", output_path)
+  message("✅ Step 4 Complete. Output directory: ", output_dir)
 
 ################################################################################
 ## Step 5: EIV
@@ -294,7 +283,7 @@ run_analysis_pipeline <- function(
   models_to_run_eiv <- intersect(c("PL", "Borda", "OL", "OLS", "OLSC"), names(noise_mats_97))
 
   eiv_df_firm <- write_eiv_sheet(
-    wb,
+    output_dir,
     sheet_name = "EIV_firm",
     regs = regs_all,
     coef_df_wide = coef_firm_wide,
@@ -306,9 +295,7 @@ run_analysis_pipeline <- function(
     weights_col = "njobs"
   )
 
-  # Save once at end
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  message("✅ Step 5 Complete. Saved: ", output_path)
+  message("✅ Step 5 Complete. Output directory: ", output_dir)
 
 ################################################################################
 ## Step 5b: Within/Between Industry EIV
@@ -366,7 +353,7 @@ run_analysis_pipeline <- function(
   )
 
   write_eiv_sheet(
-    wb, sheet_name = "EIV_within",
+    output_dir, sheet_name = "EIV_within",
     regs = regs_within,
     coef_df_wide = coef_firm_wide,
     noise_mats_97 = noise_dm_97,
@@ -406,7 +393,7 @@ run_analysis_pipeline <- function(
   )
 
   write_eiv_sheet(
-    wb, sheet_name = "EIV_between",
+    output_dir, sheet_name = "EIV_between",
     regs = regs_between,
     coef_df_wide = coef_ind_eiv,
     noise_mats_97 = noise_im_97,
@@ -416,7 +403,6 @@ run_analysis_pipeline <- function(
     use_fe = FALSE
   )
 
-  openxlsx::saveWorkbook(wb, output_path, overwrite = TRUE)
-  message("✅ Step 5b Complete. Saved: ", output_path)
+  message("✅ Step 5b Complete. Output directory: ", output_dir)
 
 }

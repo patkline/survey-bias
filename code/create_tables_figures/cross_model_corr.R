@@ -7,7 +7,7 @@
 source("code/globals.R")
 
 # --- Config ---
-output_path <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+full_sample_dir <- file.path(intermediate, "Full_Sample")
 models <- c("PL", "Borda", "OL", "OLS", "OLSC")
 model_labels <- c(PL = "Plackett--Luce", Borda = "Borda", OL = "Ordered Logit", OLS = "Likert", OLSC = "Likert Centered")
 pooled_vars <- c("pooled_favor_white", "pooled_favor_male")
@@ -17,7 +17,7 @@ var_labels <- c(
 )
 
 # --- Read Coefficients (97) ---
-coef_df <- openxlsx::read.xlsx(output_path, sheet = "Coefficients (97)")
+coef_df <- read_parquet_sheet(full_sample_dir, "Coefficients (97)")
 
 # --- Build correlation matrix for one variable ---
 build_cross_model_corr <- function(coef_df, var, models) {

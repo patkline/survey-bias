@@ -96,6 +96,7 @@ dump <- file.path(data, "dump")
 
 # Github output paths
 excel <- file.path(output, "excel")
+intermediate <- file.path(output, "intermediate")
 figures <- file.path(output, "figures")
 tables <- file.path(output, "tables")
 
@@ -120,6 +121,7 @@ required_r_packages <- c(
   "renv",
   
   # core packages (added)
+  "arrow",
   "dplyr",
   "igraph",
   "openxlsx",
@@ -234,3 +236,8 @@ if (length(missing_python_packages) > 0) {
 # ------------------------------------------------------------------------------
 # Source custom functions (if any)
 # ------------------------------------------------------------------------------
+
+# Parquet "sheet" helpers (read_parquet_sheet, write_parquet_sheet, ...)
+# Sourced here so both the analysis pipeline and table/figure scripts can use
+# them without having to load the full analysis/load_all.R
+source(file.path(analysis, "sheet_functions.R"))

@@ -310,9 +310,6 @@ combine_results_equal_weight <- function(res1, res2, new_outcome, w = 0.5) {
 # run_models(): base + combine_valences + subset97 (no writing)
 # ------------------------------------------------------------------------------
 run_models <- function(
-    wb,
-    output_path,
-    
     survey_vars,
     respondent_col,
     
@@ -429,7 +426,6 @@ run_models <- function(
     
     results <- build_subset97_and_write(
       results           = results,
-      wb                = wb,
       survey_vars       = outcomes_for_97,
       firms97_vec       = firms97,
       data              = data_for_experimental,
@@ -445,7 +441,7 @@ run_models <- function(
 # build_subset97_and_write(): now entity-aware, and only subsets Firm entities
 # ------------------------------------------------------------------------------
 build_subset97_and_write <- function(
-    results, wb, survey_vars, firms97_vec,
+    results, survey_vars, firms97_vec,
     data, experimental_vars = NULL, prefix_map = NULL
 ) {
   stopifnot(is.list(results), "all" %in% names(results), "subset97" %in% names(results))
@@ -608,7 +604,7 @@ recenter_objects <- function(beta, S_full = NULL, ...) {
 # ------------------------------------------------------------------------------
 write_coefficients_long_sheet <- function(
     results,
-    wb,
+    output_dir,
     sheet_name = "coefficients_long",
     include_sets = c("all", "subset97"),
     include_models = NULL,
@@ -861,10 +857,8 @@ write_coefficients_long_sheet <- function(
     }
   }
   
-  # write to workbook
-  remove_sheet_safely(wb, sheet_name)
-  openxlsx::addWorksheet(wb, sheet_name)
-  openxlsx::writeData(wb, sheet_name, coef_long)
-  
+  # write to parquet
+  write_parquet_sheet(output_dir, sheet_name, coef_long)
+
   invisible(coef_long)
 }

@@ -63,42 +63,42 @@ firms97 <- data %>% dplyr::filter(!is.na(dif)) %>% select(firm_id) %>% distinct(
 
 subset_var <- NULL
 subset_value <- NULL
-output_path <- file.path(excel,"Plackett_Luce_Full_Sample.xlsx")
+output_dir <- file.path(intermediate, "Full_Sample")
 
 # Function Call Female
 system.time({
   run_analysis_pipeline(
     data, respondent_col, survey_vars, experimental_vars,
     subset_var = subset_var, subset_value = subset_value,
-    output_path = output_path, firms97 = firms97,
+    output_dir = output_dir, firms97 = firms97,
     run_ol = FALSE, run_pl = FALSE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = FALSE,
     combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
     seed = 123
-  ) 
+  )
 })
 
 
 #---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 runs <- tibble::tribble(
   ~subset_var,   ~subset_value, ~output_stub,
-  "confidence_race", 1,         "Plackett_Luce_Subset_Conf_Race_Y",
-  "confidence_race", 0,         "Plackett_Luce_Subset_Conf_Race_N",
-  "confidence_gend", 1,         "Plackett_Luce_Subset_Conf_Gender_Y",
-  "confidence_gend", 0,         "Plackett_Luce_Subset_Conf_Gender_N",
-  "sample",          1,         "Plackett_Luce_Subset_Probability",
-  "sample",          0,         "Plackett_Luce_Subset_Convenience",
-  "gender",          1,         "Plackett_Luce_Subset_Female",
-  "gender",          0,         "Plackett_Luce_Subset_Male",
-  "race",            1,         "Plackett_Luce_Subset_Black",
-  "race",            0,         "Plackett_Luce_Subset_White",
-  "age",             1,         "Plackett_Luce_Subset_Age_gte40",
-  "age",             0,         "Plackett_Luce_Subset_Age_lt40",
-  "looking_job",     1,         "Plackett_Luce_Subset_Looking",
-  "looking_job",     0,         "Plackett_Luce_Subset_Not_Looking",
-  "fear",            1,         "Plackett_Luce_Subset_Feared_Discrimination_1",
-  "fear",            0,         "Plackett_Luce_Subset_Feared_Discrimination_0",
-  "educ",            1,         "Plackett_Luce_Subset_College",
-  "educ",            0,         "Plackett_Luce_Subset_No_College"
+  "confidence_race", 1,         "Subset_Conf_Race_Y",
+  "confidence_race", 0,         "Subset_Conf_Race_N",
+  "confidence_gend", 1,         "Subset_Conf_Gender_Y",
+  "confidence_gend", 0,         "Subset_Conf_Gender_N",
+  "sample",          1,         "Subset_Probability",
+  "sample",          0,         "Subset_Convenience",
+  "gender",          1,         "Subset_Female",
+  "gender",          0,         "Subset_Male",
+  "race",            1,         "Subset_Black",
+  "race",            0,         "Subset_White",
+  "age",             1,         "Subset_Age_gte40",
+  "age",             0,         "Subset_Age_lt40",
+  "looking_job",     1,         "Subset_Looking",
+  "looking_job",     0,         "Subset_Not_Looking",
+  "fear",            1,         "Subset_Feared_Discrimination_1",
+  "fear",            0,         "Subset_Feared_Discrimination_0",
+  "educ",            1,         "Subset_College",
+  "educ",            0,         "Subset_No_College"
 )
 
 
@@ -109,7 +109,7 @@ for (i in seq_len(nrow(runs))) {
   subset_var   <- runs$subset_var[i]
   subset_value <- runs$subset_value[i]
 
-  output_path <- file.path(excel, paste0(runs$output_stub[i], ".xlsx"))
+  output_dir <- file.path(intermediate, runs$output_stub[i])
 
   cat("\n=== Running:", runs$output_stub[i],
       "| subset_var =", subset_var,
@@ -120,11 +120,11 @@ for (i in seq_len(nrow(runs))) {
     run_analysis_pipeline(
       data, respondent_col, survey_vars, experimental_vars,
       subset_var = subset_var, subset_value = subset_value,
-      output_path = output_path, firms97 = firms97,
+      output_dir = output_dir, firms97 = firms97,
       run_ol = FALSE, run_pl = FALSE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = FALSE,
       combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
       seed = 123
-    ) 
+    )
   })
 }
 

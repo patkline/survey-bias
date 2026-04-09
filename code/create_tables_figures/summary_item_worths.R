@@ -1,13 +1,13 @@
 # -------------------------------------------------------------------
 # Build plots/tables using precomputed sheets (no model fitting)
-# Requires: readxl, dplyr, tidyr, ggplot2, xtable, scales, rlang
+# Requires: arrow, dplyr, tidyr, ggplot2, xtable, scales, rlang
 # Prev. name: 4a_summary_item_worths_v6.R
 # -------------------------------------------------------------------
 # Run globals
 source("code/globals.R")
 source(file.path(analysis, "katz_correct.R"))
 
-create_plots_and_tables_from_sheets <- function(excel_path,
+create_plots_and_tables_from_sheets <- function(dir_path,
                                                 outcomes,
                                                 plots_dir,
                                                 tables_dir,
@@ -30,7 +30,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   borda_breaks <- if (borda_max == 100) seq(0, 100, 10) else seq(0, 1, 0.1)
   
   # read core sheets -- new pipeline has a `model` column in Coefficients/EB
-  df_coef_raw <- read_excel(excel_path, sheet = "Coefficients")
+  df_coef_raw <- read_parquet_sheet(dir_path, "Coefficients")
   has_model_col <- "model" %in% names(df_coef_raw)
   df_coef_ols <- NULL
   df_eb_ols <- NULL
@@ -88,30 +88,30 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     df_coef_ols <- to_wide_coef(df_coef_raw, "OLS")
     df_borda <- to_wide_coef(df_coef_raw, "Borda")
 
-    df_eb_raw <- tryCatch(read_excel(excel_path, sheet = "EB Coefficients"), error = function(e) NULL)
+    df_eb_raw <- tryCatch(read_parquet_sheet(dir_path, "EB Coefficients"), error = function(e) NULL)
     if (!is.null(df_eb_raw) && "model" %in% names(df_eb_raw)) {
       df_eb <- df_eb_raw %>% dplyr::filter(.data$model == "PL") %>% dplyr::select(-model)
       df_eb_ols <- df_eb_raw %>% dplyr::filter(.data$model == "OLS") %>% dplyr::select(-model)
       df_borda_eb <- df_eb_raw %>% dplyr::filter(.data$model == "Borda") %>% dplyr::select(-model)
     } else {
-      df_eb <- tryCatch(read_excel(excel_path, sheet = "Coefficients (EB)"), error = function(e) NULL)
+      df_eb <- tryCatch(read_parquet_sheet(dir_path, "Coefficients (EB)"), error = function(e) NULL)
       df_borda_eb <- NULL
     }
     df_eb2 <- NULL
   } else {
     # Old pipeline: separate sheets
     df_coef <- df_coef_raw
-    df_eb   <- read_excel(excel_path, sheet = "Coefficients (EB)")
-    df_eb2  <- tryCatch(read_excel(excel_path, sheet = "Coefficients (EB) V2"), error = function(e) NULL)
-    df_borda    <- tryCatch(read_excel(excel_path, sheet = "borda_score"),    error = function(e) NULL)
-    df_borda_eb <- tryCatch(read_excel(excel_path, sheet = "borda_score_eb"), error = function(e) NULL)
+    df_eb   <- read_parquet_sheet(dir_path, "Coefficients (EB)")
+    df_eb2  <- tryCatch(read_parquet_sheet(dir_path, "Coefficients (EB) V2"), error = function(e) NULL)
+    df_borda    <- tryCatch(read_parquet_sheet(dir_path, "borda_score"),    error = function(e) NULL)
+    df_borda_eb <- tryCatch(read_parquet_sheet(dir_path, "borda_score_eb"), error = function(e) NULL)
   }
 
-  df_avg  <- tryCatch(read_excel(excel_path, sheet = "Average Ratings"), error = function(e) NULL)
-  df_n    <- tryCatch(read_excel(excel_path, sheet = "Ratings Observations"), error = function(e) NULL)
+  df_avg  <- tryCatch(read_parquet_sheet(dir_path, "Average Ratings"), error = function(e) NULL)
+  df_n    <- tryCatch(read_parquet_sheet(dir_path, "Ratings Observations"), error = function(e) NULL)
   
   # Try combined Win_Share sheet (older style); filter by ws_type if present
-  df_ws_combined <- tryCatch(read_excel(excel_path, sheet = "Win_Share"), error = function(e) NULL)
+  df_ws_combined <- tryCatch(read_parquet_sheet(dir_path, "Win_Share"), error = function(e) NULL)
   if (!is.null(df_ws_combined) && !is.null(ws_type) && ("type" %in% names(df_ws_combined))) {
     df_ws_combined <- dplyr::filter(df_ws_combined, .data$type == ws_type)
   }
@@ -132,7 +132,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   
   # helper: pick expected-borda sheet name under Excel's 31-char cap
   pick_expected_sheet <- function(path, prefix, outcome, max_len = 31L) {
-    sheets  <- readxl::excel_sheets(path)
+    sheets  <- list_parquet_sheets(path)
     allowed <- max_len - nchar(prefix)
     if (allowed <= 0) return(NA_character_)
     full  <- paste0(prefix, outcome)
@@ -155,7 +155,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   # - Formats numbers with EXACTLY 3 decimals (padded)
   # - If scale_borda_to_100 = TRUE, scales Borda SD-like terms by 100 (not 100^2)
   # -------------------------------------------------------------------
-  write_variance_biascorrected_table <- function(excel_path,
+  write_variance_biascorrected_table <- function(dir_path,
                                                  outcomes = NULL,
                                                  tables_dir,
                                                  label_mapping = NULL,
@@ -165,7 +165,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
                                                  borda_mult = 1) {
 
     # Try new pipeline "variance" sheet first, then fall back to old "sum_signal_noise"
-    var_df <- tryCatch(readxl::read_excel(excel_path, sheet = "variance"),
+    var_df <- tryCatch(read_parquet_sheet(dir_path, "variance"),
                        error = function(e) NULL)
     use_new_format <- !is.null(var_df) && "model" %in% names(var_df)
 
@@ -240,10 +240,10 @@ create_plots_and_tables_from_sheets <- function(excel_path,
 
     } else {
       # --- Old pipeline: sum_signal_noise sheet ---
-      ssn <- tryCatch(readxl::read_excel(excel_path, sheet = "sum_signal_noise"),
+      ssn <- tryCatch(read_parquet_sheet(dir_path, "sum_signal_noise"),
                       error = function(e) NULL)
       if (is.null(ssn)) {
-        message("Could not read 'variance' or 'sum_signal_noise' from: ", excel_path)
+        message("Could not read 'variance' or 'sum_signal_noise' from: ", dir_path)
         return(invisible(NULL))
       }
 
@@ -522,7 +522,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
   
   # Call remains the same:
   variance_tables <- write_variance_biascorrected_table(
-    excel_path    = excel_path,
+    dir_path      = dir_path,
     outcomes      = outcomes,
     tables_dir    = tables_dir,
     label_mapping = label_mapping,
@@ -698,7 +698,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
     if (!"std_dev" %in% names(merged_df)) merged_df$std_dev <- NA_real_
     
     # Win Share: prefer per-outcome sheet "Win_Share_<outcome>", else use combined if present
-    df_ws_outcome <- tryCatch(read_excel(excel_path, sheet = paste0("Win_Share_", new_outcome)),
+    df_ws_outcome <- tryCatch(read_parquet_sheet(dir_path, paste0("Win_Share_", new_outcome)),
                               error = function(e) NULL)
     if (!is.null(df_ws_outcome)) {
       ws_df <- df_ws_outcome
@@ -1133,7 +1133,7 @@ create_plots_and_tables_from_sheets <- function(excel_path,
 # - Produces two-panel table with same columns as Table 3 format
 # -------------------------------------------------------------------
 write_variance_biascorrected_ols_borda_within_between <- function(
-    excel_path,
+    dir_path,
     outcomes,
     tables_dir,
     label_mapping = NULL,
@@ -1142,10 +1142,10 @@ write_variance_biascorrected_ols_borda_within_between <- function(
     latex_decimals = 3,
     borda_mult = 1
 ) {
-  var_df <- tryCatch(readxl::read_excel(excel_path, sheet = "variance"),
+  var_df <- tryCatch(read_parquet_sheet(dir_path, "variance"),
                      error = function(e) NULL)
   if (is.null(var_df) || !"model" %in% names(var_df)) {
-    message("Could not read new-format variance sheet with model column from: ", excel_path)
+    message("Could not read new-format variance sheet with model column from: ", dir_path)
     return(invisible(NULL))
   }
 
@@ -1176,7 +1176,7 @@ write_variance_biascorrected_ols_borda_within_between <- function(
   # The variance sheet computes _im stats unweighted across industries.
   # To interpret as firm-level, reweight by n_k (firm count per industry),
   # read from the Coefficients sheet where njobs = firm count for _im rows.
-  coef_df <- tryCatch(readxl::read_excel(excel_path, sheet = "Coefficients"),
+  coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
                       error = function(e) NULL)
 
   if (!is.null(coef_df)) {
@@ -1341,8 +1341,8 @@ write_variance_biascorrected_ols_borda_within_between <- function(
 # -------------------------------
 # Example calls
 # -------------------------------
-# excel_dir <- "/path/to/excels"
-excel_path  <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+# dir_path for parquet-based pipeline
+dir_path  <- file.path(intermediate, "Full_Sample")
 
 label_mapping <- c(
   "discretion" = "Manager Discretion",
@@ -1368,14 +1368,14 @@ outs <- c(
 
 # Example: rescale Borda to 0–100 everywhere
 create_plots_and_tables_from_sheets(
-  excel_path, outs, figures, tables,
+  dir_path, outs, figures, tables,
   label_mapping = label_mapping,
   add_45_line = TRUE,
   scale_borda_to_100 = FALSE
 )
 
 write_variance_biascorrected_ols_borda_within_between(
-  excel_path = excel_path,
+  dir_path = dir_path,
   outcomes = outs,
   tables_dir = tables,
   label_mapping = label_mapping,
@@ -1422,7 +1422,7 @@ alternate_label_mapping <- c(
 
 # Create tables for alternate framings
 create_plots_and_tables_from_sheets(
-  excel_path, alternate_framings, figures, tables,
+  dir_path, alternate_framings, figures, tables,
   label_mapping = alternate_label_mapping,
   add_45_line = TRUE,
   scale_borda_to_100 = FALSE,

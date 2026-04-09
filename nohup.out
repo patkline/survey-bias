@@ -1,0 +1,257 @@
+- The project is out-of-sync -- use `renv::status()` for details.
+here() starts at /Users/monicahea/Desktop/survey-bias/survey-bias
+
+Attaching package: ‘renv’
+
+The following objects are masked from ‘package:utils’:
+
+    history, upgrade
+
+The following objects are masked from ‘package:base’:
+
+    autoload, load, remove, use
+
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: ‘igraph’
+
+The following objects are masked from ‘package:dplyr’:
+
+    as_data_frame, groups, union
+
+The following object is masked from ‘package:base’:
+
+    union
+
+
+Attaching package: ‘stats’
+
+The following objects are masked from ‘package:igraph’:
+
+    decompose, spectrum
+
+The following objects are masked from ‘package:dplyr’:
+
+    filter, lag
+
+The following objects are masked from ‘package:renv’:
+
+    embed, update
+
+
+Attaching package: ‘gnm’
+
+The following object is masked from ‘package:igraph’:
+
+    gnm
+
+
+Attaching package: ‘tibble’
+
+The following object is masked from ‘package:igraph’:
+
+    as_data_frame
+
+
+Attaching package: ‘tidyr’
+
+The following object is masked from ‘package:PlackettLuce’:
+
+    complete
+
+The following object is masked from ‘package:igraph’:
+
+    crossing
+
+
+Attaching package: ‘rlang’
+
+The following object is masked from ‘package:igraph’:
+
+    is_named
+
+
+Attaching package: ‘kableExtra’
+
+The following object is masked from ‘package:dplyr’:
+
+    group_rows
+
+Linking to ImageMagick 6.9.13.29
+Enabled features: cairo, fontconfig, freetype, heic, lcms, pango, raw, rsvg, webp
+Disabled features: fftw, ghostscript, x11
+
+Attaching package: ‘ordinal’
+
+The following object is masked from ‘package:dplyr’:
+
+    slice
+
+
+Attaching package: ‘readr’
+
+The following object is masked from ‘package:scales’:
+
+    col_factor
+
+- The project is out-of-sync -- use `renv::status()` for details.
+here() starts at /Users/monicahea/Desktop/survey-bias/survey-bias
+
+Attaching package: ‘renv’
+
+The following objects are masked from ‘package:utils’:
+
+    history, upgrade
+
+The following objects are masked from ‘package:base’:
+
+    autoload, load, remove, use
+
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: ‘igraph’
+
+The following objects are masked from ‘package:dplyr’:
+
+    as_data_frame, groups, union
+
+The following object is masked from ‘package:base’:
+
+    union
+
+
+Attaching package: ‘stats’
+
+The following objects are masked from ‘package:igraph’:
+
+    decompose, spectrum
+
+The following objects are masked from ‘package:dplyr’:
+
+    filter, lag
+
+The following objects are masked from ‘package:renv’:
+
+    embed, update
+
+
+Attaching package: ‘gnm’
+
+The following object is masked from ‘package:igraph’:
+
+    gnm
+
+
+Attaching package: ‘tibble’
+
+The following object is masked from ‘package:igraph’:
+
+    as_data_frame
+
+
+Attaching package: ‘tidyr’
+
+The following object is masked from ‘package:PlackettLuce’:
+
+    complete
+
+The following object is masked from ‘package:igraph’:
+
+    crossing
+
+
+Attaching package: ‘rlang’
+
+The following object is masked from ‘package:igraph’:
+
+    is_named
+
+
+Attaching package: ‘kableExtra’
+
+The following object is masked from ‘package:dplyr’:
+
+    group_rows
+
+Linking to ImageMagick 6.9.13.29
+Enabled features: cairo, fontconfig, freetype, heic, lcms, pango, raw, rsvg, webp
+Disabled features: fftw, ghostscript, x11
+
+Attaching package: ‘ordinal’
+
+The following object is masked from ‘package:dplyr’:
+
+    slice
+
+
+Attaching package: ‘readr’
+
+The following object is masked from ‘package:scales’:
+
+    col_factor
+
+[1] "🎃 Processing theta and variance for sample: Black | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Black | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Black | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Black | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: White | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: White | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: White | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: White | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Female | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Female | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Female | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Female | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Male | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Male | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Male | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Male | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Looking | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Looking | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Looking | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Looking | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Not_Looking | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Not_Looking | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Not_Looking | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Not_Looking | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_1 | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_1 | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_1 | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_1 | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_0 | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_0 | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_0 | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Feared_Discrimination_0 | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Age_gte40 | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Age_gte40 | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Age_gte40 | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Age_gte40 | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Age_lt40 | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Age_lt40 | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: Age_lt40 | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: Age_lt40 | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: College | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: College | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: College | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: College | model: Borda | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: No_College | model: OLS | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: No_College | model: OLS | outcome: pooled_favor_male"
+[1] "🎃 Processing theta and variance for sample: No_College | model: Borda | outcome: pooled_favor_white"
+[1] "🎃 Processing theta and variance for sample: No_College | model: Borda | outcome: pooled_favor_male"
+Error in utils::unzip(zip_path, list = TRUE) : 
+  zip file '/Users/monicahea/Library/CloudStorage/Dropbox/Survey/consolidated_code/github_data_and_output_mirrors/output/excel/Plackett_Luce_Subset_Convenience.xlsx' cannot be opened
+Calls: <Anonymous> ... standardise_sheet -> %in% -> sheets_fun -> <Anonymous> -> <Anonymous>
+Execution halted
+Saved: /Users/monicahea/Dropbox/Survey/consolidated_code/github_data_and_output_mirrors/output/tables/EIV_univariate_wt_ols_borda_w_gender_sq.tex

@@ -3,7 +3,7 @@ source("code/globals.R")
 # Build a row-wise table of opposite-valence pair correlations across models
 # using corr_c from each pairwise summary sheet.
 
-full_sample_wb <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+full_sample_dir <- file.path(intermediate, "Full_Sample")
 all_firms_flag <- TRUE
 
 opposite_pairs <- tibble::tribble(
@@ -26,8 +26,8 @@ to_logical_flag <- function(x) {
   as.logical(x)
 }
 
-read_pairwise_corr <- function(path, sheet, model_col, all_firms_value = TRUE) {
-  df <- readxl::read_xlsx(path, sheet = sheet)
+read_pairwise_corr <- function(dir_path, sheet, model_col, all_firms_value = TRUE) {
+  df <- read_parquet_sheet(dir_path, sheet)
   req <- c("lhs", "rhs", "corr_c")
   miss <- setdiff(req, names(df))
   if (length(miss) > 0) {
@@ -56,21 +56,21 @@ read_pairwise_corr <- function(path, sheet, model_col, all_firms_value = TRUE) {
 }
 
 ol_corr <- read_pairwise_corr(
-  path = full_sample_wb,
+  dir_path = full_sample_dir,
   sheet = "pairwise_summary_ol",
   model_col = "OL",
   all_firms_value = all_firms_flag
 )
 
 pl_corr <- read_pairwise_corr(
-  path = full_sample_wb,
+  dir_path = full_sample_dir,
   sheet = "pairwise_summary",
   model_col = "PL",
   all_firms_value = all_firms_flag
 )
 
 borda_corr <- read_pairwise_corr(
-  path = full_sample_wb,
+  dir_path = full_sample_dir,
   sheet = "pairwise_summary_borda",
   model_col = "Borda",
   all_firms_value = all_firms_flag

@@ -1,7 +1,8 @@
 # ------------------------------------------------------------------------------
 # Purpose: Run EIV for log_dif_gender_sq ~ discretion and
 #          log_dif_gender_sq ~ FirmSelective (OLS + Borda, full sample).
-#          Saves results to a standalone xlsx to avoid slow loadWorkbook.
+#          Reads intermediate parquet "sheets" and saves results to a
+#          standalone parquet directory.
 #
 # Created: 2026-03-24
 # ------------------------------------------------------------------------------
@@ -41,8 +42,8 @@ valence_triples <- list(
 new_outcomes <- vapply(valence_triples, `[[`, character(1), "new_outcome")
 variables <- c(survey_vars, new_outcomes)
 
-output_path <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
-stopifnot(file.exists(output_path))
+input_dir <- file.path(intermediate, "Full_Sample")
+stopifnot(dir.exists(input_dir))
 
 # --- Industry map ---
 industry_map <- data %>%
@@ -50,13 +51,13 @@ industry_map <- data %>%
   dplyr::distinct() %>%
   dplyr::mutate(firm_id = as.integer(firm_id))
 
-# --- Read existing sheets with read_xlsx (NOT loadWorkbook) ---
+# --- Read existing intermediate sheets from parquet ---
 message("Reading existing sheets...")
-variance_df   <- readxl::read_xlsx(output_path, sheet = "variance")
+variance_df   <- read_parquet_sheet(input_dir, "variance")
 message("  variance done")
-covariance_df <- readxl::read_xlsx(output_path, sheet = "covariance")
+covariance_df <- read_parquet_sheet(input_dir, "covariance")
 message("  covariance done")
-coef_long_df  <- readxl::read_xlsx(output_path, sheet = "Coefficients")
+coef_long_df  <- read_parquet_sheet(input_dir, "Coefficients")
 message("  coefficients done")
 
 # --- Build noise matrices (OLS and Borda only) ---
@@ -132,12 +133,10 @@ eiv_new <- run_eiv_suite(
   use_fe       = TRUE
 )
 
-# --- Save to standalone file ---
-standalone_path <- file.path(excel, "EIV_gender_sq_results.xlsx")
-wb_new <- openxlsx::createWorkbook()
-openxlsx::addWorksheet(wb_new, "EIV_firm_gender_sq")
-openxlsx::writeData(wb_new, "EIV_firm_gender_sq", eiv_new)
-openxlsx::saveWorkbook(wb_new, standalone_path, overwrite = TRUE)
+# --- Save to standalone parquet directory ---
+standalone_dir <- file.path(intermediate, "EIV_gender_sq_results")
+write_parquet_sheet(standalone_dir, "EIV_firm_gender_sq", eiv_new)
 
-message("Done. Saved ", nrow(eiv_new), " rows to: ", standalone_path)
+message("Done. Saved ", nrow(eiv_new), " rows to: ",
+        file.path(standalone_dir, "EIV_firm_gender_sq.parquet"))
 print(eiv_new)

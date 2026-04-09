@@ -206,7 +206,7 @@ run_eiv_suite <- function(
 # ==============================================================================
 
 write_eiv_sheet <- function(
-    wb,
+    output_dir,
     sheet_name = "EIV",
     regs,
     coef_df_wide,
@@ -229,11 +229,9 @@ write_eiv_sheet <- function(
     weights_col  = weights_col,
     use_fe       = use_fe
   )
-  
-  remove_sheet_safely(wb, sheet_name)
-  openxlsx::addWorksheet(wb, sheet_name)
-  openxlsx::writeData(wb, sheet_name, eiv_df)
-  
+
+  write_parquet_sheet(output_dir, sheet_name, eiv_df)
+
   invisible(eiv_df)
 }
 

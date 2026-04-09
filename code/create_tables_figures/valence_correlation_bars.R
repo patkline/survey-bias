@@ -6,12 +6,11 @@
 # -------------------------------------------------------------------
 source("code/globals.R")
 
-library(openxlsx)
 library(dplyr)
 library(ggplot2)
 
 # --- Config -----------------------------------------------------------
-excel_path <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+full_sample_dir <- file.path(intermediate, "Full_Sample")
 models     <- c("PL", "Borda", "OL", "OLS", "OLSC")
 subset_filter <- "all"
 model_title_map <- c(OLS = "Likert", OLSC = "Likert Centered")
@@ -30,7 +29,7 @@ gender_pairs <- list(
 )
 
 # --- Read correlation sheet -------------------------------------------
-corr_df <- read.xlsx(excel_path, sheet = "correlation") %>%
+corr_df <- read_parquet_sheet(full_sample_dir, "correlation") %>%
   dplyr::filter(subset == subset_filter)
 
 # --- Helper: look up corr_c for a pair -------------------------------

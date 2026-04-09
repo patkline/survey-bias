@@ -38,7 +38,7 @@ compute_variance_noise_signal <- function(res) {
 }
 
 
-write_variance_sheet <- function(results, wb, sheet_name = "variance") {
+write_variance_sheet <- function(results, output_dir, sheet_name = "variance") {
   # results: list(all=..., subset97=...)
   stopifnot(is.list(results), !is.null(results$all))
   
@@ -83,10 +83,8 @@ write_variance_sheet <- function(results, wb, sheet_name = "variance") {
   
   var_df <- dplyr::bind_rows(rows) %>%
     dplyr::arrange(subset, model, outcome)   # <-- FIX: no OL/PL/Borda columns anymore
-  
-  remove_sheet_safely(wb, sheet_name)
-  openxlsx::addWorksheet(wb, sheet_name)
-  openxlsx::writeData(wb, sheet_name, var_df)
-  
+
+  write_parquet_sheet(output_dir, sheet_name, var_df)
+
   invisible(var_df)
 }

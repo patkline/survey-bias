@@ -2,18 +2,17 @@ source("code/globals.R")
 
 library(dplyr)
 library(kableExtra)
-library(readxl)
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
 # Read one coef/se pair from EIV_within or EIV_between sheet (coef = 1 only)
-pull_est_no_fe <- function(root, file, lhs_var, rhs_var,
+pull_est_no_fe <- function(root, subdir, lhs_var, rhs_var,
                            sheet = "EIV_within", model_filter = NULL) {
-  path <- file.path(root, file)
-  dat <- readxl::read_xlsx(path, sheet = sheet)
-  if (!nrow(dat)) stop("Empty sheet '", sheet, "' in ", path)
+  dir_path <- file.path(root, subdir)
+  dat <- read_parquet_sheet(dir_path, sheet)
+  if (!nrow(dat)) stop("Empty sheet '", sheet, "' in ", dir_path)
 
   dat$coef <- suppressWarnings(as.numeric(dat$coef))
 
@@ -29,7 +28,7 @@ pull_est_no_fe <- function(root, file, lhs_var, rhs_var,
   paste0(fmt3(est), " (", fmt3(se), ")")
 }
 
-# Default sample -> file map
+# Default sample -> intermediate subdirectory map
 default_filemap <- tibble(
   Sample = c("Full Sample",
              "Black",
@@ -42,17 +41,17 @@ default_filemap <- tibble(
              "Did Not Fear Discrimination",
              "40 Years or Older",
              "Less than 40 Years Old"),
-  file  = c("Plackett_Luce_Full_Sample.xlsx",
-            "Plackett_Luce_Subset_Black.xlsx",
-            "Plackett_Luce_Subset_White.xlsx",
-            "Plackett_Luce_Subset_Female.xlsx",
-            "Plackett_Luce_Subset_Male.xlsx",
-            "Plackett_Luce_Subset_Looking.xlsx",
-            "Plackett_Luce_Subset_Not_Looking.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
-            "Plackett_Luce_Subset_Age_gte40.xlsx",
-            "Plackett_Luce_Subset_Age_lt40.xlsx")
+  subdir = c("Full_Sample",
+             "Subset_Black",
+             "Subset_White",
+             "Subset_Female",
+             "Subset_Male",
+             "Subset_Looking",
+             "Subset_Not_Looking",
+             "Subset_Feared_Discrimination_1",
+             "Subset_Feared_Discrimination_0",
+             "Subset_Age_gte40",
+             "Subset_Age_lt40")
 )
 
 # ---------- BUILD DF FOR ONE WITHIN/BETWEEN CONFIG ----------
@@ -70,12 +69,12 @@ build_eiv_df_no_fe <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      `(1) Contact` = pull_est_no_fe(root, file, lhs, rhs_contact, sheet_name, model_filter),
-      `(2) Conduct` = pull_est_no_fe(root, file, lhs, rhs_conduct, sheet_name, model_filter),
-      `(3) Pooled`  = pull_est_no_fe(root, file, lhs, rhs_extra,   sheet_name, model_filter)
+      `(1) Contact` = pull_est_no_fe(root, subdir, lhs, rhs_contact, sheet_name, model_filter),
+      `(2) Conduct` = pull_est_no_fe(root, subdir, lhs, rhs_conduct, sheet_name, model_filter),
+      `(3) Pooled`  = pull_est_no_fe(root, subdir, lhs, rhs_extra,   sheet_name, model_filter)
     ) %>%
     ungroup() %>%
-    select(-file)
+    select(-subdir)
 
   table_df
 }
@@ -128,7 +127,7 @@ make_wb_cfg <- function(root, model, lhs, rhs_contact, rhs_conduct, rhs_extra,
   )
 }
 
-root_dir <- excel
+root_dir <- intermediate
 
 # ==========================================================================
 # Within-industry tables (demeaned)

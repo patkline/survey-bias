@@ -1,7 +1,7 @@
 source("code/globals.R")
 
-# Location of the input Excel files used to build this table
-root_dir <- excel
+# Location of the intermediate parquet directories used to build this table
+root_dir <- intermediate
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
@@ -9,11 +9,11 @@ root_dir <- excel
 fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 
 # Read one coef/se pair from the unified EIV sheet (new pipeline)
-pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
+pull_est <- function(root, subdir, lhs_var, rhs_var, coef_num,
                      sheet = "EIV_firm", model_filter = NULL, divide_by_100 = FALSE) {
 
-  path <- file.path(root, file)
-  dat <- tryCatch(readxl::read_xlsx(path, sheet = sheet),
+  dir_path <- file.path(root, subdir)
+  dat <- tryCatch(read_parquet_sheet(dir_path, sheet),
                   error = function(e) tibble::tibble())
 
   if (!nrow(dat)) return("NA (NA)")
@@ -46,7 +46,7 @@ pull_est <- function(root, file, lhs_var, rhs_var, coef_num,
   paste0(fmt3(est), " (", fmt3(se), ")")
 }
 
-# Default sample -> file map
+# Default sample -> intermediate subdirectory map
 default_filemap <- tibble(
   Sample = c("Full Sample",
              "Black",
@@ -59,17 +59,17 @@ default_filemap <- tibble(
              "Did Not Fear Discrimination",
              "40 Years or Older",
              "Less than 40 Years Old"),
-  file  = c("Plackett_Luce_Full_Sample.xlsx",
-            "Plackett_Luce_Subset_Black.xlsx",
-            "Plackett_Luce_Subset_White.xlsx",
-            "Plackett_Luce_Subset_Female.xlsx",
-            "Plackett_Luce_Subset_Male.xlsx",
-            "Plackett_Luce_Subset_Looking.xlsx",
-            "Plackett_Luce_Subset_Not_Looking.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-            "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
-            "Plackett_Luce_Subset_Age_gte40.xlsx",
-            "Plackett_Luce_Subset_Age_lt40.xlsx")
+  subdir = c("Full_Sample",
+             "Subset_Black",
+             "Subset_White",
+             "Subset_Female",
+             "Subset_Male",
+             "Subset_Looking",
+             "Subset_Not_Looking",
+             "Subset_Feared_Discrimination_1",
+             "Subset_Feared_Discrimination_0",
+             "Subset_Age_gte40",
+             "Subset_Age_lt40")
 )
 
 # ---------- BUILD DF FOR ONE PANEL (TWO COLUMNS) ----------
@@ -94,11 +94,11 @@ build_eiv_df_two_cols <- function(cfg) {
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      !!col1_label := pull_est(root, file, lhs, rhs, coef1, sheet = sheet_name, model_filter = model_filter, divide_by_100 = scale_by_100),
-      !!col2_label := pull_est(root, file, lhs, rhs, coef2, sheet = sheet_name, model_filter = model_filter, divide_by_100 = scale_by_100)
+      !!col1_label := pull_est(root, subdir, lhs, rhs, coef1, sheet = sheet_name, model_filter = model_filter, divide_by_100 = scale_by_100),
+      !!col2_label := pull_est(root, subdir, lhs, rhs, coef2, sheet = sheet_name, model_filter = model_filter, divide_by_100 = scale_by_100)
     ) %>%
     ungroup() %>%
-    select(-file)
+    select(-subdir)
 
   table_df
 }

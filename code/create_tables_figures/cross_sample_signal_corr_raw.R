@@ -17,7 +17,7 @@ get_firm_id_col <- function(df) {
   stop("Could not find firm identifier column (expected `firm_id` or `entity_id`).")
 }
 
-full_sample_file <- "Plackett_Luce_Full_Sample.xlsx"
+full_sample_subdir <- "Full_Sample"
 
 sample_filemap <- tibble::tibble(
   sample = c("Black",
@@ -38,24 +38,24 @@ sample_filemap <- tibble::tibble(
              "Confident (Gender)",
              "Not Confident (Race)",
              "Confident (Race)"),
-  file   = c("Plackett_Luce_Subset_Black.xlsx",
-             "Plackett_Luce_Subset_White.xlsx",
-             "Plackett_Luce_Subset_Female.xlsx",
-             "Plackett_Luce_Subset_Male.xlsx",
-             "Plackett_Luce_Subset_Looking.xlsx",
-             "Plackett_Luce_Subset_Not_Looking.xlsx",
-             "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-             "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
-             "Plackett_Luce_Subset_Age_gte40.xlsx",
-             "Plackett_Luce_Subset_Age_lt40.xlsx",
-             "Plackett_Luce_Subset_College.xlsx",
-             "Plackett_Luce_Subset_No_College.xlsx",
-             "Plackett_Luce_Subset_Convenience.xlsx",
-             "Plackett_Luce_Subset_Probability.xlsx",
-             "Plackett_Luce_Subset_Conf_Gender_N.xlsx",
-             "Plackett_Luce_Subset_Conf_Gender_Y.xlsx",
-             "Plackett_Luce_Subset_Conf_Race_N.xlsx",
-             "Plackett_Luce_Subset_Conf_Race_Y.xlsx")
+  subdir = c("Subset_Black",
+             "Subset_White",
+             "Subset_Female",
+             "Subset_Male",
+             "Subset_Looking",
+             "Subset_Not_Looking",
+             "Subset_Feared_Discrimination_1",
+             "Subset_Feared_Discrimination_0",
+             "Subset_Age_gte40",
+             "Subset_Age_lt40",
+             "Subset_College",
+             "Subset_No_College",
+             "Subset_Convenience",
+             "Subset_Probability",
+             "Subset_Conf_Gender_N",
+             "Subset_Conf_Gender_Y",
+             "Subset_Conf_Race_N",
+             "Subset_Conf_Race_Y")
 )
 
 sample_pairs <- tibble::tibble(
@@ -84,10 +84,10 @@ outcomes <- c("pooled_favor_white", "pooled_favor_male")
 # -------------------------------------------------------------------
 # 1. Helper: read theta (identical to real script)
 # -------------------------------------------------------------------
-read_theta <- function(excel, file, outcome,
+read_theta <- function(root, subdir, outcome,
                        model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
-  path  <- file.path(excel, file)
+  dir_path <- file.path(root, subdir)
 
   model_map <- list(
     pl    = list(filter = "PL",    old_sheet = "Coefficients"),
@@ -98,13 +98,13 @@ read_theta <- function(excel, file, outcome,
   )
 
   coef_sheet <- "Coefficients"
-  df <- readxl::read_xlsx(path, sheet = coef_sheet)
+  df <- read_parquet_sheet(dir_path, coef_sheet)
 
   if ("model" %in% names(df)) {
     model_val <- model_map[[model]]$filter
     df <- df %>% dplyr::filter(.data$model == model_val)
   } else if (model == "borda") {
-    df <- readxl::read_xlsx(path, sheet = "borda_score")
+    df <- read_parquet_sheet(dir_path, "borda_score")
   }
 
   id_col <- get_firm_id_col(df)
@@ -176,7 +176,7 @@ compute_corr_row_raw <- function(theta1, theta2,
 # 3. Build raw correlation table
 # -------------------------------------------------------------------
 build_corr_table_raw <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
-                                 excel,
+                                 root,
                                  sample_filemap,
                                  sample_pairs,
                                  outcomes) {
@@ -190,15 +190,15 @@ build_corr_table_raw <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
       s1 <- sample_pairs$sample1[i]
       s2 <- sample_pairs$sample2[i]
 
-      f1 <- sample_filemap$file[sample_filemap$sample == s1]
-      f2 <- sample_filemap$file[sample_filemap$sample == s2]
-      if (length(f1) != 1L || length(f2) != 1L) {
-        warning("File not found for sample(s): ", s1, " or ", s2)
+      d1 <- sample_filemap$subdir[sample_filemap$sample == s1]
+      d2 <- sample_filemap$subdir[sample_filemap$sample == s2]
+      if (length(d1) != 1L || length(d2) != 1L) {
+        warning("Directory not found for sample(s): ", s1, " or ", s2)
         next
       }
 
-      theta1 <- read_theta(excel, f1, outcome, model = model)
-      theta2 <- read_theta(excel, f2, outcome, model = model)
+      theta1 <- read_theta(root, d1, outcome, model = model)
+      theta2 <- read_theta(root, d2, outcome, model = model)
 
       row_out <- compute_corr_row_raw(
         theta1, theta2,
@@ -220,11 +220,11 @@ build_corr_table_raw <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
 # 4. Run for all models
 # -------------------------------------------------------------------
 
-pl_corr    <- build_corr_table_raw("pl",    excel, sample_filemap, sample_pairs, outcomes)
-borda_corr <- build_corr_table_raw("borda", excel, sample_filemap, sample_pairs, outcomes)
-ol_corr    <- build_corr_table_raw("ol",    excel, sample_filemap, sample_pairs, outcomes)
-ols_corr   <- build_corr_table_raw("ols",   excel, sample_filemap, sample_pairs, outcomes)
-olsc_corr  <- build_corr_table_raw("olsc",  excel, sample_filemap, sample_pairs, outcomes)
+pl_corr    <- build_corr_table_raw("pl",    intermediate, sample_filemap, sample_pairs, outcomes)
+borda_corr <- build_corr_table_raw("borda", intermediate, sample_filemap, sample_pairs, outcomes)
+ol_corr    <- build_corr_table_raw("ol",    intermediate, sample_filemap, sample_pairs, outcomes)
+ols_corr   <- build_corr_table_raw("ols",   intermediate, sample_filemap, sample_pairs, outcomes)
+olsc_corr  <- build_corr_table_raw("olsc",  intermediate, sample_filemap, sample_pairs, outcomes)
 
 # -------------------------------------------------------------------
 # 5. Build LaTeX table

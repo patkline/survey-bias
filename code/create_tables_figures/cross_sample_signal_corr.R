@@ -25,13 +25,11 @@ sample_list <- c("Black", "White", "Female", "Male", "Looking", "Not_Looking", "
 # Loop over sample excel sheets
 for (sample in sample_list) {
 
-  ## Import and assign theta estimates for current sample to a data frame 
-  # Assign `Coefficients` sheet in excel to a data frame
-  theta_vector_sample <- readxl::read_xlsx(
-    # File path
-    file.path(excel, paste0("Plackett_Luce_Subset_", sample, ".xlsx")),
-    # Sheet name
-    sheet = "Coefficients"
+  ## Import and assign theta estimates for current sample to a data frame
+  # Load `Coefficients` parquet from the intermediate directory for this sample
+  theta_vector_sample <- read_parquet_sheet(
+    file.path(intermediate, paste0("Subset_", sample)),
+    "Coefficients"
   )
 
   # Assert unique on entity_type x subset x model x outcome x entity_id
@@ -41,13 +39,11 @@ for (sample in sample_list) {
   theta_vector_sample <- theta_vector_sample %>%
     dplyr::filter(.data$entity_type == "Firm", .data$subset == "all")
 
-  ## Import and assign variance estimates for current sample to a data frame 
-  # Assign `variance` sheet from the same file to a data frame
-  signal_total_variance_sample <- readxl::read_xlsx(
-    # File path
-    file.path(excel, paste0("Plackett_Luce_Subset_", sample, ".xlsx")),
-    # Sheet name
-    sheet = "variance"
+  ## Import and assign variance estimates for current sample to a data frame
+  # Load `variance` parquet from the same intermediate directory
+  signal_total_variance_sample <- read_parquet_sheet(
+    file.path(intermediate, paste0("Subset_", sample)),
+    "variance"
   )
 
   # Assert unique on subset x model x outcome

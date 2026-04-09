@@ -21,7 +21,7 @@ get_firm_id_col <- function(df) {
   stop("Could not find firm identifier column (expected `firm_id` or `entity_id`).")
 }
 
-full_sample_file <- "Plackett_Luce_Full_Sample.xlsx"
+full_sample_subdir <- "Full_Sample"
 
 sample_filemap <- tibble::tibble(
   sample = c("Black",
@@ -42,24 +42,24 @@ sample_filemap <- tibble::tibble(
              "Confident (Gender)",
              "Not Confident (Race)",
              "Confident (Race)"),
-  file   = c("Plackett_Luce_Subset_Black.xlsx",
-             "Plackett_Luce_Subset_White.xlsx",
-             "Plackett_Luce_Subset_Female.xlsx",
-             "Plackett_Luce_Subset_Male.xlsx",
-             "Plackett_Luce_Subset_Looking.xlsx",
-             "Plackett_Luce_Subset_Not_Looking.xlsx",
-             "Plackett_Luce_Subset_Feared_Discrimination_1.xlsx",
-             "Plackett_Luce_Subset_Feared_Discrimination_0.xlsx",
-             "Plackett_Luce_Subset_Age_gte40.xlsx",
-             "Plackett_Luce_Subset_Age_lt40.xlsx",
-             "Plackett_Luce_Subset_College.xlsx",
-             "Plackett_Luce_Subset_No_College.xlsx",
-             "Plackett_Luce_Subset_Convenience.xlsx",
-             "Plackett_Luce_Subset_Probability.xlsx",
-             "Plackett_Luce_Subset_Conf_Gender_N.xlsx",
-             "Plackett_Luce_Subset_Conf_Gender_Y.xlsx",
-             "Plackett_Luce_Subset_Conf_Race_N.xlsx",
-             "Plackett_Luce_Subset_Conf_Race_Y.xlsx")
+  subdir = c("Subset_Black",
+             "Subset_White",
+             "Subset_Female",
+             "Subset_Male",
+             "Subset_Looking",
+             "Subset_Not_Looking",
+             "Subset_Feared_Discrimination_1",
+             "Subset_Feared_Discrimination_0",
+             "Subset_Age_gte40",
+             "Subset_Age_lt40",
+             "Subset_College",
+             "Subset_No_College",
+             "Subset_Convenience",
+             "Subset_Probability",
+             "Subset_Conf_Gender_N",
+             "Subset_Conf_Gender_Y",
+             "Subset_Conf_Race_N",
+             "Subset_Conf_Race_Y")
 )
 
 sample_pairs <- tibble::tibble(
@@ -89,8 +89,8 @@ outcomes <- c("pooled_favor_white", "pooled_favor_male")
 # 0a. Extract experimental firm IDs (same as real script)
 # -------------------------------------------------------------------
 
-exp_coef_path <- file.path(excel, full_sample_file)
-exp_coef_raw <- readxl::read_xlsx(exp_coef_path, sheet = "Coefficients")
+exp_coef_dir <- file.path(intermediate, full_sample_subdir)
+exp_coef_raw <- read_parquet_sheet(exp_coef_dir, "Coefficients")
 id_col <- get_firm_id_col(exp_coef_raw)
 
 if ("model" %in% names(exp_coef_raw)) {
@@ -139,10 +139,10 @@ cat("Identified", length(exp_firm_ids),
 # -------------------------------------------------------------------
 # 1. Helper: read theta (identical to real script)
 # -------------------------------------------------------------------
-read_theta <- function(excel, file, outcome,
+read_theta <- function(root, subdir, outcome,
                        model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
-  path  <- file.path(excel, file)
+  dir_path <- file.path(root, subdir)
 
   model_map <- list(
     pl    = list(filter = "PL",    old_sheet = "Coefficients"),
@@ -153,13 +153,13 @@ read_theta <- function(excel, file, outcome,
   )
 
   coef_sheet <- "Coefficients"
-  df <- readxl::read_xlsx(path, sheet = coef_sheet)
+  df <- read_parquet_sheet(dir_path, coef_sheet)
 
   if ("model" %in% names(df)) {
     model_val <- model_map[[model]]$filter
     df <- df %>% dplyr::filter(.data$model == model_val)
   } else if (model == "borda") {
-    df <- readxl::read_xlsx(path, sheet = "borda_score")
+    df <- read_parquet_sheet(dir_path, "borda_score")
   }
 
   id_col <- get_firm_id_col(df)
@@ -201,44 +201,26 @@ read_theta <- function(excel, file, outcome,
 # -------------------------------------------------------------------
 # 2. Helper: read signal & tot_var (identical to real script)
 # -------------------------------------------------------------------
-read_signal_info <- function(excel, file, outcome,
+read_signal_info <- function(root, subdir, outcome,
                              model = c("pl", "borda", "ol", "ols", "olsc")) {
   model <- match.arg(model)
-  path  <- file.path(excel, file)
+  dir_path <- file.path(root, subdir)
 
   model_filter_map <- c(pl = "PL", borda = "Borda", ol = "OL", ols = "OLS", olsc = "OLSC")
 
-  var_df <- tryCatch(readxl::read_xlsx(path, sheet = "variance"),
-                     error = function(e) NULL)
+  var_df <- read_parquet_sheet(dir_path, "variance")
 
-  if (!is.null(var_df) && "model" %in% names(var_df)) {
-    model_val <- model_filter_map[model]
-    sig_df <- var_df %>%
-      dplyr::filter(
-        .data$model == model_val,
-        .data$outcome == !!outcome
-      ) %>%
-      dplyr::transmute(
-        all_firms = (.data$subset == "all"),
-        tot_var   = as.numeric(.data$variance),
-        signal    = as.numeric(.data$signal)
-      )
-    return(sig_df)
-  }
-
-  if (model == "pl") {
-    sheet_name <- paste0("pl_s_", outcome)
-  } else if (model == "borda") {
-    sheet_name <- paste0("b_s_", outcome)
-  } else {
-    return(tibble::tibble(all_firms = logical(), tot_var = numeric(), signal = numeric()))
-  }
-
-  sig_df <- readxl::read_xlsx(path, sheet = sheet_name)
-  sig_df %>%
-    dplyr::filter(iter == 0) %>%
-    dplyr::select(all_firms, tot_var, sigma2_dot) %>%
-    dplyr::rename(signal = sigma2_dot)
+  model_val <- model_filter_map[model]
+  var_df %>%
+    dplyr::filter(
+      .data$model == model_val,
+      .data$outcome == !!outcome
+    ) %>%
+    dplyr::transmute(
+      all_firms = (.data$subset == "all"),
+      tot_var   = as.numeric(.data$variance),
+      signal    = as.numeric(.data$signal)
+    )
 }
 
 # -------------------------------------------------------------------
@@ -315,7 +297,7 @@ compute_corr_row_placebo <- function(theta1, theta2,
 # 4. Build placebo correlation table (no LR tests needed)
 # -------------------------------------------------------------------
 build_corr_table_placebo <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
-                                     excel,
+                                     root,
                                      sample_filemap,
                                      sample_pairs,
                                      outcomes,
@@ -330,18 +312,18 @@ build_corr_table_placebo <- function(model = c("pl", "borda", "ol", "ols", "olsc
       s1 <- sample_pairs$sample1[i]
       s2 <- sample_pairs$sample2[i]
 
-      f1 <- sample_filemap$file[sample_filemap$sample == s1]
-      f2 <- sample_filemap$file[sample_filemap$sample == s2]
-      if (length(f1) != 1L || length(f2) != 1L) {
-        warning("File not found for sample(s): ", s1, " or ", s2)
+      d1 <- sample_filemap$subdir[sample_filemap$sample == s1]
+      d2 <- sample_filemap$subdir[sample_filemap$sample == s2]
+      if (length(d1) != 1L || length(d2) != 1L) {
+        warning("Directory not found for sample(s): ", s1, " or ", s2)
         next
       }
 
-      theta1 <- read_theta(excel, f1, outcome, model = model)
-      theta2 <- read_theta(excel, f2, outcome, model = model)
+      theta1 <- read_theta(root, d1, outcome, model = model)
+      theta2 <- read_theta(root, d2, outcome, model = model)
 
-      sig1 <- read_signal_info(excel, f1, outcome, model = model)
-      sig2 <- read_signal_info(excel, f2, outcome, model = model)
+      sig1 <- read_signal_info(root, d1, outcome, model = model)
+      sig2 <- read_signal_info(root, d2, outcome, model = model)
 
       # --- all firms ---
       row_all <- compute_corr_row_placebo(
@@ -384,15 +366,15 @@ build_corr_table_placebo <- function(model = c("pl", "borda", "ol", "ols", "olsc
 # 5. Run placebo for all models
 # -------------------------------------------------------------------
 
-pl_corr    <- build_corr_table_placebo("pl",    excel, sample_filemap, sample_pairs,
+pl_corr    <- build_corr_table_placebo("pl",    intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
-borda_corr <- build_corr_table_placebo("borda", excel, sample_filemap, sample_pairs,
+borda_corr <- build_corr_table_placebo("borda", intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
-ol_corr    <- build_corr_table_placebo("ol",    excel, sample_filemap, sample_pairs,
+ol_corr    <- build_corr_table_placebo("ol",    intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
-ols_corr   <- build_corr_table_placebo("ols",   excel, sample_filemap, sample_pairs,
+ols_corr   <- build_corr_table_placebo("ols",   intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
-olsc_corr  <- build_corr_table_placebo("olsc",  excel, sample_filemap, sample_pairs,
+olsc_corr  <- build_corr_table_placebo("olsc",  intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
 
 # -------------------------------------------------------------------

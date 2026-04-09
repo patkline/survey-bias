@@ -8,7 +8,7 @@
 source("code/globals.R")
 
 # --- configuration ---
-excel_path <- file.path(excel, "Plackett_Luce_Full_Sample.xlsx")
+full_sample_dir <- file.path(intermediate, "Full_Sample")
 industry_map_path <- file.path(processed, "industry_map.xlsx")
 
 outcomes_dm <- c("pooled_favor_white_dm", "pooled_favor_male_dm", "conduct_favor_younger_dm")
@@ -18,7 +18,7 @@ n_keep <- 25
 gap_width <- 3
 
 # --- read data ---
-coef <- openxlsx::read.xlsx(excel_path, sheet = "Coefficients")
+coef <- read_parquet_sheet(full_sample_dir, "Coefficients")
 ind_map <- readxl::read_xlsx(industry_map_path)
 
 # industry code -> name lookup
