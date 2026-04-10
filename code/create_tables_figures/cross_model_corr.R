@@ -8,8 +8,10 @@ source("code/globals.R")
 
 # --- Config ---
 full_sample_dir <- file.path(intermediate, "Full_Sample")
-models <- c("PL", "Borda", "OL", "OLS", "OLSC")
-model_labels <- c(PL = "Plackett--Luce", Borda = "Borda", OL = "Ordered Logit", OLS = "Likert", OLSC = "Likert Centered")
+#models <- c("PL", "Borda", "OL", "OLS", "OLSC")
+#model_labels <- c(PL = "Plackett--Luce", Borda = "Borda", OL = "Ordered Logit", OLS = "Likert", OLSC = "Likert Centered")
+models <- c("Borda", "OLS")
+model_labels <- c(Borda = "Borda", OLS = "Likert")
 pooled_vars <- c("pooled_favor_white", "pooled_favor_male")
 var_labels <- c(
   pooled_favor_white = "Pooled Favor White",
@@ -63,7 +65,7 @@ for (v in pooled_vars) {
   mat <- build_cross_model_corr(coef_df, v, models)
   tex <- corr_to_latex(mat, models, model_labels, var_labels[v])
 
-  out_file <- file.path(tables, paste0("cross_model_corr_", v, ".tex"))
+  out_file <- file.path(tables, paste0("cross_model_corr_ols_borda_", v, ".tex"))
   writeLines(tex, out_file)
   message("Wrote: ", out_file)
 }

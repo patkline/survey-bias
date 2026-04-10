@@ -236,13 +236,14 @@ generate_heatmaps <- function(dir_path, prefix, suffix, sheet, all,
 # Example Usage -- new pipeline (correlation sheet with model filter)
 fp <- file.path(intermediate, "Full_Sample")
 
-# PL
+
 heatmap_prefix <- paste0(figures, "/")
 
-generate_heatmaps(fp, heatmap_prefix, "_full_pl", "pairwise_summary",
-                  all = TRUE, model_filter = "PL")
-generate_heatmaps(fp, heatmap_prefix, "_full_overlap_pl", "pairwise_summary",
-                  all = FALSE, model_filter = "PL")
+# PL
+#generate_heatmaps(fp, heatmap_prefix, "_full_pl", "pairwise_summary",
+#                  all = TRUE, model_filter = "PL")
+#generate_heatmaps(fp, heatmap_prefix, "_full_overlap_pl", "pairwise_summary",
+#                  all = FALSE, model_filter = "PL")
 
 # Borda
 generate_heatmaps(fp, heatmap_prefix, "_full_borda", "pairwise_summary_borda",
@@ -251,10 +252,10 @@ generate_heatmaps(fp, heatmap_prefix, "_full_overlap_borda", "pairwise_summary_b
                   all = FALSE, model_filter = "Borda")
 
 # OL
-generate_heatmaps(fp, heatmap_prefix, "_full_ol", "pairwise_summary",
-                  all = TRUE, model_filter = "OL")
-generate_heatmaps(fp, heatmap_prefix, "_full_overlap_ol", "pairwise_summary",
-                  all = FALSE, model_filter = "OL")
+#generate_heatmaps(fp, heatmap_prefix, "_full_ol", "pairwise_summary",
+#                  all = TRUE, model_filter = "OL")
+#generate_heatmaps(fp, heatmap_prefix, "_full_overlap_ol", "pairwise_summary",
+#                  all = FALSE, model_filter = "OL")
 
 # OLS
 generate_heatmaps(fp, heatmap_prefix, "_full_ols", "pairwise_summary",
@@ -263,10 +264,10 @@ generate_heatmaps(fp, heatmap_prefix, "_full_overlap_ols", "pairwise_summary",
                   all = FALSE, model_filter = "OLS")
 
 # OLS Centered
-generate_heatmaps(fp, heatmap_prefix, "_full_olsc", "pairwise_summary",
-                  all = TRUE, model_filter = "OLSC")
-generate_heatmaps(fp, heatmap_prefix, "_full_overlap_olsc", "pairwise_summary",
-                  all = FALSE, model_filter = "OLSC")
+#generate_heatmaps(fp, heatmap_prefix, "_full_olsc", "pairwise_summary",
+#                  all = TRUE, model_filter = "OLSC")
+#generate_heatmaps(fp, heatmap_prefix, "_full_overlap_olsc", "pairwise_summary",
+#                  all = FALSE, model_filter = "OLSC")
 
 
 # 
