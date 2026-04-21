@@ -31,17 +31,29 @@ run_python_fail_fast <- function(script_path) {
 # Data build
 # ------------------------------------------------------------------------------
 
-# Run Python script to clean raw Qualtrics data
+#Clean raw Qualtrics data
 run_python_fail_fast(file.path(build, "clean_raw_qualtrics_data.py"))
 
-# Run script to output firm-industry sic code mapping from aer paper replication package  
+# Output firm-industry sic code mapping from aer paper replication package  
 run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_aer_replication_package.py"))
 
-# Run script to output firm-industry sic code mapping from RefUSA and aer paper replication package 
+# Output firm-industry sic code mapping from RefUSA and aer paper replication package 
 run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_refusa.py"))
 
-# Run script that harmonizes industry codes across data sources and creates final crosswalk of firms to industries for use in analysis
+# Harmonize industry codes across data sources and creates final crosswalk of firms to industries for use in analysis
 run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_industry_map.py"))
+
+# Build industry crosswalks
+run_python_fail_fast(file.path(build, "create_ind1990_crosswalks.py"))
+
+# Clean CPS ORG microdata and aggregate to industry x race x sex x age_bin employment and wage
+run_python_fail_fast(file.path(build, "build_industry_emp_wage_by_demographic_cps.py"))
+
+# Clean EEO-1 microdata and aggregate to industry x race x sex employment (no wage data in EEO-1)
+run_python_fail_fast(file.path(build, "build_industry_emp_by_demographic_eeo1.py"))
+
+# Merge industry employment and wage data from CPS and EEO-1 onto industry map
+run_python_fail_fast(file.path(build, "build_industry_map_emp_wage_by_demographic.py"))
 
 # Create final working datasets
 source(file.path(build, "sample_prep.R"))
