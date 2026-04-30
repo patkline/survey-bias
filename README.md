@@ -2,6 +2,7 @@
 Purpose: README file for survey bias project
 
 Created: Nico Rotundo 2026-01-06
+Edited: Monica Essig Aberg 2026-04-30
 # ----------------------------------------------------------------------------->
 
 # Getting started 
@@ -143,6 +144,88 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
 1. We should get package management working properly for both R and Python (i.e., `renv` for R and virtual environment for Python) so that we can ensure reproducibility across time
 
 2. Separately, need to figure out the EML integration and adjust the codebase accordingly
+
+## Code structure
+
+The pipeline runs in three stages, each with its own metafile. The trees below show source/call hierarchy: indented files are sourced (or invoked) by the parent.
+
+### 1. Data build --- `code/1_data_build/`
+
+**Input:** `data/raw/` (Qualtrics survey CSVs), `data/external/` (RefUSA, AER replication package)
+**Output:** `data/processed/long_survey_final.csv` + firm--industry crosswalks
+
+- `!metafile.R` --- runs Python crosswalk scripts then R sample prep
+  - `clean_raw_qualtrics_data.py` --- raw Qualtrics export → cleaned long survey
+  - `create_firm_industry_crosswalk_aer_replication_package.py` --- AER package → SIC mapping
+  - `create_firm_industry_crosswalk_refusa.py` --- RefUSA → SIC mapping
+  - `create_firm_industry_crosswalk_industry_map.py` --- harmonizes across sources, writes final crosswalk
+  - `sample_prep.R` --- applies sample restrictions; writes `long_survey_final.csv`
+    - `helper_functions/leave_in_connected.R` --- keeps largest connected component of firm-respondent graph
+    - `helper_functions/1_preprocessing_v3.R` --- builds outcome variables (favor-x, dif, log_dif, etc.)
+
+### 2. Analysis --- `code/2_analysis/`
+
+**Input:** `data/processed/long_survey_final.csv`
+**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients`, `variance`, `covariance`, `correlation`, `EIV_firm`, `EIV_within`, `EIV_between`
+
+- `!metafile.R` --- runs `run_analysis_pipeline()` for full sample, then loops over 18 subsets
+  - `load_all.R` --- sources every helper below (no work itself)
+    - `analysis_pipeline.R` --- orchestrates fit → variance → covariance → correlation → EIV per subset
+    - **Model fitters** (long/wide data → `firm_table` + score/cov matrices)
+      - `run_model_ols.R` --- OLS on Likert ratings
+      - `run_model_ol.R` --- ordered logit on ratings
+      - `run_model_borda.R` --- pairwise-win Borda from ranks
+      - `run_model_pl.R` --- Plackett-Luce on ranks 
+      - `run_models_helpers.R`
+    - **Data prep**
+      - `prep_outcomes.R` --- per-model outcome construction
+      - `create_wide_rankings.R` --- long ranks → wide ranking matrix
+      - `leave_in_connected.R` --- per-outcome connectivity filter
+    - **Score helpers**
+      - `mean_estimator_bread_and_score.R` --- bread/score/robust cov for mean-based estimators (OLS, Borda)
+      - `borda_score.R` --- per-respondent Borda computation with reference-firm normalization
+    - **Variance / covariance / correlation** (post-fit aggregation across firms)
+      - `variance_functions.R` --- per-outcome `variance`, `noise`, `signal`
+      - `covariance_functions.R` --- pairwise covariance + cross-sample noise
+      - `correlation_function.R` --- `corr`, `corr_den`, `corr_c` (noise-corrected)
+      - `katz_correct.R` --- positivity correction for variance components
+      - `EB_procedure.R` --- two-step empirical Bayes shrinkage of firm estimates
+    - **EIV regressions**
+      - `eivreg.R` --- measurement-error regression with `Σ_error`
+      - `eiv_functions.R` --- runs `eivreg` over (lhs × rhs × subset × model) specs
+      - `make_industry_means.R` --- njobs-weighted within/between industry decomposition
+    - **Misc**
+      - `experimental.R` --- ad-hoc outcome transforms (dif, log_dif, etc.)
+      - `helper_functions/sheet_functions.R` --- `read_parquet_sheet` / `write_parquet_sheet`
+- `run_eiv_gender_sq.R` --- standalone runner for the gender-squared EIV table
+
+### 3. Tables and figures --- `code/3_create_tables_figures/`
+
+**Input:** `output/intermediate/*/*.parquet`
+**Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
+
+- `metafile.R` --- sources each table/figure script in order
+  - `summary_statistics_wrapper.R` --- descriptive plots from raw responses
+    - `helper_functions/summary_figures_ratings.R` --- Likert distributions
+    - `helper_functions/summary_figures_yes_no.R` --- yes/no/PNA bars
+    - `helper_functions/summary_figures_confidence.R` --- confidence-question tables
+    - `helper_functions/summary_figure_info_source.R` --- info-source bars
+    - `helper_functions/summary_two_way_bar.R` --- two-way bar charts
+    - `helper_functions/summary_statistics_new.R` --- N / mean / SD tables
+    - `helper_functions/response_duration_hist.R` --- response duration histograms
+  - `summary_item_worths.R` --- firm rankings, top/bottom plots, OLS/Borda dual-axis overlays
+  - `heatmaps_combined.R` --- across-outcome correlation heatmaps (PL upper / Borda lower)
+  - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.)
+  - `eiv_table_discretion.R` --- discretion-as-LHS EIV panel
+  - `eiv_table_bivariate.r` --- bivariate EIV (favor-x + control)
+  - `eiv_table_within_between.R` --- within/between-industry EIV decomposition
+  - `cross_sample_signal_corr.R` --- signal correlation across paired subsamples + Wald test
+  - `cross_sample_signal_corr_raw.R` --- same, no noise correction
+  - `cross_sample_signal_corr_placebo.R` --- same, random-split placebo
+  - `cross_model_corr.R` --- agreement between OLS / Borda / OL firm rankings
+  - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
+  - `opposite_valence_corr_table.R` --- Black-vs-White, Male-vs-Female pair correlations
+  - `industry_decomposition_line_charts.R` --- within- vs between-industry contribution to signal
 
 ## Documentation on codebase
 
