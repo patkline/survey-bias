@@ -56,6 +56,11 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   firm_ids <- as.integer(sub("^entity", "", common_cols))
   beta1 <- res1$firm_table$estimate[match(firm_ids, res1$firm_table$entity_id)]
   beta2 <- res2$firm_table$estimate[match(firm_ids, res2$firm_table$entity_id)]
+  # mean(beta1*beta2) = Cov(beta1, beta2) only if E[beta]=0. True for OL
+  # (contr.sum), Borda, OLS, OLSC (centered by recenter_objects). NOT true for
+  # PL, which pins the baseline firm to 0, so betas are offsets from baseline
+  # with nonzero mean. If PL is re-enabled (currently run_pl=FALSE), recenter
+  # betas here or compute cov() directly.
   covariance <- mean(beta1 * beta2, na.rm = TRUE)
   
   S1_full <- as.matrix(S1_df[, common_cols, drop = FALSE])

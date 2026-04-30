@@ -1,6 +1,6 @@
 # New for cleaner pipeline
 source(file.path(analysis, "analysis_pipeline.R"))
-source(file.path(analysis, "sheet_functions.R"))
+source(file.path(helper_functions, "sheet_functions.R"))
 source(file.path(analysis, "run_model_pl.R"))
 source(file.path(analysis, "run_model_ol.R"))
 source(file.path(analysis, "run_model_borda.R"))

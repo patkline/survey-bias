@@ -7,6 +7,7 @@
 # writes both go through the same sanitizer so they stay in sync.
 #
 # Created: Jordan Cammarota 03-06-2026
+# Edited to Parquet: Monica Essig Aberg 04-09-2026
 # ------------------------------------------------------------------------------
 
 # Sanitize an arbitrary sheet name into a safe filesystem filename (no ext).
