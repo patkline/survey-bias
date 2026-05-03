@@ -64,11 +64,13 @@ global data_and_output_storage_location "dropbox"
 if "${data_and_output_storage_location}" == "github" {
     global data "${git_survey_bias_root}/data"
     global output "${git_survey_bias_root}/output"
+    global qje_2022_data_and_outputs "${git_survey_bias_root}/qje_2022_replication_data_and_outputs"
 }
 else if "${data_and_output_storage_location}" == "dropbox" {
     global db_data_output_mirror "${dropbox_survey_bias_root}/github_data_and_output_mirrors"
     global data "${db_data_output_mirror}/data"
     global output "${db_data_output_mirror}/output"
+    global qje_2022_data_and_outputs "${db_data_output_mirror}/qje_2022_replication_data_and_outputs"
 }
 else {
     di as error "🧌 Invalid value for data_and_output_storage_location. Must be 'github' or 'dropbox'"
@@ -101,6 +103,26 @@ Output paths
 global excel "${output}/excel"
 global figures "${output}/figures"
 global tables "${output}/tables"
+
+/* ---------------------------------------------------------------------------------------------
+QJE 2022 replication paths
+----------------------------------------------------------------------------------------------*/
+* Code folder for the QJE 2022 (Kline-Rose-Walters) Figure 9 replication
+global qje_2022_replication_code "${code}/qje_2022_replication"
+
+* Original replication package files
+global qje_2022_replication_package "${qje_2022_data_and_outputs}/paper_replication_package"
+
+* Outputs
+global qje_2022_replication_figures "${qje_2022_data_and_outputs}/figures"
+global qje_2022_replication_tables "${qje_2022_data_and_outputs}/tables"
+global qje_2022_replication_dump "${qje_2022_data_and_outputs}/dump"
+
+/* ---------------------------------------------------------------------------------------------
+Python virtual environment
+----------------------------------------------------------------------------------------------*/
+* Project Python venv executable (mirrors globals.R)
+global python_venv_installation "${git_survey_bias_root}/.venv/bin/python"
 
 /* ---------------------------------------------------------------------------------------------
 Required user-written packages
