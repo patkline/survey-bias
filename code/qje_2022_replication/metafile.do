@@ -5,7 +5,7 @@ Panel B male-female) under both the rr_misc cleaning baseline and the proposed
 production-style new-cleaning approach, then validates against the paper's
 shipped Figure 9 PDFs.
 
-Created: Ghost 2026-04-24
+Created: Nico Rotundo 2026-04-24
 
 XX: The firm-level NAICS shell comes from Dropbox Survey
     consolidated_code/external/qje_data.dta because the lifted replication
