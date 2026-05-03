@@ -71,7 +71,10 @@ This project stores data using Git LFS --- however, we have a backup storage pla
 
    4. After doing so, the backround processes for (i) syncing data and outputs to the intended storage location and (ii) zeroing LFS bandwidth use (in the case of switching to Dropbox) will be automatically set up
 
-### II. *For R scripts, make sure to run `source("code/globals.R")` at the very top of your script to load global variables and packages*
+### II. Sourcing globals at the top of scripts
+
+- *For R scripts, run `source("code/globals.R")` at the top of your script to load global variables and packages*
+- *For Stata scripts, run `do "${github}/survey-bias/code/globals.do"` at the top of your script. This requires `${github}` to be defined in your personal `profile.do` (pointing at your local GitHub root, e.g. `global github "/Users/<username>/GitHub"`). Place `profile.do` in Stata's personal ado directory --- run `display c(sysdir_personal)` in Stata to find the path.*
 
 ### III. Comparing results across code changes
 Use `code/tools/results_rerun_compare.R` from the project root to compare outputs before vs after code changes
