@@ -110,28 +110,20 @@ QJE 2022 replication paths
 * Code folder for the QJE 2022 (Kline-Rose-Walters) Figure 9 replication
 global qje_2022_replication_code "${code}/qje_2022_replication"
 
-* Original replication package files
-global qje_2022_replication_package "${qje_2022_data_and_outputs}/paper_replication_package"
+* Data and outputs subfolders 
+global qje_2022_replication_data    "${qje_2022_data_and_outputs}/data"
+global qje_2022_replication_outputs "${qje_2022_data_and_outputs}/outputs"
 
-* Outputs
-global qje_2022_replication_figures "${qje_2022_data_and_outputs}/figures"
-global qje_2022_replication_tables "${qje_2022_data_and_outputs}/tables"
-global qje_2022_replication_dump "${qje_2022_data_and_outputs}/dump"
+* Original replication package files
+global qje_2022_replication_package "${qje_2022_replication_data}/paper_replication_package"
+
+* Output subfolders
+global qje_2022_replication_figures "${qje_2022_replication_outputs}/figures"
+global qje_2022_replication_tables  "${qje_2022_replication_outputs}/tables"
+global qje_2022_replication_dump    "${qje_2022_replication_outputs}/dump"
 
 /* ---------------------------------------------------------------------------------------------
 Python virtual environment
 ----------------------------------------------------------------------------------------------*/
 * Project Python venv executable (mirrors globals.R)
 global python_venv_installation "${git_survey_bias_root}/.venv/bin/python"
-
-/* ---------------------------------------------------------------------------------------------
-Required user-written packages
-----------------------------------------------------------------------------------------------*/
-* Check if gtools is installed (cap qui to suppress install-path print on success)
-cap qui which gtools
-
-* Install from SSC if missing (provides gcollapse, gisid, and other performance-oriented commands)
-if _rc {
-    di as text "🎃 Installing gtools from SSC"
-    ssc install gtools
-}
