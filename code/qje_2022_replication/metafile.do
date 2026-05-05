@@ -37,10 +37,10 @@ foreach file in ///
 /* -----------------------------------------------------------------------------------------------------------
 Confirm input data files are present
 ----------------------------------------------------------------------------------------------------------- */
-* IPUMS CPS extract lives at the data_and_outputs root
-cap confirm file "${qje_2022_data_and_outputs}/cps_00086.dta"
+* IPUMS CPS extract lives in data/
+cap confirm file "${qje_2022_replication_data}/cps_00086.dta"
 if _rc {
-    di as error "🪦 Missing CPS extract: ${qje_2022_data_and_outputs}/cps_00086.dta"
+    di as error "🪦 Missing CPS extract: ${qje_2022_replication_data}/cps_00086.dta"
     exit 601
 }
 
@@ -59,10 +59,10 @@ foreach file in ///
     }
 }
 
-* Confirm original QJE industry shell source is present in Dropbox external
-cap confirm file "${dropbox_survey_bias_root}/external/qje_data.dta"
+* Confirm QJE industry shell source is present in qje_2022_replication data/
+cap confirm file "${qje_2022_replication_data}/qje_data.dta"
 if _rc {
-    di as error "🪦 Missing QJE industry shell source: ${dropbox_survey_bias_root}/external/qje_data.dta"
+    di as error "🪦 Missing QJE industry shell source: ${qje_2022_replication_data}/qje_data.dta"
     exit 601
 }
 

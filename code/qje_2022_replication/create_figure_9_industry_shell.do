@@ -15,7 +15,7 @@ do "${github}/survey-bias/code/globals.do"
 Extract firm-level industry shell
 ----------------------------------------------------------------------------------------------------------- */
 * Load original QJE data with full industry keys
-use "${dropbox_survey_bias_root}/external/qje_data.dta", clear
+use "${qje_2022_replication_data}/qje_data.dta", clear
 keep firm_id sic_code sic_combined naics naics3
 duplicates drop
 gisid firm_id
