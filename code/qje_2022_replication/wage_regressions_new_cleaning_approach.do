@@ -167,10 +167,12 @@ use "${qje_2022_replication_data}/cps_00086.dta", clear ;
 
   * Restrict data ;
   keep if inrange(age, 20, 60) ;
-  keep if wkstat == 11 ; /* full-time */
-  keep if qearnwee != 0 ; /* allocated earnings */
-  keep if quhrsworkorg != 0  ; /* allocated hours */
-  keep if inlist(classwkr, 22, 23) ; 
+  keep if eligorg == 1 ;
+  keep if inlist(wkstat, 11) ;
+  keep if qearnwee == 0 ;
+  keep if quhrsworkorg == 0 ;
+  keep if inlist(classwkr, 22, 23) ;
+  drop if earnweek == 0 ;
   
   * Merge in SIC codes  ; 
   merge m:1 ind1990 using "${wrkdir}/cw_in1990_sic.dta", nogen; 
@@ -179,7 +181,6 @@ use "${qje_2022_replication_data}/cps_00086.dta", clear ;
   * New variables ;
   gen hr_wage = earnweek/uhrsworkorg ; 
   gen ln_hr_wage = ln(earnweek/uhrsworkorg) ;
-  gen age4 = age^4 ; 
 
 tempfile temp ;
 save `temp' ; 
@@ -265,7 +266,7 @@ use `temp', clear ;
 
 
   * Version 2 ; 
-  reg ln_hr_wage i.black##i.`ind' i.year age4 i.female i.edlevel [pw=earnwt], robust ; 
+  reg ln_hr_wage i.black##i.`ind' i.year c.age##c.age##c.age##c.age i.female i.edlevel [pw=earnwt], robust ; 
 
   * fill matrix with values of `ind', point estimates, and se ;
   levelsof `ind' if e(sample) == 1, local(levels) ; 
@@ -300,7 +301,7 @@ use `temp', clear ;
 
 
   * Version 2 ; 
-  reg ln_hr_wage i.female##i.`ind' i.year age4 i.black i.edlevel [pw=earnwt], robust ; 
+  reg ln_hr_wage i.female##i.`ind' i.year c.age##c.age##c.age##c.age i.black i.edlevel [pw=earnwt], robust ; 
 
   * fill matrix with values of `ind', point estimates, and se ;
   levelsof `ind' if e(sample) == 1, local(levels) ; 
