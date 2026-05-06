@@ -71,37 +71,50 @@ default_filemap <- tibble(
 # ---------- BUILD DF FOR ONE UNIVARIATE CONFIG ----------
 
 build_eiv_df <- function(cfg) {
-  root         <- cfg$root
-  sheet_name   <- cfg$sheet_name   %||% "EIV_firm"
-  model_filter <- cfg$model_filter
-  lhs          <- cfg$lhs
-  rhs_contact  <- cfg$rhs_contact
-  rhs_conduct  <- cfg$rhs_conduct
-  rhs_extra    <- cfg$rhs_extra
+  root               <- cfg$root
+  sheet_name         <- cfg$sheet_name         %||% "EIV_firm"
+  between_sheet_name <- cfg$between_sheet_name %||% "EIV_between"
+  model_filter       <- cfg$model_filter
+  lhs                <- cfg$lhs
+  rhs_contact        <- cfg$rhs_contact
+  rhs_conduct        <- cfg$rhs_conduct
+  rhs_extra          <- cfg$rhs_extra
+
+  # Between-industry counterparts default to base names + "_im"
+  lhs_im         <- cfg$lhs_im         %||% paste0(lhs,         "_im")
+  rhs_contact_im <- cfg$rhs_contact_im %||% paste0(rhs_contact, "_im")
+  rhs_conduct_im <- cfg$rhs_conduct_im %||% paste0(rhs_conduct, "_im")
+  rhs_extra_im   <- cfg$rhs_extra_im   %||% paste0(rhs_extra,   "_im")
+
   coef1        <- cfg$coef1
   coef2        <- cfg$coef2
 
   scale_by_100 <- cfg$scale_by_100 %||% FALSE
   filemap      <- cfg$filemap %||% default_filemap
 
-  col5_label  <- cfg$col5_label  %||% paste0("(5) ", rhs_extra)
-  col6_label  <- cfg$col6_label  %||% paste0("(6) ", rhs_extra, " (Industry FE)")
+  col7_label  <- cfg$col7_label  %||% paste0("(7) ", rhs_extra)
+  col8_label  <- cfg$col8_label  %||% paste0("(8) ", rhs_extra, " (Industry FE)")
+  col9_label  <- cfg$col9_label  %||% paste0("(9) ", rhs_extra, " (Between)")
 
   table_df <- filemap %>%
     rowwise() %>%
     mutate(
-      `(1) Contact`               = pull_est(root, subdir, lhs, rhs_contact, coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `(2) Contact (Industry FE)` = pull_est(root, subdir, lhs, rhs_contact, coef2, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `(3) Conduct`               = pull_est(root, subdir, lhs, rhs_conduct, coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `(4) Conduct (Industry FE)` = pull_est(root, subdir, lhs, rhs_conduct, coef2, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `__col5`                    = pull_est(root, subdir, lhs, rhs_extra,   coef1, sheet_name, model_filter, divide_by_100 = scale_by_100),
-      `__col6`                    = pull_est(root, subdir, lhs, rhs_extra,   coef2, sheet_name, model_filter, divide_by_100 = scale_by_100)
+      `(1) Contact`               = pull_est(root, subdir, lhs,    rhs_contact,    coef1, sheet_name,         model_filter, divide_by_100 = scale_by_100),
+      `(2) Contact (Industry FE)` = pull_est(root, subdir, lhs,    rhs_contact,    coef2, sheet_name,         model_filter, divide_by_100 = scale_by_100),
+      `(3) Contact (Between)`     = pull_est(root, subdir, lhs_im, rhs_contact_im, 1L,    between_sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `(4) Conduct`               = pull_est(root, subdir, lhs,    rhs_conduct,    coef1, sheet_name,         model_filter, divide_by_100 = scale_by_100),
+      `(5) Conduct (Industry FE)` = pull_est(root, subdir, lhs,    rhs_conduct,    coef2, sheet_name,         model_filter, divide_by_100 = scale_by_100),
+      `(6) Conduct (Between)`     = pull_est(root, subdir, lhs_im, rhs_conduct_im, 1L,    between_sheet_name, model_filter, divide_by_100 = scale_by_100),
+      `__col7`                    = pull_est(root, subdir, lhs,    rhs_extra,      coef1, sheet_name,         model_filter, divide_by_100 = scale_by_100),
+      `__col8`                    = pull_est(root, subdir, lhs,    rhs_extra,      coef2, sheet_name,         model_filter, divide_by_100 = scale_by_100),
+      `__col9`                    = pull_est(root, subdir, lhs_im, rhs_extra_im,   1L,    between_sheet_name, model_filter, divide_by_100 = scale_by_100)
     ) %>%
     ungroup() %>%
     select(-subdir) %>%
     rename(
-      !!col5_label := `__col5`,
-      !!col6_label := `__col6`
+      !!col7_label := `__col7`,
+      !!col8_label := `__col8`,
+      !!col9_label := `__col9`
     )
 
   table_df
@@ -266,18 +279,20 @@ build_two_panel_eiv_table <- function(cfg_left, cfg_right, out_tex,
 make_uni_cfg <- function(root, model, lhs, rhs_contact, rhs_conduct, rhs_extra,
                          coef1 = 1L, coef2 = 2L, scale_by_100 = FALSE) {
   list(
-    root         = root,
-    sheet_name   = "EIV_firm",
-    model_filter = model,
-    lhs          = lhs,
-    rhs_contact  = rhs_contact,
-    rhs_conduct  = rhs_conduct,
-    rhs_extra    = rhs_extra,
-    scale_by_100 = scale_by_100,
-    col5_label   = "(5) Pooled",
-    col6_label   = "(6) Pooled (Industry FE)",
-    coef1        = coef1,
-    coef2        = coef2
+    root               = root,
+    sheet_name         = "EIV_firm",
+    between_sheet_name = "EIV_between",
+    model_filter       = model,
+    lhs                = lhs,
+    rhs_contact        = rhs_contact,
+    rhs_conduct        = rhs_conduct,
+    rhs_extra          = rhs_extra,
+    scale_by_100       = scale_by_100,
+    col7_label         = "(7) Pooled",
+    col8_label         = "(8) Pooled (Industry FE)",
+    col9_label         = "(9) Pooled (Between)",
+    coef1              = coef1,
+    coef2              = coef2
   )
 }
 
