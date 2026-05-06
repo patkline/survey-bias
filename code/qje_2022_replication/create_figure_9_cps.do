@@ -50,9 +50,9 @@ save `shares_naics', replace
 /* -----------------------------------------------------------------------------------------------------------
 Run Figure 9 regressions
 ----------------------------------------------------------------------------------------------------------- */
-* Open coefficient CSV for numeric comparison against paper Figure 9
-file open coef_file using "${qje_2022_replication_dump}/figure9_cps_rebuild_coefficients.csv", write replace
-file write coef_file "gap,characteristic,estimate_type,coefficient,se" _n
+* Create a temporary Stata dataset that accumulates Figure 9 regression coefficients
+tempfile cps_coefficients
+local regsave_action replace
 
 * Loop over race and gender posterior gaps
 foreach touse in white male {
@@ -109,13 +109,16 @@ foreach touse in white male {
 
         qui eststo: reg `var' post_mean_beta, robust
         estimates store ef_`var'
-        file write coef_file "`touse',`var',posterior_mean," ///
-            %24.17g (_b[post_mean_beta]) "," %24.17g (_se[post_mean_beta]) _n
+        regsave post_mean_beta using `cps_coefficients', ///
+            addlabel(gap, "`touse'", characteristic, "`var'", estimate_type, "posterior_mean") ///
+            double `regsave_action'
+        local regsave_action append
 
         qui eststo: reg `var' normal_mean_beta, robust
         estimates store fe_`var'
-        file write coef_file "`touse',`var',linear_shrinkage," ///
-            %24.17g (_b[normal_mean_beta]) "," %24.17g (_se[normal_mean_beta]) _n
+        regsave normal_mean_beta using `cps_coefficients', ///
+            addlabel(gap, "`touse'", characteristic, "`var'", estimate_type, "linear_shrinkage") ///
+            double append
     }
 
     * Export CPS-only Figure 9 panel
@@ -135,5 +138,22 @@ foreach touse in white male {
     graph export "${qje_2022_replication_figures}/figure9_cps_`touse'.pdf", replace
 }
 
-* Close coefficient CSV
-file close coef_file
+/* -----------------------------------------------------------------------------------------------------------
+Save coefficient comparison dataset
+----------------------------------------------------------------------------------------------------------- */
+* Load the accumulated coefficient results saved by regsave
+use `cps_coefficients', clear
+
+* Rename regsave columns to the comparison-script variable names
+rename coef coefficient
+rename stderr se
+
+* Keep one coefficient and standard error for each Figure 9 CPS rebuild estimate
+keep gap characteristic estimate_type coefficient se
+gisid gap characteristic estimate_type
+assert _N == 24
+
+* Save the Figure 9 CPS rebuild coefficients
+sort gap characteristic estimate_type
+compress
+save "${qje_2022_replication_dump}/figure9_cps_rebuild_coefficients.dta", replace
