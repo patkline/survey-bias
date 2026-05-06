@@ -28,5 +28,18 @@ AGENTS.md
 # Project context (source of truth for both)
 PROJECT.md
 
-# Scratch work
-code/scratch_nico/
+# Scratch work --- track source code, ignore data and output artifacts
+code/scratch_nico/**/*.csv
+code/scratch_nico/**/*.dta
+code/scratch_nico/**/*.xlsx
+code/scratch_nico/**/*.xls
+code/scratch_nico/**/*.gz
+code/scratch_nico/**/*.zip
+code/scratch_nico/**/*.pdf
+code/scratch_nico/**/*.png
+code/scratch_nico/**/*.jpg
+code/scratch_nico/**/*.jpeg
+code/scratch_nico/**/*.svg
+code/scratch_nico/**/*.log
+code/scratch_nico/**/*.rds
+code/scratch_nico/**/*.parquet
