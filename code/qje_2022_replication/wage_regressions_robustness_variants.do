@@ -138,6 +138,12 @@ use "$rawdir/cw_sic87_ind1990ddx.dta", clear ;
   
 save "${wrkdir}/cw_in1990_sic.dta", replace ; 
 
+* Loop over robustness variants ;
+foreach robustness_variant in hourwage ignore_allocation_flags { ;
+
+* Print the robustness variant currently being built ;
+di as red _newline(4) "robustness_variant = `robustness_variant'" ;
+
 * CPS ; 
 #d;
 use "${qje_2022_replication_data}/cps_00086.dta", clear ;
@@ -161,26 +167,51 @@ use "${qje_2022_replication_data}/cps_00086.dta", clear ;
   * female ;
   gen female = sex==2 ;
 
-  * Recode missings ;
-  replace earnweek = . if earnweek == 9999.99 ;
-  replace uhrsworkorg = . if inlist(uhrsworkorg, 998, 999) ; 
+  * Recode missing values for the weekly earnings wage measure in the allocation-flag robustness variant ;
+  if inlist("`robustness_variant'", "ignore_allocation_flags") { ;
+    replace earnweek = . if earnweek == 9999.99 ;
+    replace uhrsworkorg = . if inlist(uhrsworkorg, 998, 999) ; 
+  } ;
+
+  * Recode missing values for the reported hourly wage robustness measure ;
+  if inlist("`robustness_variant'", "hourwage") { ;
+    replace hourwage = . if hourwage == 999.99 ;
+  } ;
 
   * Restrict data ;
   keep if inrange(age, 20, 60) ;
   keep if eligorg == 1 ;
   keep if inlist(wkstat, 11) ;
-  keep if qearnwee == 0 ;
-  keep if quhrsworkorg == 0 ;
   keep if inlist(classwkr, 22, 23) ;
-  drop if earnweek == 0 ;
+
+  * Drop zero weekly earnings before constructing wages in the allocation-flag robustness variant ;
+  if inlist("`robustness_variant'", "ignore_allocation_flags") { ;
+    drop if earnweek == 0 ;
+  } ;
+
+  * Restrict the hourly wage robustness variant to non-allocated hourly wage reports ;
+  if inlist("`robustness_variant'", "hourwage") { ;
+    local observations_before_qhourwag = _N ;
+    keep if qhourwag == 0 ;
+    di as text "qhourwag == 0 keeps " _N " of `observations_before_qhourwag' observations" ;
+  } ;
   
   * Merge in SIC codes  ; 
   merge m:1 ind1990 using "${wrkdir}/cw_in1990_sic.dta", nogen; 
   merge m:1 ind1990 using "${wrkdir}/cw_ind1990_naics2012_3.dta", nogen ;
 
-  * New variables ;
-  gen hr_wage = earnweek/uhrsworkorg ; 
-  gen ln_hr_wage = ln(earnweek/uhrsworkorg) ;
+  * Generate the constructed hourly wage in the allocation-flag robustness variant ;
+  if inlist("`robustness_variant'", "ignore_allocation_flags") { ;
+    gen hr_wage = earnweek/uhrsworkorg ; 
+  } ;
+  
+  * Generate the reported hourly wage in the hourly wage robustness variant ;
+  if inlist("`robustness_variant'", "hourwage") { ;
+    gen hr_wage = hourwage ;
+  } ;
+
+  * Generate the wage outcome used by the industry wage regressions ;
+  gen ln_hr_wage = ln(hr_wage) ;
 
 tempfile temp ;
 save `temp' ; 
@@ -239,7 +270,7 @@ foreach ind in "sic" "naics3" { ;
 
   merge 1:1 `ind' using `race', nogen ; 
 
-save "$wrkdir/`ind'_shares", replace ; 
+save "$wrkdir/`ind'_shares_`robustness_variant'", replace ; 
 
 ** Wage gaps ; 
 
@@ -321,19 +352,20 @@ use `temp', clear ;
 #d ; 
 clear ;
 svmat estrace1, names(col) ;
-save "${wrkdir}/`ind'_race_wage_gap_basic", replace ; 
+save "${wrkdir}/`ind'_race_wage_gap_basic_`robustness_variant'", replace ; 
 
 clear ;
 svmat estrace2, names(col) ;
-save "${wrkdir}/`ind'_race_wage_gap", replace ; 
+save "${wrkdir}/`ind'_race_wage_gap_`robustness_variant'", replace ; 
 
 clear ;
 svmat estgender1, names(col) ;
-save "${wrkdir}/`ind'_gender_wage_gap_basic", replace ; 
+save "${wrkdir}/`ind'_gender_wage_gap_basic_`robustness_variant'", replace ; 
 
 clear ;
 svmat estgender2, names(col) ;
-save "${wrkdir}/`ind'_gender_wage_gap", replace ; 
+save "${wrkdir}/`ind'_gender_wage_gap_`robustness_variant'", replace ; 
 
 } ; 
 
+} ;
