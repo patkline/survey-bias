@@ -1,6 +1,6 @@
 /* -----------------------------------------------------------------------------------------------------------
-Purpose: Compare paper Figure 9 CPS-derived points to rr_misc and corrected-cleaning
-CPS rebuilds
+Purpose: Compare paper Figure 9 CPS-derived points to rr_misc, corrected-cleaning,
+and robustness CPS rebuilds
 
 Created: Nico Rotundo 2026-05-05
 ----------------------------------------------------------------------------------------------------------- */
@@ -120,37 +120,103 @@ merge 1:1 gap characteristic estimate_type using `rr_misc_comparison'
 assert _merge == 3
 drop _merge
 
+* Save comparison rows before loading the hourwage robustness coefficients
+tempfile comparison_with_new_cleaning
+save `comparison_with_new_cleaning', replace
+
+* Load hourwage robustness rebuild coefficients
+use "${qje_2022_replication_dump}/figure9_cps_hourwage_rebuild_coefficients.dta", clear
+
+* Rename hourwage robustness coefficients to comparison-table column names
+rename coefficient cps_hourwage_coefficient
+rename se cps_hourwage_se
+
+* Keep the hourwage robustness coefficient for each CPS characteristic, panel, and estimate type
+keep gap characteristic estimate_type cps_hourwage_coefficient cps_hourwage_se
+gisid gap characteristic estimate_type
+assert _N == 24
+
+* Merge hourwage robustness coefficients onto the comparison rows
+merge 1:1 gap characteristic estimate_type using `comparison_with_new_cleaning'
+assert _merge == 3
+drop _merge
+
+* Save comparison rows before loading the allocation-flag robustness coefficients
+tempfile comparison_with_hourwage
+save `comparison_with_hourwage', replace
+
+* Load allocation-flag robustness rebuild coefficients
+use "${qje_2022_replication_dump}/figure9_cps_ignore_allocation_flags_rebuild_coefficients.dta", clear
+
+* Rename allocation-flag robustness coefficients to Stata-safe comparison-table column names
+rename coefficient cps_no_alloc_flags_coefficient
+rename se cps_no_alloc_flags_se
+
+* Keep the allocation-flag robustness coefficient for each CPS characteristic, panel, and estimate type
+keep gap characteristic estimate_type cps_no_alloc_flags_coefficient cps_no_alloc_flags_se
+gisid gap characteristic estimate_type
+assert _N == 24
+
+* Merge allocation-flag robustness coefficients onto the comparison rows
+merge 1:1 gap characteristic estimate_type using `comparison_with_hourwage'
+assert _merge == 3
+drop _merge
+
 * Compute coefficient differences reported in the old comparison CSV
 gen double difference_cps_vs_paper = cps_coefficient - paper_coefficient
 gen double difference_new_cleaning_vs_paper = cps_new_cleaning_coefficient - paper_coefficient
 gen double difference_new_cleaning_vs_cps = cps_new_cleaning_coefficient - cps_coefficient
+gen double diff_hourwage_vs_paper = cps_hourwage_coefficient - paper_coefficient
+gen double diff_hourwage_vs_new_cleaning = cps_hourwage_coefficient - cps_new_cleaning_coefficient
+gen double diff_no_alloc_vs_paper = cps_no_alloc_flags_coefficient - paper_coefficient
+gen double diff_no_alloc_vs_new_cleaning = cps_no_alloc_flags_coefficient - cps_new_cleaning_coefficient
 assert ~mi(difference_cps_vs_paper)
 assert ~mi(difference_new_cleaning_vs_paper)
 assert ~mi(difference_new_cleaning_vs_cps)
+assert ~mi(diff_hourwage_vs_paper)
+assert ~mi(diff_hourwage_vs_new_cleaning)
+assert ~mi(diff_no_alloc_vs_paper)
+assert ~mi(diff_no_alloc_vs_new_cleaning)
 
 * Compute 95 percent confidence intervals for each rebuild coefficient
 gen double cps_ci_lower = cps_coefficient - 1.96 * cps_se
 gen double cps_ci_upper = cps_coefficient + 1.96 * cps_se
 gen double cps_new_cleaning_ci_lower = cps_new_cleaning_coefficient - 1.96 * cps_new_cleaning_se
 gen double cps_new_cleaning_ci_upper = cps_new_cleaning_coefficient + 1.96 * cps_new_cleaning_se
+gen double cps_hourwage_ci_lower = cps_hourwage_coefficient - 1.96 * cps_hourwage_se
+gen double cps_hourwage_ci_upper = cps_hourwage_coefficient + 1.96 * cps_hourwage_se
+gen double cps_no_alloc_flags_ci_lower = cps_no_alloc_flags_coefficient - 1.96 * cps_no_alloc_flags_se
+gen double cps_no_alloc_flags_ci_upper = cps_no_alloc_flags_coefficient + 1.96 * cps_no_alloc_flags_se
 assert ~mi(cps_ci_lower)
 assert ~mi(cps_ci_upper)
 assert ~mi(cps_new_cleaning_ci_lower)
 assert ~mi(cps_new_cleaning_ci_upper)
+assert ~mi(cps_hourwage_ci_lower)
+assert ~mi(cps_hourwage_ci_upper)
+assert ~mi(cps_no_alloc_flags_ci_lower)
+assert ~mi(cps_no_alloc_flags_ci_upper)
 
 * Flag estimates whose 95 percent confidence interval excludes zero
 gen byte paper_reject_zero_5pct = paper_ci_lower > 0 | paper_ci_upper < 0
 gen byte cps_reject_zero_5pct = cps_ci_lower > 0 | cps_ci_upper < 0
 gen byte new_cleaning_reject_zero_5pct = cps_new_cleaning_ci_lower > 0 | cps_new_cleaning_ci_upper < 0
+gen byte hourwage_reject_zero_5pct = cps_hourwage_ci_lower > 0 | cps_hourwage_ci_upper < 0
+gen byte no_alloc_flags_reject_zero_5pct = cps_no_alloc_flags_ci_lower > 0 | cps_no_alloc_flags_ci_upper < 0
 assert ~mi(paper_reject_zero_5pct)
 assert ~mi(cps_reject_zero_5pct)
 assert ~mi(new_cleaning_reject_zero_5pct)
+assert ~mi(hourwage_reject_zero_5pct)
+assert ~mi(no_alloc_flags_reject_zero_5pct)
 
 * Flag whether each rebuild point estimate lies inside the paper's plotted confidence interval
 gen byte cps_inside_paper_ci = inrange(cps_coefficient, paper_ci_lower, paper_ci_upper)
 gen byte new_cleaning_inside_paper_ci = inrange(cps_new_cleaning_coefficient, paper_ci_lower, paper_ci_upper)
+gen byte hourwage_inside_paper_ci = inrange(cps_hourwage_coefficient, paper_ci_lower, paper_ci_upper)
+gen byte no_alloc_flags_inside_paper_ci = inrange(cps_no_alloc_flags_coefficient, paper_ci_lower, paper_ci_upper)
 assert ~mi(cps_inside_paper_ci)
 assert ~mi(new_cleaning_inside_paper_ci)
+assert ~mi(hourwage_inside_paper_ci)
+assert ~mi(no_alloc_flags_inside_paper_ci)
 
 * Create row-order variables that match the old Python comparison output
 gen gap_order = 1 if inlist(gap, "white")
@@ -175,17 +241,31 @@ drop gap_order characteristic_order estimate_type_order
 
 * Order old comparison columns first, followed by standard error and inference columns
 order gap characteristic estimate_type paper_coefficient cps_coefficient cps_new_cleaning_coefficient ///
+    cps_hourwage_coefficient cps_no_alloc_flags_coefficient ///
     difference_cps_vs_paper difference_new_cleaning_vs_paper difference_new_cleaning_vs_cps ///
-    paper_se cps_se cps_new_cleaning_se paper_ci_lower paper_ci_upper ///
-    cps_ci_lower cps_ci_upper cps_new_cleaning_ci_lower cps_new_cleaning_ci_upper ///
+    diff_hourwage_vs_paper diff_hourwage_vs_new_cleaning ///
+    diff_no_alloc_vs_paper diff_no_alloc_vs_new_cleaning ///
+    paper_se cps_se cps_new_cleaning_se cps_hourwage_se cps_no_alloc_flags_se ///
+    paper_ci_lower paper_ci_upper cps_ci_lower cps_ci_upper ///
+    cps_new_cleaning_ci_lower cps_new_cleaning_ci_upper ///
+    cps_hourwage_ci_lower cps_hourwage_ci_upper ///
+    cps_no_alloc_flags_ci_lower cps_no_alloc_flags_ci_upper ///
     paper_reject_zero_5pct cps_reject_zero_5pct new_cleaning_reject_zero_5pct ///
-    cps_inside_paper_ci new_cleaning_inside_paper_ci
+    hourwage_reject_zero_5pct no_alloc_flags_reject_zero_5pct ///
+    cps_inside_paper_ci new_cleaning_inside_paper_ci ///
+    hourwage_inside_paper_ci no_alloc_flags_inside_paper_ci
 
 * Format numeric columns with enough precision for the CSV comparison
 format paper_coefficient cps_coefficient cps_new_cleaning_coefficient ///
+    cps_hourwage_coefficient cps_no_alloc_flags_coefficient ///
     difference_cps_vs_paper difference_new_cleaning_vs_paper difference_new_cleaning_vs_cps ///
-    paper_se cps_se cps_new_cleaning_se paper_ci_lower paper_ci_upper ///
-    cps_ci_lower cps_ci_upper cps_new_cleaning_ci_lower cps_new_cleaning_ci_upper %24.17g
+    diff_hourwage_vs_paper diff_hourwage_vs_new_cleaning ///
+    diff_no_alloc_vs_paper diff_no_alloc_vs_new_cleaning ///
+    paper_se cps_se cps_new_cleaning_se cps_hourwage_se cps_no_alloc_flags_se ///
+    paper_ci_lower paper_ci_upper cps_ci_lower cps_ci_upper ///
+    cps_new_cleaning_ci_lower cps_new_cleaning_ci_upper ///
+    cps_hourwage_ci_lower cps_hourwage_ci_upper ///
+    cps_no_alloc_flags_ci_lower cps_no_alloc_flags_ci_upper %24.17g
 
 * Export the paper-vs-rebuild comparison table
 export delimited using "${qje_2022_replication_tables}/figure9_cps_pdf_point_comparison.csv", replace

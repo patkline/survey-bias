@@ -100,12 +100,14 @@ foreach touse in white male {
     label var wage_gap_gender "Male - female adj wage"
     label var col_share_gap_gender "Male - female col share"
 
-    * Define graph subtitle
+    * Define graph subtitle and race-panel x-axis scale
     if "`touse'" == "white" {
         local gap = "white-Black"
+        local x_axis_options "xscale(range(-40 40)) xlabel(-40(20)40)"
     }
     else if "`touse'" == "male" {
         local gap = "male-female"
+        local x_axis_options ""
     }
 
     * Run posterior-gap regressions
@@ -138,6 +140,7 @@ foreach touse in white male {
         graphregion(color(white)) ///
         legend(region(color(white))) ///
         xtitle("Regression coefficient on `gap' gap") ///
+        `x_axis_options' ///
         headings(wage_level_race = "{bf:Race characteristics}" ///
             wage_level_gender = "{bf:Gender characteristics}")
 

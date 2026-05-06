@@ -1,9 +1,9 @@
 /* -----------------------------------------------------------------------------------------------------------
 Purpose: Metafile for the QJE 2022 (Kline-Rose-Walters) Figure 9 replication.
 Reproduces the CPS-derived covariates of Figure 9 (Panel A non-Black-Black,
-Panel B male-female) under both the rr_misc cleaning baseline and the proposed
-production-style new-cleaning approach, then validates against the paper's
-shipped Figure 9 PDF points.
+Panel B male-female) under the rr_misc cleaning baseline, the proposed
+production-style new-cleaning approach, and robustness variants, then validates
+against the paper's shipped Figure 9 PDF points.
 
 Created: Nico Rotundo 2026-04-24
 
@@ -51,15 +51,25 @@ di as text "🎃 Step 6: new-cleaning posterior-gap regressions and CPS-only Fig
 
 do "${qje_2022_replication_code}/create_figure_9_cps_new_cleaning.do"
 
-* Step 7: PDF-parse comparison of paper Figure 9 vs. both rebuilds
-di as text "🎃 Step 7: parse paper Figure 9 PDFs and compare against numeric coefficients from both rebuilds"
+* Step 7: Recreate CPS-derived Figure 9 covariates for robustness variants
+di as text "🎃 Step 7: robustness CPS covariate construction (writes to dump/covariates_robustness_variants/)"
+
+do "${qje_2022_replication_code}/wage_regressions_robustness_variants.do"
+
+* Step 8: Robustness Figure 9 regressions and figure export
+di as text "🎃 Step 8: robustness posterior-gap regressions and CPS-only Figure 9 PDFs"
+
+do "${qje_2022_replication_code}/create_figure_9_cps_robustness_variants.do"
+
+* Step 9: PDF-parse comparison of paper Figure 9 vs. all rebuilds
+di as text "🎃 Step 9: parse paper Figure 9 PDFs and compare against numeric coefficients from all rebuilds"
 
 shell "${python_venv_installation}" "${qje_2022_replication_code}/parse_figure_9_pdf_points.py"
 
 do "${qje_2022_replication_code}/compare_cps_points_to_paper.do"
 
-* Step 8: Render every figure PDF to PNG for GitHub issue embedding
-di as text "🎃 Step 8: render figure PDFs to PNG at figures/png/"
+* Step 10: Render every figure PDF to PNG for GitHub issue embedding
+di as text "🎃 Step 10: render figure PDFs to PNG at figures/png/"
 
 shell "${python_venv_installation}" "${qje_2022_replication_code}/render_figure_pdfs_to_png.py" ///
     "${qje_2022_replication_figures}"
