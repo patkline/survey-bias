@@ -13,10 +13,15 @@ compute_variance_noise_signal <- function(res) {
   stopifnot(!is.null(res$mats$rcov))
   
   beta <- as.numeric(res$firm_table$estimate)
-  
+  # Center beta so mean(beta^2) = Var(beta) for any model. OL/Borda/OLS/OLSC
+  # are already mean-zero (sum-to-zero / recenter_objects); PL pins the
+  # baseline firm to 0, so its betas need explicit centering before any
+  # second-moment formula gives the right answer.
+  beta <- beta - mean(beta, na.rm = TRUE)
+
   Sigma <- as.matrix(res$mats$rcov)
   if (is.null(dim(Sigma)) || nrow(Sigma) != ncol(Sigma)) stop("rcov must be square JxJ")
-  
+
   # "variance" of centered firm effects (your convention: mean(beta^2))
   variance <- mean(beta^2, na.rm = TRUE)
   
