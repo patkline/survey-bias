@@ -1173,44 +1173,66 @@ write_variance_biascorrected_ols_borda_within_between <- function(
   }
 
   # ---- Reweight _im outcomes by firm counts per industry ----
-  # The variance sheet computes _im stats unweighted across industries.
-  # To interpret as firm-level, reweight by n_k (firm count per industry),
-  # read from the Coefficients sheet where njobs = firm count for _im rows.
+  # The variance sheet computes _im stats with equal weights across industries.
+  # Reweight every component (variance, noise, Vhat, sigma2_hat, signal) by
+  # w_k = n_k / Σ n_k, where n_k = firm count per industry (njobs in coef sheet).
+  # noise and Vhat use the per-industry rcov matrix Σ from the rcov sheet:
+  #   variance_w  = Σ w_k β_k^2
+  #   noise_w     = Σ w_k Σ_kk
+  #   Vhat_w      = 4 (w⊙β)' Σ (w⊙β) − 2 tr(D Σ D Σ),  D = diag(w)
+  # Recovers the equal-weight formulas exactly when w_k = 1/K.
   coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
                       error = function(e) NULL)
+  rcov_df <- tryCatch(read_parquet_sheet(dir_path, "rcov"),
+                      error = function(e) NULL)
 
-  if (!is.null(coef_df)) {
+  if (!is.null(coef_df) && !is.null(rcov_df)) {
     im_outcomes <- paste0(outcomes, "_im")
 
     for (i in which(var_df$outcome %in% im_outcomes)) {
       mdl    <- var_df$model[i]
       im_out <- var_df$outcome[i]
 
-      # Read industry-level estimates + njobs (= firm count per industry)
       im_rows <- coef_df %>%
         dplyr::filter(.data$subset == "all", .data$entity_type == "Industry",
                       .data$model == mdl, .data$outcome == im_out) %>%
         dplyr::mutate(estimate = as.numeric(estimate),
-                      njobs = as.numeric(njobs))
+                      njobs    = as.numeric(njobs),
+                      entity_id = as.integer(entity_id)) %>%
+        dplyr::arrange(entity_id)
 
       if (nrow(im_rows) == 0 || all(is.na(im_rows$njobs))) next
 
+      ids  <- im_rows$entity_id
       beta <- im_rows$estimate
-      w    <- im_rows$njobs / sum(im_rows$njobs, na.rm = TRUE)  # normalized firm-count weights
+      w    <- im_rows$njobs / sum(im_rows$njobs, na.rm = TRUE)
 
-      # Firm-weighted variance: Σ w_k * beta_k^2
-      var_df$variance[i] <- sum(w * beta^2, na.rm = TRUE)
+      rcov_sub <- rcov_df %>%
+        dplyr::filter(.data$subset == "all", .data$model == mdl,
+                      .data$outcome == im_out,
+                      .data$entity_id_i %in% ids,
+                      .data$entity_id_j %in% ids)
 
-      # Noise stays the same (average per-industry noise; per-industry values not available)
-      # sigma2_hat = weighted_variance - noise
-      var_df$sigma2_hat[i] <- var_df$variance[i] - as.numeric(var_df$noise[i])
+      if (nrow(rcov_sub) != length(ids)^2) {
+        stop(sprintf("rcov sheet incomplete for model=%s outcome=%s: %d rows, expected %d",
+                     mdl, im_out, nrow(rcov_sub), length(ids)^2))
+      }
 
-      # Scale Vhat for non-uniform weights: multiply by (K^2 * Σ w_k^2)
-      K <- length(w)
-      var_df$Vhat[i] <- as.numeric(var_df$Vhat[i]) * (sum(w^2) * K^2)
+      Sigma <- matrix(NA_real_, nrow = length(ids), ncol = length(ids),
+                      dimnames = list(as.character(ids), as.character(ids)))
+      Sigma[cbind(match(rcov_sub$entity_id_i, ids),
+                  match(rcov_sub$entity_id_j, ids))] <- as.numeric(rcov_sub$rcov)
 
-      var_df$signal[i] <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
-      var_df$t_stat[i] <- ifelse(
+      wb <- w * beta
+      DSigmaD <- (w %o% w) * Sigma
+
+      var_df$variance[i]   <- sum(w * beta^2, na.rm = TRUE)
+      var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE)
+      var_df$sigma2_hat[i] <- var_df$variance[i] - var_df$noise[i]
+      var_df$Vhat[i]       <- 4 * as.numeric(t(wb) %*% Sigma %*% wb) -
+                              2 * sum(DSigmaD * Sigma)
+      var_df$signal[i]     <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
+      var_df$t_stat[i]     <- ifelse(
         is.finite(var_df$Vhat[i]) & var_df$Vhat[i] > 0,
         var_df$sigma2_hat[i] / sqrt(var_df$Vhat[i]),
         NA_real_
