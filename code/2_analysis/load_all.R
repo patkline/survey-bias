@@ -21,12 +21,3 @@ source(file.path(analysis, "eiv_functions.R")) # EIV
 source(file.path(analysis, "mean_estimator_bread_and_score.R")) 
 source(file.path(analysis, "make_industry_means.R")) # EIV
 
-## Sample Prep
-# source(file.path(analysis, "extra_functions.R"))
-
-
-## PL to Borda
-source(file.path(analysis, "expected_borda_score.R"))
-source(file.path(analysis, "pl_to_borda.R"))
-
-

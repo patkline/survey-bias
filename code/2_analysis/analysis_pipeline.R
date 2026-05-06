@@ -125,6 +125,14 @@ run_analysis_pipeline <- function(
     industry_map = industry_map
   )
 
+  message("Writing rcov outputs after Step 2")
+  write_rcov_long_sheet(
+    results = results,
+    output_dir = output_dir,
+    sheet_name = "rcov",
+    include_sets = c("all", "subset97")
+  )
+
 ################################################################################
 ## Step 2: Variance, Noise, Signal Variance
 ################################################################################

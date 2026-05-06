@@ -862,3 +862,55 @@ write_coefficients_long_sheet <- function(
 
   invisible(coef_long)
 }
+
+# ------------------------------------------------------------------------------
+# Write the per-fit J x J robust covariance matrix in long format.
+# One row per (subset, model, outcome, entity_id_i, entity_id_j).
+# Skips fits that don't have a usable mats$rcov (e.g., PL).
+# ------------------------------------------------------------------------------
+write_rcov_long_sheet <- function(
+    results,
+    output_dir,
+    sheet_name = "rcov",
+    include_sets = c("all", "subset97"),
+    include_models = c("OL", "OLS", "OLSC", "Borda")
+) {
+  stopifnot(is.list(results), all(c("all", "subset97") %in% names(results)))
+
+  rows <- list()
+  k <- 1L
+
+  for (set_nm in include_sets) {
+    if (is.null(results[[set_nm]])) next
+    for (m in include_models) {
+      if (is.null(results[[set_nm]][[m]])) next
+      model_list <- results[[set_nm]][[m]]
+      outs <- names(model_list)
+      outs <- outs[!is.na(outs) & nzchar(outs)]
+      for (outcome in outs) {
+        res <- model_list[[outcome]]
+        if (is.null(res) || is.null(res$mats) || is.null(res$mats$rcov)) next
+        M <- as.matrix(res$mats$rcov)
+        if (nrow(M) != ncol(M) || is.null(rownames(M)) || is.null(colnames(M))) next
+        ids <- suppressWarnings(as.integer(sub("^entity", "", rownames(M))))
+        if (anyNA(ids)) {
+          stop("write_rcov_long_sheet(): non-numeric entity ids in rcov rownames for ",
+               set_nm, "/", m, "/", outcome)
+        }
+        rows[[k]] <- tibble::tibble(
+          subset      = set_nm,
+          model       = m,
+          outcome     = outcome,
+          entity_id_i = rep(ids, times = ncol(M)),
+          entity_id_j = rep(ids, each  = nrow(M)),
+          rcov        = as.numeric(M)
+        )
+        k <- k + 1L
+      }
+    }
+  }
+
+  rcov_long <- dplyr::bind_rows(rows)
+  write_parquet_sheet(output_dir, sheet_name, rcov_long)
+  invisible(rcov_long)
+}

@@ -18,6 +18,9 @@ theta_vectors <- list()
 # Initialize list to store cached signal and total variance scalars
 signal_total_variance_scalars <- list()
 
+# Initialize list to store cached J x J robust covariance matrices (per model x sample x outcome)
+rcov_matrices <- list()
+
 # Define local that defines the set of samples we are looping over here, where the name corresponds to the Plackett-Luce file suffixes
 sample_list <- c("Black", "White", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40", "College", "No_College", "Convenience", "Probability", "Conf_Gender_N", "Conf_Gender_Y", "Conf_Race_N", "Conf_Race_Y")
 # sample_list <- c("Black", "White")
@@ -51,6 +54,13 @@ for (sample in sample_list) {
 
   # Keep observations where subset is all
   signal_total_variance_sample <- signal_total_variance_sample %>%
+    dplyr::filter(.data$subset == "all")
+
+  ## Import per-fit J x J robust covariance matrices for current sample
+  rcov_long_sample <- read_parquet_sheet(
+    file.path(intermediate, paste0("Subset_", sample)),
+    "rcov"
+  ) %>%
     dplyr::filter(.data$subset == "all")
 
   # Loop over models
@@ -103,6 +113,23 @@ for (sample in sample_list) {
         total_variance = as.numeric(signal_total_variance_sample_model_outcome$variance[1]),
         signal         = as.numeric(signal_total_variance_sample_model_outcome$signal[1])
       )
+
+      ## rcov matrix caching: pivot long (i, j, value) into a J x J matrix keyed by entity_id
+      rcov_long <- rcov_long_sample %>%
+        dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
+      stopifnot(!anyNA(rcov_long$rcov))
+      ids_rcov <- sort(unique(c(rcov_long$entity_id_i, rcov_long$entity_id_j)))
+      stopifnot(length(ids_rcov) == 164L)
+      stopifnot(nrow(rcov_long) == length(ids_rcov)^2L)
+      rcov_mat <- matrix(NA_real_, nrow = length(ids_rcov), ncol = length(ids_rcov),
+                         dimnames = list(as.character(ids_rcov), as.character(ids_rcov)))
+      idx_i <- match(rcov_long$entity_id_i, ids_rcov)
+      idx_j <- match(rcov_long$entity_id_j, ids_rcov)
+      rcov_mat[cbind(idx_i, idx_j)] <- rcov_long$rcov
+      stopifnot(!anyNA(rcov_mat))
+
+      rcov_key <- paste("rcov", model, sample, outcome, sep = "_")
+      rcov_matrices[[rcov_key]] <- rcov_mat
     }
   }
 }
@@ -227,21 +254,27 @@ for (sample_pair in sample_pair_list) {
       # Assert temporary and manual signal correlations are equal
       stopifnot(isTRUE(all.equal(signal_correlation, signal_correlation_temp, tolerance = 1e-12)))
 
-      ## Wald test for H0: theta_1 = theta_2
-      # Compute per-firm noise for each sample (noise = total_variance - signal)
-      noise_1 <- total_variance_1 - signal_variance_1
-      noise_2 <- total_variance_2 - signal_variance_2
-
-      # Compute Δ̂ = θ̂₁ - θ̂₂
+      ## Wald test for H0: theta_1 = theta_2 with full per-fit covariance
+      # Compute Δ̂ = θ̂₁ - θ̂₂ on the common entity_id set
       delta_hat <- theta_vector_merged$theta_sample_1 - theta_vector_merged$theta_sample_2
+      common_ids <- as.character(theta_vector_merged$entity_id)
+      J <- length(common_ids)
 
-      # V̂ = V̂₁ + V̂₂, where V̂_k = noise_k * I_J (diagonal, equal noise per firm)
-      v_hat_scalar <- noise_1 + noise_2
+      # Pull the cached J x J robust covariance matrices for both samples and
+      # restrict to the common entity ordering
+      V1 <- rcov_matrices[[paste("rcov", model, sample_pair$sample_1, outcome, sep = "_")]][common_ids, common_ids, drop = FALSE]
+      V2 <- rcov_matrices[[paste("rcov", model, sample_pair$sample_2, outcome, sep = "_")]][common_ids, common_ids, drop = FALSE]
+      stopifnot(nrow(V1) == J, nrow(V2) == J)
 
-      # W = Δ̂' V̂⁻¹ Δ̂ = sum(Δ̂²) / v̂  ~ χ²(J)
-      J <- nrow(theta_vector_merged)
-      Wald_stat <- sum(delta_hat^2) / v_hat_scalar
-      Wald_df   <- J
+      # V̂ = V̂₁ + V̂₂  (independent samples ⇒ no cross term)
+      V_hat <- V1 + V2
+
+      # W = Δ̂' V̂⁺ Δ̂ ~ χ²(J − 1); the extra rank deficiency comes from
+      # sum-to-zero centering, which kills one direction of V̂ and constrains Δ̂
+      # to the (J − 1)-dim subspace orthogonal to 1_J
+      V_pinv <- MASS::ginv(V_hat)
+      Wald_stat <- as.numeric(t(delta_hat) %*% V_pinv %*% delta_hat)
+      Wald_df   <- J - 1L
       Wald_pval <- pchisq(Wald_stat, df = Wald_df, lower.tail = FALSE)
 
       # Store current correlation row
