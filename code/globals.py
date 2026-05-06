@@ -58,6 +58,7 @@ if data_and_output_storage_location == "github":
     # Data and output paths within GitHub repository
     data = git_survey_bias_root / "data"
     output = git_survey_bias_root / "output"
+    qje_2022_data_and_outputs = git_survey_bias_root / "qje_2022_replication_data_and_outputs"
 
 # If switch is set to dropbox, set data and output paths to Dropbox mirror
 elif data_and_output_storage_location == "dropbox":
@@ -71,6 +72,7 @@ elif data_and_output_storage_location == "dropbox":
     # Data and output paths on Dropbox mirror
     data = db_survey_bias_data_and_output_mirror / "data"
     output = db_survey_bias_data_and_output_mirror / "output"
+    qje_2022_data_and_outputs = db_survey_bias_data_and_output_mirror / "qje_2022_replication_data_and_outputs"
 
 else:
     raise ValueError("🧌 Invalid value for `data_and_output_storage_location`. Must be 'github' or 'dropbox'")
@@ -91,6 +93,15 @@ dump = data / "dump"
 excel = output / "excel"
 figures = output / "figures"
 tables = output / "tables"
+
+# QJE 2022 replication paths
+qje_2022_replication_code = code / "qje_2022_replication"
+qje_2022_replication_data = qje_2022_data_and_outputs / "data"
+qje_2022_replication_outputs = qje_2022_data_and_outputs / "outputs"
+qje_2022_replication_package = qje_2022_replication_data / "paper_replication_package"
+qje_2022_replication_figures = qje_2022_replication_outputs / "figures"
+qje_2022_replication_tables = qje_2022_replication_outputs / "tables"
+qje_2022_replication_dump = qje_2022_replication_outputs / "dump"
 
 # ------------------------------------------------------------------------------
 # Edit other python settings 

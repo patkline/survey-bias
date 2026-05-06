@@ -53,6 +53,7 @@ if (data_and_output_storage_location == "github") {
   # Data and output paths within GitHub repository
   data <- file.path(git_survey_bias_root, "data")
   output <- file.path(git_survey_bias_root, "output")
+  qje_2022_data_and_outputs <- file.path(git_survey_bias_root, "qje_2022_replication_data_and_outputs")
 
 # If switch is set to dropbox, set data and output paths to Dropbox mirror
 } else if (data_and_output_storage_location == "dropbox") {
@@ -76,6 +77,7 @@ if (data_and_output_storage_location == "github") {
   # Data and output paths on Dropbox mirror
   data <- file.path(db_survey_bias_data_and_output_mirror, "data")
   output <- file.path(db_survey_bias_data_and_output_mirror, "output")
+  qje_2022_data_and_outputs <- file.path(db_survey_bias_data_and_output_mirror, "qje_2022_replication_data_and_outputs")
 
 } else {
   stop("🧌 Invalid value for `data_and_output_storage_location`. Must be 'github' or 'dropbox'")
@@ -98,6 +100,15 @@ dump <- file.path(data, "dump")
 excel <- file.path(output, "excel")
 figures <- file.path(output, "figures")
 tables <- file.path(output, "tables")
+
+# QJE 2022 replication paths
+qje_2022_replication_code <- file.path(code, "qje_2022_replication")
+qje_2022_replication_data <- file.path(qje_2022_data_and_outputs, "data")
+qje_2022_replication_outputs <- file.path(qje_2022_data_and_outputs, "outputs")
+qje_2022_replication_package <- file.path(qje_2022_replication_data, "paper_replication_package")
+qje_2022_replication_figures <- file.path(qje_2022_replication_outputs, "figures")
+qje_2022_replication_tables <- file.path(qje_2022_replication_outputs, "tables")
+qje_2022_replication_dump <- file.path(qje_2022_replication_outputs, "dump")
 
 # Define path to Python virtual environment
 python_venv_directory <- file.path(git_survey_bias_root, ".venv")
