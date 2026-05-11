@@ -13,7 +13,8 @@
 dropbox_roots_by_user <- c(
   nicorotundo    = "/Users/nicorotundo/Opportunity Insights Dropbox/Nico Rotundo/Survey/consolidated_code",
   monicahea      = "/Users/monicahea/Dropbox/Survey/consolidated_code",
-  jordancammarota = "/Users/jordancammarota/Dropbox/consolidated_code"
+  jordancammarota = "/Users/jordancammarota/Dropbox/consolidated_code",
+  "anh-huynguyen"  = "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
 )
 
 # Get current system user
