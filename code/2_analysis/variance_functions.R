@@ -48,9 +48,13 @@ write_variance_sheet <- function(results, output_dir, sheet_name = "variance") {
   stopifnot(is.list(results), !is.null(results$all))
   
   models <- intersect(c("OL", "PL", "Borda", "OLS", "OLSC"), names(results$all))
-  
-  # infer outcomes present (union over models)
-  survey_vars <- unique(unlist(lapply(models, function(m) names(results$all[[m]]))))
+
+  # infer outcomes present (union over models AND sets — _dm_w/_im_w are only
+  # built for subset97 since njobs is NA for firms outside the subset)
+  sets_present <- intersect(c("all", "subset97"), names(results))
+  survey_vars <- unique(unlist(lapply(sets_present, function(s)
+    unlist(lapply(models, function(m) names(results[[s]][[m]])))
+  )))
   survey_vars <- survey_vars[!is.na(survey_vars) & nzchar(survey_vars)]
   
   rows <- list()

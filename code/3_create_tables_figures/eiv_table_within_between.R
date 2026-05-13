@@ -135,11 +135,11 @@ root_dir <- intermediate
 
 # ---- Race within ----
 build_two_panel_table_no_fe(
-  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_dm",
-                           "FirmCont_favor_white_dm", "conduct_favor_white_dm", "pooled_favor_white_dm",
+  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_dm_w",
+                           "FirmCont_favor_white_dm_w", "conduct_favor_white_dm_w", "pooled_favor_white_dm_w",
                            "EIV_within"),
-  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_dm",
-                           "FirmCont_favor_white_dm", "conduct_favor_white_dm", "pooled_favor_white_dm",
+  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_dm_w",
+                           "FirmCont_favor_white_dm_w", "conduct_favor_white_dm_w", "pooled_favor_white_dm_w",
                            "EIV_within"),
   out_tex   = file.path(tables, "EIV_race_within_ols_borda.tex"),
   left_label  = "Panel A: Likert",
@@ -148,11 +148,11 @@ build_two_panel_table_no_fe(
 
 # ---- Gender within ----
 build_two_panel_table_no_fe(
-  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_gender_dm",
-                           "FirmCont_favor_male_dm", "conduct_favor_male_dm", "pooled_favor_male_dm",
+  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_gender_dm_w",
+                           "FirmCont_favor_male_dm_w", "conduct_favor_male_dm_w", "pooled_favor_male_dm_w",
                            "EIV_within"),
-  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_gender_dm",
-                           "FirmCont_favor_male_dm", "conduct_favor_male_dm", "pooled_favor_male_dm",
+  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_gender_dm_w",
+                           "FirmCont_favor_male_dm_w", "conduct_favor_male_dm_w", "pooled_favor_male_dm_w",
                            "EIV_within"),
   out_tex   = file.path(tables, "EIV_gender_within_ols_borda.tex"),
   left_label  = "Panel A: Likert",
@@ -165,11 +165,11 @@ build_two_panel_table_no_fe(
 
 # ---- Race between ----
 build_two_panel_table_no_fe(
-  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_im",
-                           "FirmCont_favor_white_im", "conduct_favor_white_im", "pooled_favor_white_im",
+  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_im_w",
+                           "FirmCont_favor_white_im_w", "conduct_favor_white_im_w", "pooled_favor_white_im_w",
                            "EIV_between"),
-  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_im",
-                           "FirmCont_favor_white_im", "conduct_favor_white_im", "pooled_favor_white_im",
+  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_im_w",
+                           "FirmCont_favor_white_im_w", "conduct_favor_white_im_w", "pooled_favor_white_im_w",
                            "EIV_between"),
   out_tex   = file.path(tables, "EIV_race_between_ols_borda.tex"),
   left_label  = "Panel A: Likert",
@@ -178,11 +178,11 @@ build_two_panel_table_no_fe(
 
 # ---- Gender between ----
 build_two_panel_table_no_fe(
-  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_gender_im",
-                           "FirmCont_favor_male_im", "conduct_favor_male_im", "pooled_favor_male_im",
+  cfg_left  = make_wb_cfg(root_dir, "OLS",   "log_dif_gender_im_w",
+                           "FirmCont_favor_male_im_w", "conduct_favor_male_im_w", "pooled_favor_male_im_w",
                            "EIV_between"),
-  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_gender_im",
-                           "FirmCont_favor_male_im", "conduct_favor_male_im", "pooled_favor_male_im",
+  cfg_right = make_wb_cfg(root_dir, "Borda", "log_dif_gender_im_w",
+                           "FirmCont_favor_male_im_w", "conduct_favor_male_im_w", "pooled_favor_male_im_w",
                            "EIV_between"),
   out_tex   = file.path(tables, "EIV_gender_between_ols_borda.tex"),
   left_label  = "Panel A: Likert",

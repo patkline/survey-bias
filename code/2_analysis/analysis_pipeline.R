@@ -1,3 +1,4 @@
+
 # ------------------------------------------------------------------------------
 # Purpose: Simplified Pipeline for Analysis
 #
@@ -310,16 +311,16 @@ run_analysis_pipeline <- function(
 ################################################################################
   message("Building Within/Between Industry EIV")
 
-  # RHS outcomes for within (demeaned) and between (industry means)
+  # RHS outcomes for within (demeaned) and between (industry means) — njobs-weighted
   dm_rhs_outcomes <- c(
-    "FirmCont_favor_white_dm", "conduct_favor_white_dm", "pooled_favor_white_dm",
-    "FirmCont_favor_male_dm",  "conduct_favor_male_dm",  "pooled_favor_male_dm",
-    "conduct_favor_younger_dm"
+    "FirmCont_favor_white_dm_w", "conduct_favor_white_dm_w", "pooled_favor_white_dm_w",
+    "FirmCont_favor_male_dm_w",  "conduct_favor_male_dm_w",  "pooled_favor_male_dm_w",
+    "conduct_favor_younger_dm_w"
   )
   im_rhs_outcomes <- c(
-    "FirmCont_favor_white_im", "conduct_favor_white_im", "pooled_favor_white_im",
-    "FirmCont_favor_male_im",  "conduct_favor_male_im",  "pooled_favor_male_im",
-    "conduct_favor_younger_im"
+    "FirmCont_favor_white_im_w", "conduct_favor_white_im_w", "pooled_favor_white_im_w",
+    "FirmCont_favor_male_im_w",  "conduct_favor_male_im_w",  "pooled_favor_male_im_w",
+    "conduct_favor_younger_im_w"
   )
 
   # Build noise matrices for _dm and _im outcomes
@@ -337,27 +338,29 @@ run_analysis_pipeline <- function(
     )
   }
 
-  # Compute demeaned LHS vars (experimental outcomes demeaned by industry)
+  # Compute demeaned LHS vars (experimental outcomes demeaned by njobs-weighted industry mean)
   lhs_to_demean <- c("log_dif", "log_dif_gender", "log_dif_age")
   for (lv in lhs_to_demean) {
     if (lv %in% names(coef_firm_wide)) {
-      coef_firm_wide[[paste0(lv, "_dm")]] <- ave(
-        coef_firm_wide[[lv]],
-        coef_firm_wide$model, coef_firm_wide$aer_naics2,
-        FUN = function(x) x - mean(x, na.rm = TRUE)
-      )
+      coef_firm_wide <- coef_firm_wide |>
+        dplyr::group_by(model, aer_naics2) |>
+        dplyr::mutate(
+          !!paste0(lv, "_dm_w") := .data[[lv]] -
+            stats::weighted.mean(.data[[lv]], w = njobs, na.rm = TRUE)
+        ) |>
+        dplyr::ungroup()
     }
   }
 
   # Within-industry EIV specs (no industry FE — already demeaned)
   regs_within <- list(
-    list(lhs = "log_dif_dm",        rhs = c("FirmCont_favor_white_dm")),
-    list(lhs = "log_dif_dm",        rhs = c("conduct_favor_white_dm")),
-    list(lhs = "log_dif_dm",        rhs = c("pooled_favor_white_dm")),
-    list(lhs = "log_dif_gender_dm", rhs = c("FirmCont_favor_male_dm")),
-    list(lhs = "log_dif_gender_dm", rhs = c("conduct_favor_male_dm")),
-    list(lhs = "log_dif_gender_dm", rhs = c("pooled_favor_male_dm")),
-    list(lhs = "log_dif_age_dm",    rhs = c("conduct_favor_younger_dm"))
+    list(lhs = "log_dif_dm_w",        rhs = c("FirmCont_favor_white_dm_w")),
+    list(lhs = "log_dif_dm_w",        rhs = c("conduct_favor_white_dm_w")),
+    list(lhs = "log_dif_dm_w",        rhs = c("pooled_favor_white_dm_w")),
+    list(lhs = "log_dif_gender_dm_w", rhs = c("FirmCont_favor_male_dm_w")),
+    list(lhs = "log_dif_gender_dm_w", rhs = c("conduct_favor_male_dm_w")),
+    list(lhs = "log_dif_gender_dm_w", rhs = c("pooled_favor_male_dm_w")),
+    list(lhs = "log_dif_age_dm_w",    rhs = c("conduct_favor_younger_dm_w"))
   )
 
   write_eiv_sheet(
@@ -368,17 +371,18 @@ run_analysis_pipeline <- function(
     models = models_to_run_eiv,
     id_col = "entity_id",
     model_col = "model",
-    use_fe = FALSE
+    use_fe = FALSE,
+    weights_col = "njobs"
   )
 
   # Between-industry: build industry-level dataframe
-  # Compute industry means of experimental LHS vars from firm data
+  # Compute njobs-weighted industry means of experimental LHS vars from firm data
   lhs_im <- coef_firm_wide |>
     dplyr::group_by(model, aer_naics2) |>
     dplyr::summarize(
-      log_dif_im        = mean(log_dif, na.rm = TRUE),
-      log_dif_gender_im = mean(log_dif_gender, na.rm = TRUE),
-      log_dif_age_im    = mean(log_dif_age, na.rm = TRUE),
+      log_dif_im_w        = stats::weighted.mean(log_dif,        w = njobs, na.rm = TRUE),
+      log_dif_gender_im_w = stats::weighted.mean(log_dif_gender, w = njobs, na.rm = TRUE),
+      log_dif_age_im_w    = stats::weighted.mean(log_dif_age,    w = njobs, na.rm = TRUE),
       .groups = "drop"
     ) |>
     dplyr::mutate(entity_id = as.integer(aer_naics2)) |>
@@ -391,13 +395,13 @@ run_analysis_pipeline <- function(
 
   # Between-industry EIV specs (no FE — each row is an industry)
   regs_between <- list(
-    list(lhs = "log_dif_im",        rhs = c("FirmCont_favor_white_im")),
-    list(lhs = "log_dif_im",        rhs = c("conduct_favor_white_im")),
-    list(lhs = "log_dif_im",        rhs = c("pooled_favor_white_im")),
-    list(lhs = "log_dif_gender_im", rhs = c("FirmCont_favor_male_im")),
-    list(lhs = "log_dif_gender_im", rhs = c("conduct_favor_male_im")),
-    list(lhs = "log_dif_gender_im", rhs = c("pooled_favor_male_im")),
-    list(lhs = "log_dif_age_im",    rhs = c("conduct_favor_younger_im"))
+    list(lhs = "log_dif_im_w",        rhs = c("FirmCont_favor_white_im_w")),
+    list(lhs = "log_dif_im_w",        rhs = c("conduct_favor_white_im_w")),
+    list(lhs = "log_dif_im_w",        rhs = c("pooled_favor_white_im_w")),
+    list(lhs = "log_dif_gender_im_w", rhs = c("FirmCont_favor_male_im_w")),
+    list(lhs = "log_dif_gender_im_w", rhs = c("conduct_favor_male_im_w")),
+    list(lhs = "log_dif_gender_im_w", rhs = c("pooled_favor_male_im_w")),
+    list(lhs = "log_dif_age_im_w",    rhs = c("conduct_favor_younger_im_w"))
   )
 
   write_eiv_sheet(
@@ -408,7 +412,8 @@ run_analysis_pipeline <- function(
     models = models_to_run_eiv,
     id_col = "entity_id",
     model_col = "model",
-    use_fe = FALSE
+    use_fe = FALSE,
+    weights_col = "njobs"
   )
 
   message("✅ Step 5b Complete. Output directory: ", output_dir)

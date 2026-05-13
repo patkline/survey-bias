@@ -9,7 +9,51 @@
 source("code/globals.R")
 
 # ----------------------------------------------------------------------------------------------------
-# Build cached theta vectors and signal/total variance scalars for every 
+# Helper: njobs-weighted signal variance (local to this script — does not modify
+# variance.parquet). Drops firms with NA / non-positive njobs, then computes the
+# weighted analog of var_component_with_var() and applies the Katz correction.
+#   sigma2_hat_w = sum(w * theta_c^2)/sum(w) - sum(w * diag(Sigma))/sum(w)
+#   Vhat_w      = (4 * theta_c' W Sigma W theta_c - 2 * tr((W Sigma)^2)) / sum(w)^2
+# ----------------------------------------------------------------------------------------------------
+compute_signal_var_weighted <- function(theta, Sigma, w) {
+  theta <- as.numeric(theta)
+  w     <- as.numeric(w)
+  ok    <- is.finite(theta) & is.finite(w) & w > 0
+  theta <- theta[ok]
+  w     <- w[ok]
+  Sigma <- as.matrix(Sigma)[ok, ok, drop = FALSE]
+  if (length(theta) < 2L) {
+    return(list(variance_w = NA_real_, noise_w = NA_real_,
+                sigma2_hat_w = NA_real_, Vhat_w = NA_real_,
+                signal_w = NA_real_, J_w = length(theta)))
+  }
+
+  W_sum   <- sum(w)
+  theta_c <- theta - sum(w * theta) / W_sum
+
+  variance_w   <- sum(w * theta_c^2)    / W_sum
+  noise_w      <- sum(w * diag(Sigma))  / W_sum
+  sigma2_hat_w <- variance_w - noise_w
+
+  WSigmaW  <- outer(w, w) * Sigma                       # (W Sigma W)[i,j] = w_i w_j Sigma_ij
+  quad_w   <- as.numeric(t(theta_c) %*% WSigmaW %*% theta_c)
+  WS       <- w * Sigma                                 # (W Sigma)[i,j] = w_i Sigma_ij
+  tr_WSig2 <- sum(WS * t(WS))                           # tr((W Sigma)(W Sigma))
+  Vhat_w   <- (4 * quad_w - 2 * tr_WSig2) / (W_sum^2)
+
+  se_w <- sqrt(pmax(Vhat_w, 0))
+  signal_w <- if (se_w == 0) max(sigma2_hat_w, 0) else {
+    z <- sigma2_hat_w / se_w
+    sigma2_hat_w + se_w * dnorm(z) / pnorm(z)
+  }
+
+  list(variance_w = variance_w, noise_w = noise_w,
+       sigma2_hat_w = sigma2_hat_w, Vhat_w = Vhat_w,
+       signal_w = signal_w, J_w = length(theta))
+}
+
+# ----------------------------------------------------------------------------------------------------
+# Build cached theta vectors and signal/total variance scalars for every
 # model-sample-outcome combination
 # ----------------------------------------------------------------------------------------------------
 # Initialize list to store cached `entity_id`-`theta` vectors
@@ -75,11 +119,16 @@ for (sample in sample_list) {
       theta_vector_sample_model_outcome <- theta_vector_sample %>%
         dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
 
-      # Keep only entity_id and estimate columns, renaming estimate to theta
+      # Keep entity_id, estimate, and njobs (njobs feeds the weighted variant);
+      # NA-njobs firms get dropped inside compute_signal_var_weighted, but the
+      # full vector is retained for the unweighted path and cross-sample merge.
       theta_vector_sample_model_outcome <- theta_vector_sample_model_outcome %>%
-        dplyr::transmute(entity_id = .data$entity_id, theta = .data$estimate)
+        dplyr::transmute(entity_id = .data$entity_id,
+                         theta     = .data$estimate,
+                         njobs     = suppressWarnings(as.numeric(.data$njobs)))
 
-      # Assert non-missing entity_id and theta
+      # Assert non-missing entity_id and theta (njobs may be NA for firms
+      # outside subset97 — handled downstream by the weighted helper).
       stopifnot(!anyNA(theta_vector_sample_model_outcome$entity_id), !anyNA(theta_vector_sample_model_outcome$theta))
 
       # Assert uniqueness on entity_id
@@ -130,6 +179,25 @@ for (sample in sample_list) {
 
       rcov_key <- paste("rcov", model, sample, outcome, sep = "_")
       rcov_matrices[[rcov_key]] <- rcov_mat
+
+      ## njobs-weighted signal variance (parallel to the unweighted scalar above)
+      # Align theta order to rcov dimnames, then drop NA-njobs firms inside the
+      # helper. signal_w can differ from `signal` both because of weighting and
+      # because the sample is restricted to firms with valid njobs.
+      theta_for_w <- theta_vector_sample_model_outcome[
+        match(ids_rcov, theta_vector_sample_model_outcome$entity_id), , drop = FALSE
+      ]
+      signal_w_out <- compute_signal_var_weighted(
+        theta = theta_for_w$theta,
+        Sigma = rcov_mat,
+        w     = theta_for_w$njobs
+      )
+      signal_w_key <- paste("signal_total_variance_w", model, sample, outcome, sep = "_")
+      signal_total_variance_scalars[[signal_w_key]] <- list(
+        total_variance_w = signal_w_out$variance_w,
+        signal_w         = signal_w_out$signal_w,
+        J_w              = signal_w_out$J_w
+      )
     }
   }
 }
@@ -199,22 +267,26 @@ for (sample_pair in sample_pair_list) {
         !is.null(signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]])
       )
 
-      # Merge theta vectors on common entity IDs (i.e., firms)
+      # Merge theta vectors on common entity IDs (i.e., firms). Rename njobs on
+      # each side so we can assert they agree (njobs is firm-level, so the same
+      # firm_id must carry the same njobs across samples).
       theta_vector_merged <- dplyr::inner_join(
-        
-        # First sample theta vector, renaming theta column to theta_sample_1 for downstream covariance calculation
-        dplyr::rename(theta_vectors[[paste("theta", model, sample_pair$sample_1, outcome, sep = "_")]], theta_sample_1 = theta),
-
-        # Second sample theta vector, renaming theta column to theta_sample_2 for downstream covariance calculation
-        dplyr::rename(theta_vectors[[paste("theta", model, sample_pair$sample_2, outcome, sep = "_")]], theta_sample_2 = theta),
-        
-        # Merge on entity_id
+        dplyr::rename(theta_vectors[[paste("theta", model, sample_pair$sample_1, outcome, sep = "_")]],
+                      theta_sample_1 = theta, njobs_1 = njobs),
+        dplyr::rename(theta_vectors[[paste("theta", model, sample_pair$sample_2, outcome, sep = "_")]],
+                      theta_sample_2 = theta, njobs_2 = njobs),
         by = "entity_id"
-      ) 
-      
-      # Sort merged theta vector by entity_id 
+      )
+
+      # Sort merged theta vector by entity_id
       theta_vector_merged <- theta_vector_merged %>%
          dplyr::arrange(.data$entity_id)
+
+      # Assert njobs agrees across samples for the same firm_id (firm-level
+      # invariant), then collapse to a single njobs column.
+      stopifnot(isTRUE(all.equal(theta_vector_merged$njobs_1,
+                                 theta_vector_merged$njobs_2)))
+      theta_vector_merged$njobs <- theta_vector_merged$njobs_1
 
       # Assert at least two common IDs for covariance calculation
       stopifnot(nrow(theta_vector_merged) >= 2L)
@@ -254,6 +326,33 @@ for (sample_pair in sample_pair_list) {
       # Assert temporary and manual signal correlations are equal
       stopifnot(isTRUE(all.equal(signal_correlation, signal_correlation_temp, tolerance = 1e-12)))
 
+      ## njobs-weighted signal correlation (parallel to the unweighted block above).
+      # Drop firms with NA / non-positive njobs from the merged pair, compute a
+      # weighted covariance, and divide by the weighted signal-variance product
+      # cached above. Wald test below stays unweighted.
+      ok_w <- is.finite(theta_vector_merged$njobs) & theta_vector_merged$njobs > 0
+      t1_w <- theta_vector_merged$theta_sample_1[ok_w]
+      t2_w <- theta_vector_merged$theta_sample_2[ok_w]
+      w    <- theta_vector_merged$njobs[ok_w]
+      if (length(w) >= 2L && sum(w) > 0) {
+        W_sum <- sum(w)
+        t1_c_w <- t1_w - sum(w * t1_w) / W_sum
+        t2_c_w <- t2_w - sum(w * t2_w) / W_sum
+        theta_covariance_w <- sum(w * t1_c_w * t2_c_w) / W_sum
+      } else {
+        theta_covariance_w <- NA_real_
+      }
+      J_w <- as.integer(length(w))
+
+      sig_w_1_cache <- signal_total_variance_scalars[[paste("signal_total_variance_w", model, sample_pair$sample_1, outcome, sep = "_")]]
+      sig_w_2_cache <- signal_total_variance_scalars[[paste("signal_total_variance_w", model, sample_pair$sample_2, outcome, sep = "_")]]
+      stopifnot(!is.null(sig_w_1_cache), !is.null(sig_w_2_cache))
+      signal_w_1   <- sig_w_1_cache$signal_w
+      signal_w_2   <- sig_w_2_cache$signal_w
+      total_variance_w_1 <- sig_w_1_cache$total_variance_w
+      total_variance_w_2 <- sig_w_2_cache$total_variance_w
+      signal_correlation_w <- theta_covariance_w / sqrt(signal_w_1 * signal_w_2)
+
       ## Wald test for H0: theta_1 = theta_2 with full per-fit covariance
       # Compute Δ̂ = θ̂₁ - θ̂₂ on the common entity_id set
       delta_hat <- theta_vector_merged$theta_sample_1 - theta_vector_merged$theta_sample_2
@@ -277,7 +376,7 @@ for (sample_pair in sample_pair_list) {
       Wald_df   <- J - 1L
       Wald_pval <- pchisq(Wald_stat, df = Wald_df, lower.tail = FALSE)
 
-      # Store current correlation row
+      # Store current correlation row (unweighted + weighted side-by-side)
       correlation_rows[[correlation_row_id]] <- tibble::tibble(
         model      = tolower(model),
         outcome    = outcome,
@@ -290,6 +389,13 @@ for (sample_pair in sample_pair_list) {
         signal_variance_sample_1    = signal_variance_1,
         signal_variance_sample_2    = signal_variance_2,
         signal_correlation     = signal_correlation,
+        J_entities_w = J_w,
+        theta_covariance_w = theta_covariance_w,
+        total_variance_w_sample_1 = total_variance_w_1,
+        total_variance_w_sample_2 = total_variance_w_2,
+        signal_variance_w_sample_1 = signal_w_1,
+        signal_variance_w_sample_2 = signal_w_2,
+        signal_correlation_w = signal_correlation_w,
         Wald_stat  = Wald_stat,
         Wald_df    = Wald_df,
         Wald_pval  = Wald_pval
@@ -315,13 +421,20 @@ stopifnot(anyDuplicated(correlation_rows_data_frame[, c("model", "outcome", "sam
 # Reshape correlation_rows_data_frame to wide format by model and outcome, 
 # keep necessary variables for table construction, and set row labels and ordering  
 # ----------------------------------------------------------------------------------------------------
-# Reshape correlation_rows_data_frame to wide by outcome 
+# Reshape correlation_rows_data_frame to wide by outcome
 correlation_rows_data_frame <- correlation_rows_data_frame %>%
   tidyr::pivot_wider(
     id_cols = c("model", "sample_1", "sample_2"),
     names_from = "outcome",
-    values_from = c("J_entities", "theta_covariance", "total_variance_sample_1", "total_variance_sample_2", "signal_variance_sample_1", "signal_variance_sample_2", "signal_correlation", "Wald_stat", "Wald_df", "Wald_pval"
-    )
+    values_from = c("J_entities", "theta_covariance",
+                    "total_variance_sample_1", "total_variance_sample_2",
+                    "signal_variance_sample_1", "signal_variance_sample_2",
+                    "signal_correlation",
+                    "J_entities_w", "theta_covariance_w",
+                    "total_variance_w_sample_1", "total_variance_w_sample_2",
+                    "signal_variance_w_sample_1", "signal_variance_w_sample_2",
+                    "signal_correlation_w",
+                    "Wald_stat", "Wald_df", "Wald_pval")
   )
 
 # Assert unique on model x sample pair
@@ -364,10 +477,16 @@ correlation_rows_data_frame <- correlation_rows_data_frame %>%
 correlation_rows_data_frame <- correlation_rows_data_frame %>%
   dplyr::arrange(.data$model, .data$order)
 
-# Keep necessary variables for final table 
+# Keep necessary variables for final tables (unweighted + weighted variants of
+# the signal correlation, plus the shared Wald p-values)
 correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  dplyr::select(model, order, row_label, signal_correlation_pooled_favor_white, Wald_pval_pooled_favor_white, signal_correlation_pooled_favor_male, Wald_pval_pooled_favor_male
-  )
+  dplyr::select(model, order, row_label,
+                signal_correlation_pooled_favor_white,
+                signal_correlation_pooled_favor_male,
+                signal_correlation_w_pooled_favor_white,
+                signal_correlation_w_pooled_favor_male,
+                Wald_pval_pooled_favor_white,
+                Wald_pval_pooled_favor_male)
 
 #View(correlation_rows_data_frame)
 
@@ -389,68 +508,55 @@ stopifnot(nrow(panel_ols) == nrow(panel_borda))
 #View(panel_borda)
 
 # ----------------------------------------------------------------------------------------------------
-# Input panels into latex table, and export 
+# Input panels into latex table, and export. Two variants are written:
+#   1) Unweighted (full firm sample) — original behavior.
+#   2) njobs-weighted (firms with valid njobs only) — local to this script.
 # ----------------------------------------------------------------------------------------------------
-# Initialize latex line vector with header rows
-latex_lines_ols_borda <- c(
-  "  \\centering",
-  "  \\begin{tabular}{lcccc}",
-  "    \\toprule",
-  "    & \\multicolumn{2}{c}{Discrimination Black} & \\multicolumn{2}{c}{Discrimination Female} \\\\",
-  "    & Corr & Wald p-value & Corr & Wald p-value \\\\",
-  "    \\midrule",
-  "    \\multicolumn{5}{l}{\\textbf{Panel A: Likert}}\\\\"
-)
-
-# Append Panel A table rows
-for (row_index in seq_len(nrow(panel_ols))) {
-  latex_lines_ols_borda <- c(
-    latex_lines_ols_borda,
-    paste0(
+build_panel_rows <- function(panel_df, white_col, male_col) {
+  rows <- character(0)
+  for (row_index in seq_len(nrow(panel_df))) {
+    rows <- c(rows, paste0(
       "    ",
-      panel_ols$row_label[row_index], " & ",
-      formatC(panel_ols$signal_correlation_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
-      formatC(panel_ols$Wald_pval_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
-      formatC(panel_ols$signal_correlation_pooled_favor_male[row_index], digits = 3, format = "f"), " & ",
-      formatC(panel_ols$Wald_pval_pooled_favor_male[row_index], digits = 3, format = "f"), " \\\\"
-    )
-  )
+      panel_df$row_label[row_index], " & ",
+      formatC(panel_df[[white_col]][row_index],                       digits = 3, format = "f"), " & ",
+      formatC(panel_df$Wald_pval_pooled_favor_white[row_index],       digits = 3, format = "f"), " & ",
+      formatC(panel_df[[male_col]][row_index],                        digits = 3, format = "f"), " & ",
+      formatC(panel_df$Wald_pval_pooled_favor_male[row_index],        digits = 3, format = "f"), " \\\\"
+    ))
+  }
+  rows
 }
 
-# Append Panel B header
-latex_lines_ols_borda <- c(
-  latex_lines_ols_borda,
-  "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\"
-)
-
-# Append Panel B table rows
-for (row_index in seq_len(nrow(panel_borda))) {
-  latex_lines_ols_borda <- c(
-    latex_lines_ols_borda,
-    paste0(
-      "    ",
-      panel_borda$row_label[row_index], " & ",
-      formatC(panel_borda$signal_correlation_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
-      formatC(panel_borda$Wald_pval_pooled_favor_white[row_index], digits = 3, format = "f"), " & ",
-      formatC(panel_borda$signal_correlation_pooled_favor_male[row_index], digits = 3, format = "f"), " & ",
-      formatC(panel_borda$Wald_pval_pooled_favor_male[row_index], digits = 3, format = "f"), " \\\\"
-    )
+write_cross_sample_table <- function(white_col, male_col, out_tex) {
+  latex_lines <- c(
+    "  \\centering",
+    "  \\begin{tabular}{lcccc}",
+    "    \\toprule",
+    "    & \\multicolumn{2}{c}{Discrimination Black} & \\multicolumn{2}{c}{Discrimination Female} \\\\",
+    "    & Corr & Wald p-value & Corr & Wald p-value \\\\",
+    "    \\midrule",
+    "    \\multicolumn{5}{l}{\\textbf{Panel A: Likert}}\\\\",
+    build_panel_rows(panel_ols,   white_col, male_col),
+    "    \\addlinespace",
+    "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
+    build_panel_rows(panel_borda, white_col, male_col),
+    "    \\bottomrule",
+    "  \\end{tabular}"
   )
+  writeLines(latex_lines, out_tex)
+  message("🎃 Generated ", basename(out_tex))
 }
 
-# Append latex footer
-latex_lines_ols_borda <- c(
-  latex_lines_ols_borda,
-  "    \\bottomrule",
-  "  \\end{tabular}"
+# 1) Unweighted (existing)
+write_cross_sample_table(
+  white_col = "signal_correlation_pooled_favor_white",
+  male_col  = "signal_correlation_pooled_favor_male",
+  out_tex   = file.path(tables, "cross_sample_signal_corr_ols_borda.tex")
 )
 
-# Define output path for OLS-Borda latex table
-out_tex_ols_borda <- file.path(tables, "cross_sample_signal_corr_ols_borda.tex")
-
-# Write latex table to disk
-writeLines(latex_lines_ols_borda, out_tex_ols_borda)
-
-# Print output path
-message("🎃 Generated cross_sample_signal_corr_ols_borda.tex")
+# 2) njobs-weighted
+write_cross_sample_table(
+  white_col = "signal_correlation_w_pooled_favor_white",
+  male_col  = "signal_correlation_w_pooled_favor_male",
+  out_tex   = file.path(tables, "cross_sample_signal_corr_ols_borda_njobs_weighted.tex")
+)
