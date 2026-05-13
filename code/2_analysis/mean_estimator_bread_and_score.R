@@ -14,7 +14,7 @@ mean_estimator_bread_and_score <- function(
   if (!(w_var %in% names(B_indiv))) B_indiv[[w_var]] <- 1
   
   if (!exists("recenter_objects", mode = "function")) {
-    stop("recenter_objects() not found in scope. Source it before calling make_borda_bread_and_score().")
+    stop("recenter_objects() not found in scope. Source it before calling mean_estimator_bread_and_score().")
   }
   
   # stable ordering
@@ -84,7 +84,13 @@ mean_estimator_bread_and_score <- function(
   meat_raw <- crossprod(Psi_raw)
   rcov_raw  <- bread_raw %*% meat_raw %*% bread_raw
   dimnames(rcov_raw) <- list(firm_cols, firm_cols)
+
+  # Influence-function matrix. Note that crossprod(IF_raw) = rcov_raw.
+  IF_raw <- Psi_raw %*% bread_raw
+  rownames(IF_raw) <- resp_ids
+  colnames(IF_raw) <- firm_cols
   
+  # Naive covariance
   cov_raw <- diag(firm_means$se^2)
   
   # ==========================================================
@@ -92,9 +98,9 @@ mean_estimator_bread_and_score <- function(
   # ==========================================================
   rec <- recenter_objects(
     beta   = mu_vec,               # length J, in firm_ids order
-    Binv   = bread_raw,
-    S_full = Psi_raw,
-    cov = cov_raw
+    S_full = IF_raw,
+    cov = cov_raw,
+    rcov = rcov_raw
   )
   
   beta_c <- as.numeric(rec$beta)
@@ -103,21 +109,23 @@ mean_estimator_bread_and_score <- function(
   cov_c <- as.matrix(rec$cov)
   dimnames(cov_c) <- list(firm_cols, firm_cols)
   
-  Psi_c <- as.matrix(rec$S)
-  colnames(Psi_c) <- firm_cols
-  rownames(Psi_c) <- resp_ids
+  # Robut covariance after recentering
+  rcov_c <- as.matrix(rec$rcov)
+  dimnames(rcov_c) <- list(firm_cols, firm_cols)
   
-  B_c <- rec$Binv
-  dimnames(B_c) <- list(firm_cols, firm_cols)
-  
-  # Robust 
-  rcov_c <- B_c %*% crossprod(Psi_c) %*% B_c
+  # Recentered influence-function matrix
+  IF_c <- as.matrix(rec$S)
+  rownames(IF_c) <- resp_ids
+  colnames(IF_c) <- firm_cols
+
+  # Sanity check: recentered IF should have crossprod equal to recentered robust covariance
+  all.equal(crossprod(IF_c), rcov_c)
   
   # After recentering, robust SE should come from recentered cov
   se_vec_c <- sqrt(diag(cov_c))
   rse_vec_c <- sqrt(diag(rcov_c))
   
-  
+
   firm_scores_df <- data.frame(
     firm_id     = firm_ids,
     item_worth  = beta_c,
