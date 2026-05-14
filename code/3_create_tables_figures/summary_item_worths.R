@@ -1126,10 +1126,17 @@ create_plots_and_tables_from_sheets <- function(dir_path,
 
 # -------------------------------------------------------------------
 # Within/between-industry variance table (Likert + Borda)
-# - Uses unweighted decomposition outcomes from pipeline:
-#     *_dm (within-industry) and *_im (between-industry)
-# - For _im (between-industry) outcomes, reweights variance/noise/signal
-#   by number of firms per industry so the table reflects firm-level variation
+# - Uses njobs-weighted decomposition outcomes from pipeline:
+#     *_dm_w (within-industry, deviations from njobs-weighted industry mean)
+#     *_im_w (between-industry, njobs-weighted industry means)
+#   These outcomes only live at subset == "subset97" because njobs is NA for
+#   firms outside the experimental subset; the writer skips them at set=all.
+# - At table-build time, reweights variance / noise / Vhat / signal / t_stat
+#   by njobs:
+#     * Within (Firm-level betas):   w_i = njobs_i / Σ njobs_i across firms.
+#     * Between (Industry-level betas): w_k = njobs_k / Σ njobs_k, where
+#       njobs_k is the *aggregated* sum of firm njobs within industry k
+#       (already stored that way by add_industry_means_to_results).
 # - Produces two-panel table with same columns as Table 3 format
 # -------------------------------------------------------------------
 write_variance_biascorrected_ols_borda_within_between <- function(
@@ -1155,10 +1162,12 @@ write_variance_biascorrected_ols_borda_within_between <- function(
     return(invisible(NULL))
   }
 
-  target_outcomes <- c(paste0(outcomes, "_dm"), paste0(outcomes, "_im"))
+  target_outcomes <- c(paste0(outcomes, "_dm_w"), paste0(outcomes, "_im_w"))
 
+  # _dm_w / _im_w outcomes only exist at subset == "subset97" (set=all skips
+  # them because njobs is NA for firms outside the subset).
   var_df <- var_df %>%
-    dplyr::filter(.data$subset == "all", .data$outcome %in% target_outcomes) %>%
+    dplyr::filter(.data$subset == "subset97", .data$outcome %in% target_outcomes) %>%
     dplyr::mutate(
       t_stat = ifelse(
         is.finite(Vhat) & Vhat > 0,
@@ -1172,50 +1181,60 @@ write_variance_biascorrected_ols_borda_within_between <- function(
     return(invisible(NULL))
   }
 
-  # ---- Reweight _im outcomes by firm counts per industry ----
-  # The variance sheet computes _im stats with equal weights across industries.
-  # Reweight every component (variance, noise, Vhat, sigma2_hat, signal) by
-  # w_k = n_k / Σ n_k, where n_k = firm count per industry (njobs in coef sheet).
-  # noise and Vhat use the per-industry rcov matrix Σ from the rcov sheet:
-  #   variance_w  = Σ w_k β_k^2
-  #   noise_w     = Σ w_k Σ_kk
+  # ---- Reweight both _dm_w (Firm) and _im_w (Industry) outcomes by njobs ----
+  # The variance sheet computes these stats with equal weights across rows.
+  # Reweight variance / noise / Vhat / signal by w = njobs / Σ njobs, pulling
+  # the rcov matrix Σ from the rcov sheet:
+  #   variance_w  = Σ w_i β_i^2
+  #   noise_w     = Σ w_i Σ_ii
   #   Vhat_w      = 4 (w⊙β)' Σ (w⊙β) − 2 tr(D Σ D Σ),  D = diag(w)
-  # Recovers the equal-weight formulas exactly when w_k = 1/K.
+  # For _im_w rows, coef_df$njobs is already the *aggregated* sum of firm
+  # njobs per industry (set by add_industry_means_to_results); for _dm_w rows
+  # it's the firm's own njobs.
   coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
                       error = function(e) NULL)
   rcov_df <- tryCatch(read_parquet_sheet(dir_path, "rcov"),
                       error = function(e) NULL)
 
   if (!is.null(coef_df) && !is.null(rcov_df)) {
-    im_outcomes <- paste0(outcomes, "_im")
+    dm_w_outcomes <- paste0(outcomes, "_dm_w")
+    im_w_outcomes <- paste0(outcomes, "_im_w")
 
-    for (i in which(var_df$outcome %in% im_outcomes)) {
-      mdl    <- var_df$model[i]
-      im_out <- var_df$outcome[i]
+    for (i in seq_len(nrow(var_df))) {
+      mdl <- var_df$model[i]
+      out <- var_df$outcome[i]
 
-      im_rows <- coef_df %>%
-        dplyr::filter(.data$subset == "all", .data$entity_type == "Industry",
-                      .data$model == mdl, .data$outcome == im_out) %>%
-        dplyr::mutate(estimate = as.numeric(estimate),
-                      njobs    = as.numeric(njobs),
+      etype <- if (out %in% dm_w_outcomes) "Firm"
+               else if (out %in% im_w_outcomes) "Industry"
+               else next
+
+      ent_rows <- coef_df %>%
+        dplyr::filter(.data$subset == "subset97", .data$entity_type == etype,
+                      .data$model == mdl, .data$outcome == out) %>%
+        dplyr::mutate(estimate  = as.numeric(estimate),
+                      njobs     = as.numeric(njobs),
                       entity_id = as.integer(entity_id)) %>%
         dplyr::arrange(entity_id)
 
-      if (nrow(im_rows) == 0 || all(is.na(im_rows$njobs))) next
+      if (nrow(ent_rows) == 0 || all(is.na(ent_rows$njobs))) next
 
-      ids  <- im_rows$entity_id
-      beta <- im_rows$estimate
-      w    <- im_rows$njobs / sum(im_rows$njobs, na.rm = TRUE)
+      ok <- is.finite(ent_rows$njobs) & ent_rows$njobs > 0
+      ent_rows <- ent_rows[ok, , drop = FALSE]
+      if (nrow(ent_rows) < 2L) next
+
+      ids  <- ent_rows$entity_id
+      beta <- ent_rows$estimate
+      w    <- ent_rows$njobs / sum(ent_rows$njobs)
 
       rcov_sub <- rcov_df %>%
-        dplyr::filter(.data$subset == "all", .data$model == mdl,
-                      .data$outcome == im_out,
+        dplyr::filter(.data$subset == "subset97", .data$model == mdl,
+                      .data$outcome == out,
                       .data$entity_id_i %in% ids,
                       .data$entity_id_j %in% ids)
 
       if (nrow(rcov_sub) != length(ids)^2) {
         stop(sprintf("rcov sheet incomplete for model=%s outcome=%s: %d rows, expected %d",
-                     mdl, im_out, nrow(rcov_sub), length(ids)^2))
+                     mdl, out, nrow(rcov_sub), length(ids)^2))
       }
 
       Sigma <- matrix(NA_real_, nrow = length(ids), ncol = length(ids),
@@ -1267,11 +1286,11 @@ write_variance_biascorrected_ols_borda_within_between <- function(
         NA_real_
       ),
       panel = dplyr::case_when(
-        grepl("_dm$", .data$outcome) ~ "Panel A: Within-industry",
-        grepl("_im$", .data$outcome) ~ "Panel B: Between-industry",
-        TRUE                           ~ "Panel ?: Unknown"
+        grepl("_dm_w$", .data$outcome) ~ "Panel A: Within-industry",
+        grepl("_im_w$", .data$outcome) ~ "Panel B: Between-industry",
+        TRUE                             ~ "Panel ?: Unknown"
       ),
-      base_outcome = sub("_(dm|im)$", "", .data$outcome)
+      base_outcome = sub("_(dm_w|im_w)$", "", .data$outcome)
     )
   
   map_label <- function(x) {

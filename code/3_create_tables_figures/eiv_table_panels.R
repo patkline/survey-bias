@@ -80,11 +80,11 @@ build_eiv_df <- function(cfg) {
   rhs_conduct        <- cfg$rhs_conduct
   rhs_extra          <- cfg$rhs_extra
 
-  # Between-industry counterparts default to base names + "_im"
-  lhs_im         <- cfg$lhs_im         %||% paste0(lhs,         "_im")
-  rhs_contact_im <- cfg$rhs_contact_im %||% paste0(rhs_contact, "_im")
-  rhs_conduct_im <- cfg$rhs_conduct_im %||% paste0(rhs_conduct, "_im")
-  rhs_extra_im   <- cfg$rhs_extra_im   %||% paste0(rhs_extra,   "_im")
+  # Between-industry counterparts default to njobs-weighted names + "_im_w"
+  lhs_im         <- cfg$lhs_im         %||% paste0(lhs,         "_im_w")
+  rhs_contact_im <- cfg$rhs_contact_im %||% paste0(rhs_contact, "_im_w")
+  rhs_conduct_im <- cfg$rhs_conduct_im %||% paste0(rhs_conduct, "_im_w")
+  rhs_extra_im   <- cfg$rhs_extra_im   %||% paste0(rhs_extra,   "_im_w")
 
   coef1        <- cfg$coef1
   coef2        <- cfg$coef2
