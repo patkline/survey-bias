@@ -87,7 +87,7 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
    - We can eventually add more baseline options if they become relevant
   <!-- - Can also be set to `current`, which uses your current local `/output` folder at runtime as the baseline snapshot -->
 
-3. `--skip-rerun` (optional flag): do not run the `code/create_tables_figures/metafile.R` file
+3. `--skip-rerun` (optional flag): do not run the `code/3_create_tables_figures/!metafile.R` file
    - Compares current outputs against baseline snapshot i.e., what you see in `/output` currently is what you compare against baseline
 
 4. `--with-xlsx-cell-diffs` (optional flag): compute cell-level diffs for changed `.xlsx` files
@@ -106,7 +106,7 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
      - In dropbox storage mode (output outside repository), the script cannot warn you using Git since the Dropbox `/output` folder is outside the repository
 
 #### Common use cases and their respective commands (where <> denotes things to fill in)
-1. You want to rerun the entire set of code that creates outputs (i.e., `code/create_tables_figures/metafile.R`) and compare against `origin/main` as the baseline,
+1. You want to rerun the entire set of code that creates outputs (i.e., `code/3_create_tables_figures/!metafile.R`) and compare against `origin/main` as the baseline,
    - `Rscript code/tools/results_rerun_compare.R --run-name <my_test>`
 2. You want to rerun the entire set of code that creates outputs and compare against your current branch on GitHub (`origin/<current_branch>`) as the baseline,
    - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline origin-current`
@@ -129,7 +129,7 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
    - Required baseline LFS objects for `output/{tables,figures,excel}` are available locally
    - In github mode, the script can prompt to run `git fetch` / `git lfs fetch`; in dropbox mode, preflight failures abort
 4. Creates `old_full/{tables,figures,excel}` by copying baseline output files into the run folder
-5. Creates `new_full/{tables,figures,excel}` only when `--skip-rerun` is set, by copying current local output into the run folder; otherwise, runs `code/create_tables_figures/metafile.R` and treats the active output root as the "new" side.
+5. Creates `new_full/{tables,figures,excel}` only when `--skip-rerun` is set, by copying current local output into the run folder; otherwise, runs `code/3_create_tables_figures/!metafile.R` and treats the active output root as the "new" side.
 6. Compares `old_full` vs new side
    - If there are zero differences, deletes the run folder and exits
    - Otherwise writes file-level diffs to `changes.csv` and continues
@@ -166,16 +166,18 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
 ### 2. Analysis --- `code/2_analysis/`
 
 **Input:** `data/processed/long_survey_final.csv`
-**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients`, `variance`, `covariance`, `correlation`, `EIV_firm`, `EIV_within`, `EIV_between`
+**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `EIV_firm`, `EIV_within`, `EIV_between`
+
+**Models currently enabled** in `!metafile.R`: **Borda + OLS** only (`run_pl = run_ol = run_ols_centered = FALSE`). The PL / OL / OLSC fitters below still exist and can be toggled back on; downstream `3_create_tables_figures/` scripts auto-detect whichever models the `variance` / `Coefficients` sheets contain.
 
 - `!metafile.R` --- runs `run_analysis_pipeline()` for full sample, then loops over 18 subsets
   - `load_all.R` --- sources every helper below (no work itself)
     - `analysis_pipeline.R` --- orchestrates fit → variance → covariance → correlation → EIV per subset
     - **Model fitters** (long/wide data → `firm_table` + score/cov matrices)
-      - `run_model_ols.R` --- OLS on Likert ratings
-      - `run_model_ol.R` --- ordered logit on ratings
-      - `run_model_borda.R` --- pairwise-win Borda from ranks
-      - `run_model_pl.R` --- Plackett-Luce on ranks 
+      - `run_model_ols.R` --- OLS on Likert ratings *(enabled)*
+      - `run_model_borda.R` --- pairwise-win Borda from ranks *(enabled)*
+      - `run_model_ol.R` --- ordered logit on ratings *(disabled)*
+      - `run_model_pl.R` --- Plackett-Luce on ranks *(disabled)*
       - `run_models_helpers.R`
     - **Data prep**
       - `prep_outcomes.R` --- per-model outcome construction
@@ -189,7 +191,7 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
       - `covariance_functions.R` --- pairwise covariance + cross-sample noise
       - `correlation_function.R` --- `corr`, `corr_den`, `corr_c` (noise-corrected)
       - `katz_correct.R` --- positivity correction for variance components
-      - `EB_procedure.R` --- two-step empirical Bayes shrinkage of firm estimates
+      - `EB_procedure.R` --- two-step empirical Bayes shrinkage of firm estimates (writes the `eb` column on `Coefficients`)
     - **EIV regressions**
       - `eivreg.R` --- measurement-error regression with `Σ_error`
       - `eiv_functions.R` --- runs `eivreg` over (lhs × rhs × subset × model) specs
@@ -197,14 +199,13 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
     - **Misc**
       - `experimental.R` --- ad-hoc outcome transforms (dif, log_dif, etc.)
       - `helper_functions/sheet_functions.R` --- `read_parquet_sheet` / `write_parquet_sheet`
-- `run_eiv_gender_sq.R` --- standalone runner for the gender-squared EIV table
 
 ### 3. Tables and figures --- `code/3_create_tables_figures/`
 
 **Input:** `output/intermediate/*/*.parquet`
 **Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
 
-- `metafile.R` --- sources each table/figure script in order
+- `!metafile.R` --- sources each table/figure script in order
   - `summary_statistics_wrapper.R` --- descriptive plots from raw responses
     - `helper_functions/summary_figures_ratings.R` --- Likert distributions
     - `helper_functions/summary_figures_yes_no.R` --- yes/no/PNA bars
@@ -213,8 +214,12 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
     - `helper_functions/summary_two_way_bar.R` --- two-way bar charts
     - `helper_functions/summary_statistics_new.R` --- N / mean / SD tables
     - `helper_functions/response_duration_hist.R` --- response duration histograms
-  - `summary_item_worths.R` --- firm rankings, top/bottom plots, OLS/Borda dual-axis overlays
-  - `heatmaps_combined.R` --- across-outcome correlation heatmaps (PL upper / Borda lower)
+  - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
+    - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
+    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
+    - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
+    - `summary_topbottom_dualaxis.R` --- Top/Bottom-N firms by Borda EB, with each non-Borda model's EB on the primary axis and Borda EB on the secondary
+  - `heatmaps_combined.R` --- across-outcome correlation heatmaps (OLS upper / Borda lower)
   - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.)
   - `eiv_table_discretion.R` --- discretion-as-LHS EIV panel
   - `eiv_table_bivariate.r` --- bivariate EIV (favor-x + control)
