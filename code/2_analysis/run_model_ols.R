@@ -40,10 +40,9 @@ run_model_ols <- function(
   )
   
   firm_scores <- out$firm_scores  # firm_id, item_worth, se, rse
-  Psi         <- out$score        # n_resp x J (centered), colnames firm<id>
-  cov_mat     <- out$cov          # naive covariance (centered)
-  rcov_mat    <- out$rcov         # robust covariance (centered)
-  bread_mat   <- out$bread        # bread (centered)
+  Psi <- out$score  # actually influence functions now
+  cov_mat <- out$cov
+  rcov_mat <- out$rcov
   
   # Add firm names
   if (!is.null(id_map) && all(c("firm_id", "firm") %in% names(id_map))) {
@@ -64,13 +63,11 @@ run_model_ols <- function(
   Psi_mat   <- as.matrix(Psi[, firm_cols, drop = FALSE])
   cov_mat   <- as.matrix(cov_mat[firm_cols, firm_cols, drop = FALSE])
   rcov_mat  <- as.matrix(rcov_mat[firm_cols, firm_cols, drop = FALSE])
-  bread_mat <- as.matrix(bread_mat[firm_cols, firm_cols, drop = FALSE])
   
   # Rename mats to entity<id> naming
   colnames(Psi_mat) <- entity_cols
   dimnames(cov_mat)   <- list(entity_cols, entity_cols)
   dimnames(rcov_mat)  <- list(entity_cols, entity_cols)
-  dimnames(bread_mat) <- list(entity_cols, entity_cols)
   
   # EB step (uses robust SE)
   eb_hat <- rep(NA_real_, nrow(firm_scores))
@@ -107,8 +104,7 @@ run_model_ols <- function(
     mats = list(
       S     = S_df,
       cov   = cov_mat,
-      rcov  = rcov_mat,
-      bread = bread_mat
+      rcov  = rcov_mat
     )
   )
 }

@@ -164,7 +164,6 @@ combine_results_equal_weight <- function(res1, res2, new_outcome, w = 0.5) {
   
   stopifnot(!is.null(res1$firm_table), !is.null(res2$firm_table))
   stopifnot(!is.null(res1$mats$S), !is.null(res2$mats$S))
-  stopifnot(!is.null(res1$mats$bread), !is.null(res2$mats$bread))
   stopifnot(!is.null(res1$mats$cov), !is.null(res2$mats$cov))
   
   w1 <- w
@@ -190,7 +189,6 @@ combine_results_equal_weight <- function(res1, res2, new_outcome, w = 0.5) {
     out$firm_table <- ft1[ft1$entity_id %in% common_ids, , drop = FALSE]
     out$mats <- list(
       S     = res1$mats$S[0, , drop = FALSE],
-      bread = matrix(NA_real_, 0, 0),
       cov   = matrix(NA_real_, 0, 0),
       rcov  = matrix(NA_real_, 0, 0)
     )
@@ -198,32 +196,27 @@ combine_results_equal_weight <- function(res1, res2, new_outcome, w = 0.5) {
   }
   
   # resolve matrix column naming (firm* vs entity*)
-  B1 <- as.matrix(res1$mats$bread)
-  B2 <- as.matrix(res2$mats$bread)
   V1 <- as.matrix(res1$mats$cov)
   V2 <- as.matrix(res2$mats$cov)
   
-  if (is.null(dimnames(B1)) || is.null(dimnames(B2)) ||
-      is.null(dimnames(V1)) || is.null(dimnames(V2))) {
-    stop("combine_results_equal_weight(): bread/cov must have dimnames.")
+  if (is.null(dimnames(V1)) || is.null(dimnames(V2))) {
+    stop("combine_results_equal_weight(): cov must have dimnames.")
   }
   
-  cols1 <- .resolve_entity_cols(common_ids, colnames(B1))
-  cols2 <- .resolve_entity_cols(common_ids, colnames(B2))
+  cols1 <- .resolve_entity_cols(common_ids, colnames(V1))
+  cols2 <- .resolve_entity_cols(common_ids, colnames(V2))
   
-  B1c <- B1[cols1, cols1, drop = FALSE]
   V1c <- V1[cols1, cols1, drop = FALSE]
-  B2c <- B2[cols2, cols2, drop = FALSE]
   V2c <- V2[cols2, cols2, drop = FALSE]
+
   
   # build beta vectors aligned
   b1 <- ft1$estimate[match(common_ids, ft1$entity_id)]
   b2 <- ft2$estimate[match(common_ids, ft2$entity_id)]
   beta_cmb <- w1 * b1 + w2 * b2
   
-  # combine bread/cov (independent samples assumption)
-  bread_cmb <- w1 * B1c + w2 * B2c
-  cov_cmb   <- (w1^2) * V1c + (w2^2) * V2c
+  # combine covariance matrices (independent samples assumption)
+  cov_cmb <- (w1^2) * V1c + (w2^2) * V2c
   
   # combine scores by row-binding
   S1_df <- res1$mats$S
@@ -258,11 +251,10 @@ combine_results_equal_weight <- function(res1, res2, new_outcome, w = 0.5) {
   names(S_cmb_df)[(ncol(S_cmb_df) - length(out_cols) + 1):ncol(S_cmb_df)] <- out_cols
   
   # standardize dimnames to entity<id>
-  dimnames(bread_cmb) <- list(out_cols, out_cols)
   dimnames(cov_cmb)   <- list(out_cols, out_cols)
   
   # robust covariance (your convention)
-  rcov_cmb <- bread_cmb %*% crossprod(S_cmb_mat) %*% bread_cmb
+  rcov_cmb <- crossprod(S_cmb_mat)
   dimnames(rcov_cmb) <- list(out_cols, out_cols)
   
   # build output entity table (include njobs)
@@ -298,7 +290,6 @@ combine_results_equal_weight <- function(res1, res2, new_outcome, w = 0.5) {
   out$firm_table <- ft_out
   out$mats <- list(
     S     = S_cmb_df,
-    bread = bread_cmb,
     cov   = cov_cmb,
     rcov  = rcov_cmb
   )
@@ -503,17 +494,15 @@ recenter_model_result_to_firms97 <- function(res_all, firms97) {
   
   S_full97 <- as.matrix(S_df_all[, in_cols, drop = FALSE])
   
-  bread_all <- as.matrix(res_all$mats$bread)
   cov_all   <- as.matrix(res_all$mats$cov)
   rcov_all  <- as.matrix(res_all$mats$rcov)
   
-  if (is.null(dimnames(bread_all)) || is.null(dimnames(cov_all)) || is.null(dimnames(rcov_all))) {
-    stop("recenter_model_result_to_firms97(): bread/cov/rcov must have dimnames.")
+  if (is.null(dimnames(cov_all)) || is.null(dimnames(rcov_all))) {
+    stop("recenter_model_result_to_firms97(): cov/rcov must have dimnames.")
   }
   
-  in_cols_b <- .resolve_entity_cols(entity_ids, colnames(bread_all))
+  in_cols_b <- .resolve_entity_cols(entity_ids, colnames(cov_all))
   
-  bread97 <- bread_all[in_cols_b, in_cols_b, drop = FALSE]
   cov97   <- cov_all  [in_cols_b, in_cols_b, drop = FALSE]
   rcov97  <- rcov_all [in_cols_b, in_cols_b, drop = FALSE]
   
@@ -522,21 +511,20 @@ recenter_model_result_to_firms97 <- function(res_all, firms97) {
   
   rec <- recenter_objects(
     beta   = beta97,
-    Binv   = bread97,
     cov    = cov97,
+    rcov   = rcov97,
     S_full = S_full97
   )
   
-  beta_c  <- as.numeric(rec$beta)
-  bread_c <- as.matrix(rec$Binv)
-  cov_c   <- as.matrix(rec$cov)
-  S_c     <- as.matrix(rec$S)
-  
-  # robust covariance
-  rcov_c <- bread_c %*% crossprod(S_c) %*% bread_c
+  beta_c <- as.numeric(rec$beta)
+  cov_c  <- as.matrix(rec$cov)
+  rcov_c <- as.matrix(rec$rcov)
+  S_c    <- as.matrix(rec$S)
+
+  stopifnot(isTRUE(all.equal(crossprod(S_c), rcov_c, tolerance = 1e-10)))
+
   
   # standardize dimnames to entity<id>
-  dimnames(bread_c) <- list(entity_cols97_out, entity_cols97_out)
   dimnames(cov_c)   <- list(entity_cols97_out, entity_cols97_out)
   dimnames(rcov_c)  <- list(entity_cols97_out, entity_cols97_out)
   colnames(S_c)     <- entity_cols97_out
@@ -554,7 +542,6 @@ recenter_model_result_to_firms97 <- function(res_all, firms97) {
   res_97$firm_table <- ft
   res_97$mats <- list(
     S     = S_df,
-    bread = bread_c,
     cov   = cov_c,
     rcov  = rcov_c
   )

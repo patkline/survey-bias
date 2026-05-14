@@ -108,7 +108,7 @@ mean_estimator_bread_and_score <- function(
   
   cov_c <- as.matrix(rec$cov)
   dimnames(cov_c) <- list(firm_cols, firm_cols)
-  
+
   # Robut covariance after recentering
   rcov_c <- as.matrix(rec$rcov)
   dimnames(rcov_c) <- list(firm_cols, firm_cols)
@@ -119,13 +119,12 @@ mean_estimator_bread_and_score <- function(
   colnames(IF_c) <- firm_cols
 
   # Sanity check: recentered IF should have crossprod equal to recentered robust covariance
-  all.equal(crossprod(IF_c), rcov_c)
+  stopifnot(isTRUE(all.equal(crossprod(IF_c), rcov_c, tolerance = 1e-10)))
   
   # After recentering, robust SE should come from recentered cov
   se_vec_c <- sqrt(diag(cov_c))
   rse_vec_c <- sqrt(diag(rcov_c))
   
-
   firm_scores_df <- data.frame(
     firm_id     = firm_ids,
     item_worth  = beta_c,
@@ -137,12 +136,8 @@ mean_estimator_bread_and_score <- function(
   list(
     firm_scores = firm_scores_df,  # centered
     W     = W,
-    bread = B_c,               # <-- NOW has row/col names
-    score = Psi_c,                 # centered score
-    cov   = cov_c,                  # centered robust covariance
-    rcov  = rcov_c
+    score = IF_c,              # centered influence function matrix
+    cov   = cov_c,             # centered naive covariance
+    rcov  = rcov_c             # centered robust covariance
   )
 }
-
-
-
