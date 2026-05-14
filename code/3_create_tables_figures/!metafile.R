@@ -18,7 +18,10 @@ source(file.path(create_tables_figures, "summary_statistics_wrapper.R"))
 # XX
 # ------------------------------------------------------------------------------
 # Source individual table/figure scripts
-source(file.path(create_tables_figures, "summary_item_worths.R"))
+source(file.path(create_tables_figures, "summary_outcomes_config.R"))
+source(file.path(create_tables_figures, "summary_variance_table.R"))
+source(file.path(create_tables_figures, "summary_variance_within_between.R"))
+source(file.path(create_tables_figures, "summary_topbottom_dualaxis.R"))
 source(file.path(create_tables_figures, "heatmaps_combined.R"))
 source(file.path(create_tables_figures, "eiv_table_panels.R"))
 source(file.path(create_tables_figures, "eiv_table_discretion.R"))
