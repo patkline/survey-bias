@@ -204,21 +204,52 @@ create_combined_tri_heatmap <- function(dir_path,
              vjust = bot_vjust, hjust = 0.5,
              size = label_size, fontface = "bold")
   
-  # save first
-  ggsave(filename, p, width = 12, height = 10, dpi = 300, bg = "white")
-  
-  # then trim the whitespace so LaTeX shows no extra bottom margin
+  # Save to a temporary PNG first. Dropbox occasionally leaves a zero-byte file
+  # visible during write/overwrite, which makes magick::image_read() fail with
+  # "ImproperImageHeader" if we immediately read the final path.
+  dir.create(dirname(filename), showWarnings = FALSE, recursive = TRUE)
+  tmp_png <- tempfile(pattern = paste0(tools::file_path_sans_ext(basename(filename)), "_"),
+                      fileext = ".png")
+  on.exit(unlink(tmp_png), add = TRUE)
+
+  ggsave(tmp_png, p, width = 12, height = 10, dpi = 300, bg = "white")
+  if (!file.exists(tmp_png) || is.na(file.info(tmp_png)$size) || file.info(tmp_png)$size == 0L) {
+    stop("ggsave wrote an empty heatmap PNG: ", tmp_png)
+  }
+
+  trimmed <- FALSE
+
+  # Then trim the whitespace so LaTeX shows no extra bottom margin.
   if (isTRUE(trim_whitespace)) {
     if (!requireNamespace("magick", quietly = TRUE)) {
       warning("Package 'magick' not installed; skipping trim. Install with install.packages('magick').")
     } else {
-      img <- magick::image_read(filename)
-      img <- magick::image_trim(img)      # auto-crop empty margins
-      magick::image_write(img, path = filename)
+      tryCatch({
+        img <- magick::image_read(tmp_png)
+        img <- magick::image_trim(img)      # auto-crop empty margins
+        magick::image_write(img, path = tmp_png)
+        trimmed <- TRUE
+      }, error = function(e) {
+        warning("Could not trim heatmap PNG '", filename, "': ",
+                conditionMessage(e), ". Keeping untrimmed image.")
+      })
     }
   }
-  
-  message("✅ Saved (and trimmed) heatmap: ", normalizePath(filename))
+
+  if (file.exists(filename)) {
+    unlink_status <- unlink(filename)
+    if (!identical(unlink_status, 0L) && file.exists(filename)) {
+      stop("Could not remove existing heatmap PNG before overwrite: ", filename)
+    }
+  }
+  ok <- file.copy(tmp_png, filename, overwrite = TRUE)
+  if (!isTRUE(ok) || !file.exists(filename) ||
+      is.na(file.info(filename)$size) || file.info(filename)$size == 0L) {
+    stop("Could not write non-empty heatmap PNG: ", filename)
+  }
+
+  message("✅ Saved", if (trimmed) " (and trimmed)" else "",
+          " heatmap: ", normalizePath(filename, mustWork = FALSE))
 }
 
 
@@ -258,7 +289,9 @@ custom_order_non <- c(
   "Manager Discretion"
 )
 
-# Example call (full sample)
+# Legacy PL+Borda heatmaps need pairwise_summary* sheets, which are not produced
+# by the corrected OLS+Borda analysis run.
+if (FALSE) {
 create_combined_tri_heatmap(
   dir_path    = file.path(intermediate, "Full_Sample"),
   sheet_pl    = "pairwise_summary",
@@ -353,7 +386,7 @@ create_combined_tri_heatmap(
   label_mapping = label_mapping,
   custom_order  = custom_order_non
 )
-
+}
 
 
 

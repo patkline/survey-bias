@@ -235,8 +235,7 @@ build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
       pack_rows("Panel D: Likert Centered", cum_ols + 1, cum_olsc)
   }
 
-  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
-  writeLines(tex_code, out_tex)
+  write_lines_checked(tex_code, out_tex, label = "EIV LaTeX table")
   message("✓ LaTeX table saved to: ", out_tex)
 }
 
@@ -269,8 +268,7 @@ build_two_panel_eiv_table <- function(cfg_left, cfg_right, out_tex,
     pack_rows(left_label, 1, n_left) %>%
     pack_rows(right_label, n_left + 1, n_left + n_right)
 
-  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
-  writeLines(tex_code, out_tex)
+  write_lines_checked(tex_code, out_tex, label = "EIV LaTeX table")
   message("✓ LaTeX table saved to: ", out_tex)
 }
 

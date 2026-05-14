@@ -18,16 +18,28 @@ var_labels <- c(
   pooled_favor_male  = "Pooled Favor Male"
 )
 
-# --- Read Coefficients (97) ---
-coef_df <- read_parquet_sheet(full_sample_dir, "Coefficients (97)")
+# --- Read firm-level subset97 coefficients from the new long Coefficients sheet ---
+coef_df <- read_parquet_sheet(full_sample_dir, "Coefficients") %>%
+  dplyr::filter(
+    .data$subset == "subset97",
+    .data$entity_type == "Firm",
+    .data$model %in% models,
+    .data$outcome %in% pooled_vars
+  ) %>%
+  dplyr::transmute(
+    firm_id = as.integer(.data$entity_id),
+    model   = as.character(.data$model),
+    outcome = as.character(.data$outcome),
+    estimate = as.numeric(.data$estimate)
+  )
 
 # --- Build correlation matrix for one variable ---
 build_cross_model_corr <- function(coef_df, var, models) {
   # Filter to relevant models and select firm_id + outcome
   wide <- coef_df %>%
-    dplyr::filter(model %in% models) %>%
-    dplyr::select(firm_id, model, dplyr::all_of(var)) %>%
-    tidyr::pivot_wider(names_from = model, values_from = dplyr::all_of(var))
+    dplyr::filter(.data$model %in% models, .data$outcome == var) %>%
+    dplyr::select(firm_id, model, estimate) %>%
+    tidyr::pivot_wider(names_from = model, values_from = estimate)
 
   # Compute correlation matrix (pairwise complete obs)
   mat <- cor(wide[, models], use = "pairwise.complete.obs")

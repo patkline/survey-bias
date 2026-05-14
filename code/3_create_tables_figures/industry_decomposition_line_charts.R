@@ -2,8 +2,8 @@
 # Within-industry and between-industry dual-axis line charts (OLS "Likert" + Borda)
 #
 # For each outcome:
-#   - "within":  top/bottom 25 firms by demeaned (_dm) EB values, sorted by Borda
-#   - "between": all industries by industry mean (_im) EB values, sorted by Borda
+#   - "within":  top/bottom 25 firms by demeaned (_dm_w) EB values, sorted by Borda
+#   - "between": all industries by industry mean (_im_w) EB values, sorted by Borda
 # ------------------------------------------------------------------------------
 source("code/globals.R")
 
@@ -11,8 +11,8 @@ source("code/globals.R")
 full_sample_dir <- file.path(intermediate, "Full_Sample")
 industry_map_path <- file.path(processed, "industry_map.xlsx")
 
-outcomes_dm <- c("pooled_favor_white_dm", "pooled_favor_male_dm", "conduct_favor_younger_dm")
-outcomes_im <- c("pooled_favor_white_im", "pooled_favor_male_im", "conduct_favor_younger_im")
+outcomes_dm <- c("pooled_favor_white_dm_w", "pooled_favor_male_dm_w", "conduct_favor_younger_dm_w")
+outcomes_im <- c("pooled_favor_white_im_w", "pooled_favor_male_im_w", "conduct_favor_younger_im_w")
 
 n_keep <- 25
 gap_width <- 3
@@ -29,11 +29,11 @@ ind_name_lookup <- setNames(
 )
 
 # --- helper: extract data for one outcome/model, read EB from pipeline ---
-get_eb <- function(outcome, mdl, etype) {
+get_eb <- function(outcome, mdl, etype, subset_value = "subset97") {
   d <- coef[coef$outcome == outcome &
               coef$model == mdl &
               coef$entity_type == etype &
-              coef$subset == "all", ]
+              coef$subset == subset_value, ]
   stopifnot(nrow(d) > 0)
   stopifnot(!all(is.na(d$eb)))
   d
@@ -155,7 +155,7 @@ for (outcome_dm in outcomes_dm) {
   gap_end   <- n_keep + gap_width + 0.5
 
   # strip outcome base name for file naming
-  outcome_base <- sub("_dm$", "", outcome_dm)
+  outcome_base <- sub("_dm_w$", "", outcome_dm)
   fname <- paste0("within_industry_dualaxis_", outcome_base, ".png")
 
   make_dual_axis_chart(
@@ -175,7 +175,7 @@ for (outcome_dm in outcomes_dm) {
 # Between-industry (industry means): all industries, sorted by Borda
 # ==============================================================================
 for (outcome_im in outcomes_im) {
-  outcome_base <- sub("_im$", "", outcome_im)
+  outcome_base <- sub("_im_w$", "", outcome_im)
 
   ols_im  <- get_eb(outcome_im, "OLS",   "Industry")
   borda_im <- get_eb(outcome_im, "Borda", "Industry")
