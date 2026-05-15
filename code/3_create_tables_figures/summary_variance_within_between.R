@@ -1,13 +1,19 @@
 # -------------------------------------------------------------------
 # Within/between-industry SD / bias-corrected variance table.
-# - Reads the `variance` parquet sheet (subset == "subset97") for the
-#   *_dm_w (within) and *_im_w (between) outcomes that the pipeline
-#   writes only at subset97 because njobs is NA outside it.
-# - Reweights variance / noise / Vhat / signal / t-stat by njobs using
-#   the rcov sheet, with the same weighting logic the original code
-#   applied for both _dm_w (Firm-level) and _im_w (Industry-level) rows.
-# - Auto-detects which models live in the variance sheet (Borda + OLS
-#   today; PL etc. picked up automatically if added).
+#
+# Two variants are written for each call:
+#   1) "unweighted": full firm sample. Reads the `variance` parquet
+#      sheet at subset == "all" for the *_dm (within) and *_im
+#      (between) outcomes (deviations / means computed with equal
+#      weights across firms). No further reweighting.
+#   2) "njobs_weighted": selected firm sample (firms with valid
+#      njobs). Reads subset == "subset97" for *_dm_w / *_im_w
+#      outcomes, then reweights variance / noise / Vhat / signal /
+#      t-stat by njobs using the rcov sheet (logic preserved from
+#      the previous single-variant version).
+#
+# Auto-detects which models live in the variance sheet (Borda + OLS
+# today; PL etc. picked up automatically if added).
 # -------------------------------------------------------------------
 source("code/globals.R")
 source(file.path(create_tables_figures, "summary_outcomes_config.R"))
@@ -35,7 +41,11 @@ write_variance_within_between <- function(dir_path,
                                           csv_name = "variance_biascorrected_within_between_industry.csv",
                                           tex_name = "variance_biascorrected_within_between_industry.tex",
                                           latex_decimals = 3,
-                                          borda_mult = 1) {
+                                          borda_mult = 1,
+                                          variant = c("unweighted",
+                                                      "njobs_weighted")) {
+  variant <- match.arg(variant)
+
   var_df <- tryCatch(read_parquet_sheet(dir_path, "variance"),
                      error = function(e) NULL)
   if (is.null(var_df) || !"model" %in% names(var_df)) {
@@ -51,10 +61,22 @@ write_variance_within_between <- function(dir_path,
     return(invisible(NULL))
   }
 
-  target_outcomes <- c(paste0(outcomes, "_dm_w"), paste0(outcomes, "_im_w"))
+  # Pick subset / outcome suffixes based on variant.
+  if (variant == "unweighted") {
+    subset_keep   <- "all"
+    suffix_dm     <- "_dm"
+    suffix_im     <- "_im"
+  } else {
+    subset_keep   <- "subset97"
+    suffix_dm     <- "_dm_w"
+    suffix_im     <- "_im_w"
+  }
+
+  target_outcomes <- c(paste0(outcomes, suffix_dm),
+                       paste0(outcomes, suffix_im))
 
   var_df <- var_df %>%
-    dplyr::filter(.data$subset == "subset97",
+    dplyr::filter(.data$subset == subset_keep,
                   .data$outcome %in% target_outcomes) %>%
     dplyr::mutate(
       t_stat = ifelse(
@@ -65,79 +87,82 @@ write_variance_within_between <- function(dir_path,
     )
 
   if (nrow(var_df) == 0) {
-    message("No within/between-industry outcomes found in variance sheet.")
+    message("No within/between-industry outcomes found in variance sheet ",
+            "for variant '", variant, "'.")
     return(invisible(NULL))
   }
 
-  # ---- njobs reweighting using the rcov sheet ----
-  coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
-                      error = function(e) NULL)
-  rcov_df <- tryCatch(read_parquet_sheet(dir_path, "rcov"),
-                      error = function(e) NULL)
+  # ---- njobs reweighting using the rcov sheet (weighted variant only) ----
+  if (variant == "njobs_weighted") {
+    coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
+                        error = function(e) NULL)
+    rcov_df <- tryCatch(read_parquet_sheet(dir_path, "rcov"),
+                        error = function(e) NULL)
 
-  if (!is.null(coef_df) && !is.null(rcov_df)) {
-    dm_w_outcomes <- paste0(outcomes, "_dm_w")
-    im_w_outcomes <- paste0(outcomes, "_im_w")
+    if (!is.null(coef_df) && !is.null(rcov_df)) {
+      dm_w_outcomes <- paste0(outcomes, suffix_dm)
+      im_w_outcomes <- paste0(outcomes, suffix_im)
 
-    for (i in seq_len(nrow(var_df))) {
-      mdl <- var_df$model[i]
-      out <- var_df$outcome[i]
+      for (i in seq_len(nrow(var_df))) {
+        mdl <- var_df$model[i]
+        out <- var_df$outcome[i]
 
-      etype <- if (out %in% dm_w_outcomes) "Firm"
-               else if (out %in% im_w_outcomes) "Industry"
-               else next
+        etype <- if (out %in% dm_w_outcomes) "Firm"
+                 else if (out %in% im_w_outcomes) "Industry"
+                 else next
 
-      ent_rows <- coef_df %>%
-        dplyr::filter(.data$subset == "subset97",
-                      .data$entity_type == etype,
-                      .data$model == mdl,
-                      .data$outcome == out) %>%
-        dplyr::mutate(estimate  = as.numeric(estimate),
-                      njobs     = as.numeric(njobs),
-                      entity_id = as.integer(entity_id)) %>%
-        dplyr::arrange(entity_id)
+        ent_rows <- coef_df %>%
+          dplyr::filter(.data$subset == "subset97",
+                        .data$entity_type == etype,
+                        .data$model == mdl,
+                        .data$outcome == out) %>%
+          dplyr::mutate(estimate  = as.numeric(estimate),
+                        njobs     = as.numeric(njobs),
+                        entity_id = as.integer(entity_id)) %>%
+          dplyr::arrange(entity_id)
 
-      if (nrow(ent_rows) == 0 || all(is.na(ent_rows$njobs))) next
+        if (nrow(ent_rows) == 0 || all(is.na(ent_rows$njobs))) next
 
-      ok <- is.finite(ent_rows$njobs) & ent_rows$njobs > 0
-      ent_rows <- ent_rows[ok, , drop = FALSE]
-      if (nrow(ent_rows) < 2L) next
+        ok <- is.finite(ent_rows$njobs) & ent_rows$njobs > 0
+        ent_rows <- ent_rows[ok, , drop = FALSE]
+        if (nrow(ent_rows) < 2L) next
 
-      ids  <- ent_rows$entity_id
-      beta <- ent_rows$estimate
-      w    <- ent_rows$njobs / sum(ent_rows$njobs)
+        ids  <- ent_rows$entity_id
+        beta <- ent_rows$estimate
+        w    <- ent_rows$njobs / sum(ent_rows$njobs)
 
-      rcov_sub <- rcov_df %>%
-        dplyr::filter(.data$subset == "subset97",
-                      .data$model == mdl,
-                      .data$outcome == out,
-                      .data$entity_id_i %in% ids,
-                      .data$entity_id_j %in% ids)
+        rcov_sub <- rcov_df %>%
+          dplyr::filter(.data$subset == "subset97",
+                        .data$model == mdl,
+                        .data$outcome == out,
+                        .data$entity_id_i %in% ids,
+                        .data$entity_id_j %in% ids)
 
-      if (nrow(rcov_sub) != length(ids)^2) {
-        stop(sprintf("rcov sheet incomplete for model=%s outcome=%s: %d rows, expected %d",
-                     mdl, out, nrow(rcov_sub), length(ids)^2))
+        if (nrow(rcov_sub) != length(ids)^2) {
+          stop(sprintf("rcov sheet incomplete for model=%s outcome=%s: %d rows, expected %d",
+                       mdl, out, nrow(rcov_sub), length(ids)^2))
+        }
+
+        Sigma <- matrix(NA_real_, nrow = length(ids), ncol = length(ids),
+                        dimnames = list(as.character(ids), as.character(ids)))
+        Sigma[cbind(match(rcov_sub$entity_id_i, ids),
+                    match(rcov_sub$entity_id_j, ids))] <- as.numeric(rcov_sub$rcov)
+
+        wb <- w * beta
+        DSigmaD <- (w %o% w) * Sigma
+
+        var_df$variance[i]   <- sum(w * beta^2, na.rm = TRUE)
+        var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE)
+        var_df$sigma2_hat[i] <- var_df$variance[i] - var_df$noise[i]
+        var_df$Vhat[i]       <- 4 * as.numeric(t(wb) %*% Sigma %*% wb) -
+                                2 * sum(DSigmaD * Sigma)
+        var_df$signal[i]     <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
+        var_df$t_stat[i]     <- ifelse(
+          is.finite(var_df$Vhat[i]) & var_df$Vhat[i] > 0,
+          var_df$sigma2_hat[i] / sqrt(var_df$Vhat[i]),
+          NA_real_
+        )
       }
-
-      Sigma <- matrix(NA_real_, nrow = length(ids), ncol = length(ids),
-                      dimnames = list(as.character(ids), as.character(ids)))
-      Sigma[cbind(match(rcov_sub$entity_id_i, ids),
-                  match(rcov_sub$entity_id_j, ids))] <- as.numeric(rcov_sub$rcov)
-
-      wb <- w * beta
-      DSigmaD <- (w %o% w) * Sigma
-
-      var_df$variance[i]   <- sum(w * beta^2, na.rm = TRUE)
-      var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE)
-      var_df$sigma2_hat[i] <- var_df$variance[i] - var_df$noise[i]
-      var_df$Vhat[i]       <- 4 * as.numeric(t(wb) %*% Sigma %*% wb) -
-                              2 * sum(DSigmaD * Sigma)
-      var_df$signal[i]     <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
-      var_df$t_stat[i]     <- ifelse(
-        is.finite(var_df$Vhat[i]) & var_df$Vhat[i] > 0,
-        var_df$sigma2_hat[i] / sqrt(var_df$Vhat[i]),
-        NA_real_
-      )
     }
   }
 
@@ -197,14 +222,18 @@ write_variance_within_between <- function(dir_path,
     tab, by = "outcome"
   )
 
+  dm_pattern <- paste0(suffix_dm, "$")
+  im_pattern <- paste0(suffix_im, "$")
+  strip_pattern <- paste0("(", suffix_dm, "|", suffix_im, ")$")
+
   tab <- tab %>%
     dplyr::mutate(
       panel = dplyr::case_when(
-        grepl("_dm_w$", .data$outcome) ~ "Panel A: Within-industry",
-        grepl("_im_w$", .data$outcome) ~ "Panel B: Between-industry",
-        TRUE                           ~ "Panel ?: Unknown"
+        grepl(dm_pattern, .data$outcome) ~ "Panel A: Within-industry",
+        grepl(im_pattern, .data$outcome) ~ "Panel B: Between-industry",
+        TRUE                             ~ "Panel ?: Unknown"
       ),
-      base_outcome = sub("_(dm_w|im_w)$", "", .data$outcome)
+      base_outcome = sub(strip_pattern, "", .data$outcome)
     )
   tab$Outcome_display <- map_label(tab$base_outcome, label_mapping)
 
@@ -312,10 +341,26 @@ write_variance_within_between <- function(dir_path,
   invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
 }
 
+# Unweighted (full firm sample, _dm / _im outcomes at subset == "all")
 write_variance_within_between(
   dir_path      = dir_path,
   outcomes      = outs,
   tables_dir    = tables,
   label_mapping = label_mapping,
-  borda_mult    = 1
+  csv_name      = "variance_biascorrected_within_between_industry.csv",
+  tex_name      = "variance_biascorrected_within_between_industry.tex",
+  borda_mult    = 1,
+  variant       = "unweighted"
+)
+
+# njobs-weighted (selected firm sample, _dm_w / _im_w at subset97)
+write_variance_within_between(
+  dir_path      = dir_path,
+  outcomes      = outs,
+  tables_dir    = tables,
+  label_mapping = label_mapping,
+  csv_name      = "variance_biascorrected_within_between_industry_njobs_weighted.csv",
+  tex_name      = "variance_biascorrected_within_between_industry_njobs_weighted.tex",
+  borda_mult    = 1,
+  variant       = "njobs_weighted"
 )

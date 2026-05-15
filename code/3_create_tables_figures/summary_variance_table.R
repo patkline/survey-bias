@@ -3,9 +3,17 @@
 # Reads the `variance` parquet sheet, auto-detects which models are
 # present, and writes one CSV + one LaTeX table containing the columns
 # for every model found (Borda + OLS today; PL / OL / OLSC if added).
+#
+# Two variants are written for each call:
+#   1) "unweighted": full firm sample (subset == "all"), no reweighting
+#      — uses values from the variance sheet as-is.
+#   2) "njobs_weighted": selected firm sample (subset == "subset97",
+#      i.e. firms with valid njobs) reweighted by njobs using the rcov
+#      sheet, parallel to summary_variance_within_between.R.
 # -------------------------------------------------------------------
 source("code/globals.R")
 source(file.path(create_tables_figures, "summary_outcomes_config.R"))
+source(file.path(analysis, "katz_correct.R"))
 
 # Per-model column display names + recognized label set
 MODEL_DISPLAY_NAMES <- c(
@@ -25,6 +33,80 @@ model_n_cols <- function(model) {
   3L                                # SD, Signal SD, T-stat
 }
 
+# -------------------------------------------------------------------
+# njobs reweighting of variance/noise/sigma2_hat/Vhat/signal/t_stat
+# for the (model, outcome) row(s) in `var_df` using firm-level
+# estimates + njobs from `coef_df` and the J x J robust cov from
+# `rcov_df`, all filtered to subset == "subset97" + entity_type=="Firm".
+# Logic mirrors summary_variance_within_between.R.
+# -------------------------------------------------------------------
+reweight_variance_njobs <- function(var_df, coef_df, rcov_df) {
+  for (i in seq_len(nrow(var_df))) {
+    mdl <- var_df$model[i]
+    out <- var_df$outcome[i]
+
+    ent_rows <- coef_df %>%
+      dplyr::filter(.data$subset == "subset97",
+                    .data$entity_type == "Firm",
+                    .data$model == mdl,
+                    .data$outcome == out) %>%
+      dplyr::mutate(estimate  = as.numeric(estimate),
+                    njobs     = as.numeric(njobs),
+                    entity_id = as.integer(entity_id)) %>%
+      dplyr::arrange(entity_id)
+
+    if (nrow(ent_rows) == 0 || all(is.na(ent_rows$njobs))) {
+      stop(sprintf("No usable njobs for model=%s outcome=%s at subset97", mdl, out))
+    }
+
+    ok <- is.finite(ent_rows$njobs) & ent_rows$njobs > 0
+    ent_rows <- ent_rows[ok, , drop = FALSE]
+    if (nrow(ent_rows) < 2L) {
+      stop(sprintf("Fewer than 2 firms with valid njobs for model=%s outcome=%s", mdl, out))
+    }
+
+    ids  <- ent_rows$entity_id
+    beta <- ent_rows$estimate
+    w    <- ent_rows$njobs / sum(ent_rows$njobs)
+
+    rcov_sub <- rcov_df %>%
+      dplyr::filter(.data$subset == "subset97",
+                    .data$model == mdl,
+                    .data$outcome == out,
+                    .data$entity_id_i %in% ids,
+                    .data$entity_id_j %in% ids)
+
+    if (nrow(rcov_sub) != length(ids)^2) {
+      stop(sprintf("rcov sheet incomplete for model=%s outcome=%s: %d rows, expected %d",
+                   mdl, out, nrow(rcov_sub), length(ids)^2))
+    }
+
+    Sigma <- matrix(NA_real_, nrow = length(ids), ncol = length(ids),
+                    dimnames = list(as.character(ids), as.character(ids)))
+    Sigma[cbind(match(rcov_sub$entity_id_i, ids),
+                match(rcov_sub$entity_id_j, ids))] <- as.numeric(rcov_sub$rcov)
+
+    # Center beta with njobs weights so variance is around the weighted mean
+    beta_c <- beta - sum(w * beta)
+
+    wb <- w * beta_c
+    DSigmaD <- (w %o% w) * Sigma
+
+    var_df$variance[i]   <- sum(w * beta_c^2, na.rm = TRUE)
+    var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE)
+    var_df$sigma2_hat[i] <- var_df$variance[i] - var_df$noise[i]
+    var_df$Vhat[i]       <- 4 * as.numeric(t(wb) %*% Sigma %*% wb) -
+                            2 * sum(DSigmaD * Sigma)
+    var_df$signal[i]     <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
+    var_df$t_stat[i]     <- ifelse(
+      is.finite(var_df$Vhat[i]) & var_df$Vhat[i] > 0,
+      var_df$sigma2_hat[i] / sqrt(var_df$Vhat[i]),
+      NA_real_
+    )
+  }
+  var_df
+}
+
 write_variance_table <- function(dir_path,
                                  outcomes,
                                  tables_dir,
@@ -32,7 +114,10 @@ write_variance_table <- function(dir_path,
                                  csv_name = "variance_biascorrected.csv",
                                  tex_name = "variance_biascorrected.tex",
                                  latex_decimals = 3,
-                                 borda_mult = 1) {
+                                 borda_mult = 1,
+                                 variant = c("unweighted", "njobs_weighted")) {
+
+  variant <- match.arg(variant)
 
   var_df <- tryCatch(read_parquet_sheet(dir_path, "variance"),
                      error = function(e) NULL)
@@ -47,7 +132,8 @@ write_variance_table <- function(dir_path,
     stop("variance sheet missing columns: ", paste(missing, collapse = ", "))
   }
 
-  var_df <- var_df %>% dplyr::filter(.data$subset == "all")
+  subset_keep <- if (variant == "unweighted") "all" else "subset97"
+  var_df <- var_df %>% dplyr::filter(.data$subset == subset_keep)
   if (length(outcomes)) {
     var_df <- dplyr::filter(var_df, .data$outcome %in% outcomes)
   }
@@ -60,6 +146,13 @@ write_variance_table <- function(dir_path,
         NA_real_
       )
     )
+
+  # Apply njobs reweighting for the weighted variant
+  if (variant == "njobs_weighted") {
+    coef_df <- read_parquet_sheet(dir_path, "Coefficients")
+    rcov_df <- read_parquet_sheet(dir_path, "rcov")
+    var_df  <- reweight_variance_njobs(var_df, coef_df, rcov_df)
+  }
 
   # Models to emit columns for (sourced from summary_outcomes_config.R)
   display_order <- c("PL", "Borda", "OL", "OLS", "OLSC")
@@ -207,26 +300,54 @@ write_variance_table <- function(dir_path,
   invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
 }
 
+# Helper: emit both unweighted and njobs-weighted variants of one table.
+write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapping,
+                                      csv_base, tex_base,
+                                      latex_decimals = 3, borda_mult = 1) {
+  write_variance_table(
+    dir_path      = dir_path,
+    outcomes      = outcomes,
+    tables_dir    = tables_dir,
+    label_mapping = label_mapping,
+    csv_name      = paste0(csv_base, ".csv"),
+    tex_name      = paste0(tex_base, ".tex"),
+    latex_decimals = latex_decimals,
+    borda_mult    = borda_mult,
+    variant       = "unweighted"
+  )
+  write_variance_table(
+    dir_path      = dir_path,
+    outcomes      = outcomes,
+    tables_dir    = tables_dir,
+    label_mapping = label_mapping,
+    csv_name      = paste0(csv_base, "_njobs_weighted.csv"),
+    tex_name      = paste0(tex_base, "_njobs_weighted.tex"),
+    latex_decimals = latex_decimals,
+    borda_mult    = borda_mult,
+    variant       = "njobs_weighted"
+  )
+}
+
 # -------------------------------
 # Standard outcomes
 # -------------------------------
-write_variance_table(
-  dir_path     = dir_path,
-  outcomes     = outs,
-  tables_dir   = tables,
+write_variance_table_both(
+  dir_path      = dir_path,
+  outcomes      = outs,
+  tables_dir    = tables,
   label_mapping = label_mapping,
-  csv_name     = "variance_biascorrected.csv",
-  tex_name     = "variance_biascorrected.tex"
+  csv_base      = "variance_biascorrected",
+  tex_base      = "variance_biascorrected"
 )
 
 # -------------------------------
 # Alternate framings
 # -------------------------------
-write_variance_table(
+write_variance_table_both(
   dir_path      = dir_path,
   outcomes      = alternate_framings,
   tables_dir    = tables,
   label_mapping = alternate_label_mapping,
-  csv_name      = "variance_biascorrected_alternate.csv",
-  tex_name      = "variance_biascorrected_alternate.tex"
+  csv_base      = "variance_biascorrected_alternate",
+  tex_base      = "variance_biascorrected_alternate"
 )
