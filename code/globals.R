@@ -13,7 +13,8 @@
 dropbox_roots_by_user <- c(
   nicorotundo    = "/Users/nicorotundo/Opportunity Insights Dropbox/Nico Rotundo/Survey/consolidated_code",
   monicahea      = "/Users/monicahea/Dropbox/Survey/consolidated_code",
-  jordancammarota = "/Users/jordancammarota/Dropbox/consolidated_code"
+  jordancammarota = "/Users/jordancammarota/Dropbox/consolidated_code",
+  "anh-huynguyen"  = "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
 )
 
 # Get current system user
@@ -85,9 +86,9 @@ if (data_and_output_storage_location == "github") {
 
 # GitHub code paths
 code <- file.path(git_survey_bias_root, "code")
-build <- file.path(code, "data_build")
-analysis <- file.path(code, "analysis")
-create_tables_figures <- file.path(code, "create_tables_figures")
+build <- file.path(code, "1_data_build")
+analysis <- file.path(code, "2_analysis")
+create_tables_figures <- file.path(code, "3_create_tables_figures")
 helper_functions <- file.path(code, "helper_functions")
 
 # Github data paths
@@ -98,6 +99,7 @@ dump <- file.path(data, "dump")
 
 # Github output paths
 excel <- file.path(output, "excel")
+intermediate <- file.path(output, "intermediate")
 figures <- file.path(output, "figures")
 tables <- file.path(output, "tables")
 
@@ -131,6 +133,7 @@ required_r_packages <- c(
   "renv",
   
   # core packages (added)
+  "arrow",
   "dplyr",
   "igraph",
   "openxlsx",
@@ -245,3 +248,8 @@ if (length(missing_python_packages) > 0) {
 # ------------------------------------------------------------------------------
 # Source custom functions (if any)
 # ------------------------------------------------------------------------------
+
+# Parquet "sheet" helpers (read_parquet_sheet, write_parquet_sheet, ...)
+# Sourced here so both the analysis pipeline and table/figure scripts can use
+# them without having to load the full analysis/load_all.R
+source(file.path(helper_functions, "sheet_functions.R"))

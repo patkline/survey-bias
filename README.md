@@ -2,6 +2,7 @@
 Purpose: README file for survey bias project
 
 Created: Nico Rotundo 2026-01-06
+Edited: Monica Essig Aberg 2026-04-30
 # ----------------------------------------------------------------------------->
 
 # Getting started 
@@ -89,7 +90,7 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
    - We can eventually add more baseline options if they become relevant
   <!-- - Can also be set to `current`, which uses your current local `/output` folder at runtime as the baseline snapshot -->
 
-3. `--skip-rerun` (optional flag): do not run the `code/create_tables_figures/metafile.R` file
+3. `--skip-rerun` (optional flag): do not run the `code/3_create_tables_figures/!metafile.R` file
    - Compares current outputs against baseline snapshot i.e., what you see in `/output` currently is what you compare against baseline
 
 4. `--with-xlsx-cell-diffs` (optional flag): compute cell-level diffs for changed `.xlsx` files
@@ -108,7 +109,7 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
      - In dropbox storage mode (output outside repository), the script cannot warn you using Git since the Dropbox `/output` folder is outside the repository
 
 #### Common use cases and their respective commands (where <> denotes things to fill in)
-1. You want to rerun the entire set of code that creates outputs (i.e., `code/create_tables_figures/metafile.R`) and compare against `origin/main` as the baseline,
+1. You want to rerun the entire set of code that creates outputs (i.e., `code/3_create_tables_figures/!metafile.R`) and compare against `origin/main` as the baseline,
    - `Rscript code/tools/results_rerun_compare.R --run-name <my_test>`
 2. You want to rerun the entire set of code that creates outputs and compare against your current branch on GitHub (`origin/<current_branch>`) as the baseline,
    - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline origin-current`
@@ -131,7 +132,7 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
    - Required baseline LFS objects for `output/{tables,figures,excel}` are available locally
    - In github mode, the script can prompt to run `git fetch` / `git lfs fetch`; in dropbox mode, preflight failures abort
 4. Creates `old_full/{tables,figures,excel}` by copying baseline output files into the run folder
-5. Creates `new_full/{tables,figures,excel}` only when `--skip-rerun` is set, by copying current local output into the run folder; otherwise, runs `code/create_tables_figures/metafile.R` and treats the active output root as the "new" side.
+5. Creates `new_full/{tables,figures,excel}` only when `--skip-rerun` is set, by copying current local output into the run folder; otherwise, runs `code/3_create_tables_figures/!metafile.R` and treats the active output root as the "new" side.
 6. Compares `old_full` vs new side
    - If there are zero differences, deletes the run folder and exits
    - Otherwise writes file-level diffs to `changes.csv` and continues
@@ -146,6 +147,93 @@ Use `code/tools/results_rerun_compare.R` from the project root to compare output
 1. We should get package management working properly for both R and Python (i.e., `renv` for R and virtual environment for Python) so that we can ensure reproducibility across time
 
 2. Separately, need to figure out the EML integration and adjust the codebase accordingly
+
+## Code structure
+
+The pipeline runs in three stages, each with its own metafile. The trees below show source/call hierarchy: indented files are sourced (or invoked) by the parent.
+
+### 1. Data build --- `code/1_data_build/`
+
+**Input:** `data/raw/` (Qualtrics survey CSVs), `data/external/` (RefUSA, AER replication package)
+**Output:** `data/processed/long_survey_final.csv` + firm--industry crosswalks
+
+- `!metafile.R` --- runs Python crosswalk scripts then R sample prep
+  - `clean_raw_qualtrics_data.py` --- raw Qualtrics export → cleaned long survey
+  - `create_firm_industry_crosswalk_aer_replication_package.py` --- AER package → SIC mapping
+  - `create_firm_industry_crosswalk_refusa.py` --- RefUSA → SIC mapping
+  - `create_firm_industry_crosswalk_industry_map.py` --- harmonizes across sources, writes final crosswalk
+  - `sample_prep.R` --- applies sample restrictions; writes `long_survey_final.csv`
+    - `helper_functions/leave_in_connected.R` --- keeps largest connected component of firm-respondent graph
+    - `helper_functions/1_preprocessing_v3.R` --- builds outcome variables (favor-x, dif, log_dif, etc.)
+
+### 2. Analysis --- `code/2_analysis/`
+
+**Input:** `data/processed/long_survey_final.csv`
+**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `EIV_firm`, `EIV_within`, `EIV_between`
+
+**Models currently enabled** in `!metafile.R`: **Borda + OLS** only (`run_pl = run_ol = run_ols_centered = FALSE`). The PL / OL / OLSC fitters below still exist and can be toggled back on; downstream `3_create_tables_figures/` scripts auto-detect whichever models the `variance` / `Coefficients` sheets contain.
+
+- `!metafile.R` --- runs `run_analysis_pipeline()` for full sample, then loops over 18 subsets
+  - `load_all.R` --- sources every helper below (no work itself)
+    - `analysis_pipeline.R` --- orchestrates fit → variance → covariance → correlation → EIV per subset
+    - **Model fitters** (long/wide data → `firm_table` + score/cov matrices)
+      - `run_model_ols.R` --- OLS on Likert ratings *(enabled)*
+      - `run_model_borda.R` --- pairwise-win Borda from ranks *(enabled)*
+      - `run_model_ol.R` --- ordered logit on ratings *(disabled)*
+      - `run_model_pl.R` --- Plackett-Luce on ranks *(disabled)*
+      - `run_models_helpers.R`
+    - **Data prep**
+      - `prep_outcomes.R` --- per-model outcome construction
+      - `create_wide_rankings.R` --- long ranks → wide ranking matrix
+      - `leave_in_connected.R` --- per-outcome connectivity filter
+    - **Score helpers**
+      - `mean_estimator_bread_and_score.R` --- bread/score/robust cov for mean-based estimators (OLS, Borda)
+      - `borda_score.R` --- per-respondent Borda computation with reference-firm normalization
+    - **Variance / covariance / correlation** (post-fit aggregation across firms)
+      - `variance_functions.R` --- per-outcome `variance`, `noise`, `signal`
+      - `covariance_functions.R` --- pairwise covariance + cross-sample noise
+      - `correlation_function.R` --- `corr`, `corr_den`, `corr_c` (noise-corrected)
+      - `katz_correct.R` --- positivity correction for variance components
+      - `EB_procedure.R` --- two-step empirical Bayes shrinkage of firm estimates (writes the `eb` column on `Coefficients`)
+    - **EIV regressions**
+      - `eivreg.R` --- measurement-error regression with `Σ_error`
+      - `eiv_functions.R` --- runs `eivreg` over (lhs × rhs × subset × model) specs
+      - `make_industry_means.R` --- njobs-weighted within/between industry decomposition
+    - **Misc**
+      - `experimental.R` --- ad-hoc outcome transforms (dif, log_dif, etc.)
+      - `helper_functions/sheet_functions.R` --- `read_parquet_sheet` / `write_parquet_sheet`
+
+### 3. Tables and figures --- `code/3_create_tables_figures/`
+
+**Input:** `output/intermediate/*/*.parquet`
+**Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
+
+- `!metafile.R` --- sources each table/figure script in order
+  - `summary_statistics_wrapper.R` --- descriptive plots from raw responses
+    - `helper_functions/summary_figures_ratings.R` --- Likert distributions
+    - `helper_functions/summary_figures_yes_no.R` --- yes/no/PNA bars
+    - `helper_functions/summary_figures_confidence.R` --- confidence-question tables
+    - `helper_functions/summary_figure_info_source.R` --- info-source bars
+    - `helper_functions/summary_two_way_bar.R` --- two-way bar charts
+    - `helper_functions/summary_statistics_new.R` --- N / mean / SD tables
+    - `helper_functions/response_duration_hist.R` --- response duration histograms
+  - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
+    - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
+    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
+    - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
+    - `summary_topbottom_dualaxis.R` --- Top/Bottom-N firms by Borda EB, with each non-Borda model's EB on the primary axis and Borda EB on the secondary
+  - `heatmaps_combined.R` --- across-outcome correlation heatmaps (OLS upper / Borda lower)
+  - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.)
+  - `eiv_table_discretion.R` --- discretion-as-LHS EIV panel
+  - `eiv_table_bivariate.r` --- bivariate EIV (favor-x + control)
+  - `eiv_table_within_between.R` --- within/between-industry EIV decomposition
+  - `cross_sample_signal_corr.R` --- signal correlation across paired subsamples + Wald test
+  - `cross_sample_signal_corr_raw.R` --- same, no noise correction
+  - `cross_sample_signal_corr_placebo.R` --- same, random-split placebo
+  - `cross_model_corr.R` --- agreement between OLS / Borda / OL firm rankings
+  - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
+  - `opposite_valence_corr_table.R` --- Black-vs-White, Male-vs-Female pair correlations
+  - `industry_decomposition_line_charts.R` --- within- vs between-industry contribution to signal
 
 ## Documentation on codebase
 
