@@ -6,6 +6,9 @@
 
 # Run globals
 source("code/globals.R")
+message("🎃 2_analysis working directory: ", getwd())
+message("🎃 2_analysis intermediate path: ", intermediate)
+message("🎃 2_analysis tables path: ", tables)
 
 # Load Necessary Functions
 source(file.path(analysis, "load_all.R"))
@@ -77,6 +80,15 @@ system.time({
   )
 })
 
+message("🎃 Full_Sample write check:")
+for (sheet in c("Coefficients", "rcov", "variance", "covariance", "correlation", "EIV_firm", "EIV_within", "EIV_between")) {
+  check_path <- parquet_sheet_path(file.path(intermediate, "Full_Sample"), sheet)
+  check_info <- file.info(check_path)
+  message("  ", basename(check_path), " | exists=", file.exists(check_path),
+          " | size=", check_info$size,
+          " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
+}
+
 
 #---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 runs <- tibble::tribble(
@@ -126,5 +138,13 @@ for (i in seq_len(nrow(runs))) {
       seed = 123
     )
   })
-}
 
+  message("🎃 Subset write check: ", runs$output_stub[i])
+  for (sheet in c("Coefficients", "rcov", "variance", "covariance", "correlation", "EIV_firm", "EIV_within", "EIV_between")) {
+    check_path <- parquet_sheet_path(file.path(intermediate, runs$output_stub[i]), sheet)
+    check_info <- file.info(check_path)
+    message("  ", basename(check_path), " | exists=", file.exists(check_path),
+            " | size=", check_info$size,
+            " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
+  }
+}

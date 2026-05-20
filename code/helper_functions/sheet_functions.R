@@ -31,6 +31,12 @@ write_parquet_sheet <- function(output_dir, sheet, x) {
   }
   path <- parquet_sheet_path(output_dir, sheet)
   arrow::write_parquet(as.data.frame(x), path)
+  out_info <- file.info(path)
+  message(
+    "✓ Wrote parquet sheet '", sheet, "' to: ", path,
+    " | size=", out_info$size,
+    " | mtime=", format(out_info$mtime, "%Y-%m-%d %H:%M:%S")
+  )
   invisible(path)
 }
 
