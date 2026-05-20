@@ -89,7 +89,6 @@ write_topbottom_dualaxis <- function(dir_path,
       next
     }
 
-    mean_borda_all <- mean(eb_dual$Borda_EB, na.rm = TRUE)
     ranked <- eb_dual %>% dplyr::mutate(.rank_key = Borda_EB)
     topN <- ranked %>% dplyr::slice_max(order_by = .rank_key,
                                         n = n_keep_overlay, with_ties = FALSE)
@@ -112,14 +111,13 @@ write_topbottom_dualaxis <- function(dir_path,
     s_bd <- stats::sd(subset_dual$Borda_EB, na.rm = TRUE)
     if (!is.finite(s_bd) || s_bd == 0) s_bd <- 1
     a <- s_pri / s_bd
-    b <- -a * mean_borda_all
 
     subset_dual <- subset_dual %>%
       dplyr::mutate(
         firm = factor(firm, levels = firm, ordered = TRUE),
-        Borda_scaled = a * Borda_EB + b
+        Borda_scaled = a * Borda_EB
       )
-    inv_to_borda <- function(y) (y - b) / a
+    inv_to_borda <- function(y) (y) / a
 
     guides_dual <- subset_dual %>%
       dplyr::group_by(firm) %>%
