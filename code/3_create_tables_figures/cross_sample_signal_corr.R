@@ -527,6 +527,40 @@ build_panel_rows <- function(panel_df, white_col, male_col) {
   rows
 }
 
+write_latex_lines_checked <- function(latex_lines, out_tex) {
+  if (length(latex_lines) == 0L) {
+    stop("Refusing to write empty LaTeX output: ", out_tex)
+  }
+
+  tmp_tex <- tempfile(pattern = paste0(tools::file_path_sans_ext(basename(out_tex)), "_"),
+                      fileext = ".tex")
+  on.exit(unlink(tmp_tex), add = TRUE)
+
+  writeLines(latex_lines, tmp_tex, useBytes = TRUE)
+  tmp_size <- file.info(tmp_tex)$size
+  if (is.na(tmp_size) || tmp_size == 0L) {
+    stop("Temporary LaTeX output is empty before copy: ", tmp_tex)
+  }
+
+  if (file.exists(out_tex)) {
+    unlink_status <- unlink(out_tex)
+    if (unlink_status != 0L && file.exists(out_tex)) {
+      stop("Could not remove existing LaTeX output before overwrite: ", out_tex)
+    }
+  }
+
+  if (!file.copy(tmp_tex, out_tex, overwrite = TRUE)) {
+    stop("Could not copy LaTeX output into place: ", out_tex)
+  }
+
+  out_size <- file.info(out_tex)$size
+  if (is.na(out_size) || out_size == 0L) {
+    stop("LaTeX output is empty after write: ", out_tex)
+  }
+
+  invisible(out_tex)
+}
+
 write_cross_sample_table <- function(white_col, male_col, out_tex) {
   latex_lines <- c(
     "  \\centering",
@@ -543,7 +577,7 @@ write_cross_sample_table <- function(white_col, male_col, out_tex) {
     "    \\bottomrule",
     "  \\end{tabular}"
   )
-  writeLines(latex_lines, out_tex)
+  write_latex_lines_checked(latex_lines, out_tex)
   message("🎃 Generated ", basename(out_tex))
 }
 

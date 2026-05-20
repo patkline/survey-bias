@@ -93,16 +93,15 @@ exp_coef_dir <- file.path(intermediate, full_sample_subdir)
 exp_coef_raw <- read_parquet_sheet(exp_coef_dir, "Coefficients")
 id_col <- get_firm_id_col(exp_coef_raw)
 
-if ("model" %in% names(exp_coef_raw)) {
-  exp_coef_raw <- exp_coef_raw %>%
-    dplyr::filter(.data$model == dplyr::first(unique(.data$model)))
-}
 if ("entity_type" %in% names(exp_coef_raw)) {
   exp_coef_raw <- exp_coef_raw %>%
     dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
 }
+if ("model" %in% names(exp_coef_raw) && any(exp_coef_raw$model == "EXPERIMENTAL")) {
+  exp_coef_raw <- exp_coef_raw %>% dplyr::filter(.data$model == "EXPERIMENTAL")
+}
 if ("subset" %in% names(exp_coef_raw)) {
-  exp_coef_raw <- exp_coef_raw %>% dplyr::filter(.data$subset == "all")
+  exp_coef_raw <- exp_coef_raw %>% dplyr::filter(.data$subset == "subset97")
 }
 
 if (all(c("outcome", "estimate") %in% names(exp_coef_raw))) {
@@ -359,22 +358,32 @@ build_corr_table_placebo <- function(model = c("pl", "borda", "ol", "ols", "olsc
     }
   }
 
+  if (length(rows) == 0L) {
+    return(tibble::tibble(
+      model = character(),
+      outcome = character(),
+      sample1 = character(),
+      sample2 = character(),
+      J_firms = integer(),
+      covariance = numeric(),
+      tot_var1 = numeric(),
+      tot_var2 = numeric(),
+      signal1 = numeric(),
+      signal2 = numeric(),
+      all_firms = logical(),
+      corr_c = numeric()
+    ))
+  }
   dplyr::bind_rows(rows)
 }
 
 # -------------------------------------------------------------------
-# 5. Run placebo for all models
+# 5. Run placebo for OLS + Borda only
 # -------------------------------------------------------------------
 
-pl_corr    <- build_corr_table_placebo("pl",    intermediate, sample_filemap, sample_pairs,
-                                       outcomes, exp_firm_ids)
 borda_corr <- build_corr_table_placebo("borda", intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
-ol_corr    <- build_corr_table_placebo("ol",    intermediate, sample_filemap, sample_pairs,
-                                       outcomes, exp_firm_ids)
 ols_corr   <- build_corr_table_placebo("ols",   intermediate, sample_filemap, sample_pairs,
-                                       outcomes, exp_firm_ids)
-olsc_corr  <- build_corr_table_placebo("olsc",  intermediate, sample_filemap, sample_pairs,
                                        outcomes, exp_firm_ids)
 
 # -------------------------------------------------------------------
@@ -440,52 +449,14 @@ get_panel_matrix_placebo <- function(df_corr, all_firms_flag = TRUE) {
   panel_df
 }
 
-panelA <- get_panel_matrix_placebo(pl_corr,    all_firms_flag = TRUE)
-panelB <- get_panel_matrix_placebo(borda_corr, all_firms_flag = TRUE)
-panelC <- get_panel_matrix_placebo(ol_corr,    all_firms_flag = TRUE)
-panelD <- get_panel_matrix_placebo(ols_corr,   all_firms_flag = TRUE)
-panelE <- get_panel_matrix_placebo(olsc_corr,  all_firms_flag = TRUE)
+panel_ols   <- get_panel_matrix_placebo(ols_corr,   all_firms_flag = TRUE)
+panel_borda <- get_panel_matrix_placebo(borda_corr, all_firms_flag = TRUE)
 
 panel_rows_corr_only <- function(panel) {
   paste0("    ", panel$Row, " & ",
          panel$`Discrimination Black`, " & ",
          panel$`Discrimination Female`, " \\\\")
 }
-
-latex_lines <- c(
-  "  \\centering",
-  "  \\begin{tabular}{lcc}",
-  "    \\toprule",
-  "    & Discrimination Black & Discrimination Female \\\\",
-  "    \\midrule",
-  "    \\multicolumn{3}{l}{\\textbf{Panel A: Plackett--Luce (Placebo)}}\\\\",
-  panel_rows_corr_only(panelA),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda (Placebo)}}\\\\",
-  panel_rows_corr_only(panelB),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel C: Ordered Logit (Placebo)}}\\\\",
-  panel_rows_corr_only(panelC),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel D: Likert (Placebo)}}\\\\",
-  panel_rows_corr_only(panelD),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel E: Likert Centered (Placebo)}}\\\\",
-  panel_rows_corr_only(panelE),
-  "    \\bottomrule",
-  "  \\end{tabular}"
-)
-
-out_tex <- file.path(tables, "cross_sample_corr_placebo.tex")
-writeLines(latex_lines, out_tex)
-message("Placebo LaTeX table written to: ", out_tex)
-
-# -------------------------------------------------------------------
-# 7. Generate OLS + Borda version (corr-only; no p-value columns)
-# -------------------------------------------------------------------
-
-panelA_ols_borda <- panelD
-panelB_ols_borda <- panelB
 
 latex_lines_ols_borda <- c(
   "  \\centering",
@@ -494,14 +465,52 @@ latex_lines_ols_borda <- c(
   "    & Discrimination Black & Discrimination Female \\\\",
   "    \\midrule",
   "    \\multicolumn{3}{l}{\\textbf{Panel A: Likert (Placebo)}}\\\\",
-  panel_rows_corr_only(panelA_ols_borda),
+  panel_rows_corr_only(panel_ols),
   "    \\addlinespace",
   "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda (Placebo)}}\\\\",
-  panel_rows_corr_only(panelB_ols_borda),
+  panel_rows_corr_only(panel_borda),
   "    \\bottomrule",
   "  \\end{tabular}"
 )
 
-out_tex_ols_borda <- file.path(tables, "cross_sample_corr_placebo_ols_borda.tex")
-writeLines(latex_lines_ols_borda, out_tex_ols_borda)
-message("Placebo OLS+Borda LaTeX table written to: ", out_tex_ols_borda)
+write_latex_lines_checked <- function(latex_lines, out_tex) {
+  if (length(latex_lines) == 0L) {
+    stop("Refusing to write empty LaTeX output: ", out_tex)
+  }
+
+  tmp_tex <- tempfile(pattern = paste0(tools::file_path_sans_ext(basename(out_tex)), "_"),
+                      fileext = ".tex")
+  on.exit(unlink(tmp_tex), add = TRUE)
+
+  writeLines(latex_lines, tmp_tex, useBytes = TRUE)
+  tmp_size <- file.info(tmp_tex)$size
+  if (is.na(tmp_size) || tmp_size == 0L) {
+    stop("Temporary LaTeX output is empty before copy: ", tmp_tex)
+  }
+
+  if (file.exists(out_tex)) {
+    unlink_status <- unlink(out_tex)
+    if (unlink_status != 0L && file.exists(out_tex)) {
+      stop("Could not remove existing LaTeX output before overwrite: ", out_tex)
+    }
+  }
+
+  if (!file.copy(tmp_tex, out_tex, overwrite = TRUE)) {
+    stop("Could not copy LaTeX output into place: ", out_tex)
+  }
+
+  out_size <- file.info(out_tex)$size
+  if (is.na(out_size) || out_size == 0L) {
+    stop("LaTeX output is empty after write: ", out_tex)
+  }
+
+  invisible(out_tex)
+}
+
+for (out_tex in c(
+  file.path(tables, "cross_sample_corr_placebo.tex"),
+  file.path(tables, "cross_sample_corr_placebo_ols_borda.tex")
+)) {
+  write_latex_lines_checked(latex_lines_ols_borda, out_tex)
+  message("Placebo OLS+Borda LaTeX table written to: ", out_tex)
+}

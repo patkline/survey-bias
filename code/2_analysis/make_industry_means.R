@@ -124,27 +124,23 @@ add_industry_means_to_results <- function(
   ) {
     beta <- as.numeric(firm_ft$estimate[match(firm_ids, firm_ft$entity_id)])
     
-    bread_in <- pull_square(res$mats$bread, firm_ids)
     cov_in   <- pull_square(res$mats$cov,   firm_ids)
     rcov_in  <- pull_square(res$mats$rcov,  firm_ids)
-    
-    S_df <- res$mats$S
-    S_in <- pull_S_matrix(S_df, firm_ids)  # n x J
+    S_df     <- res$mats$S
+    S_in     <- pull_S_matrix(S_df, firm_ids)
     
     beta_out  <- as.numeric(T %*% beta)
-    bread_out <- T %*% bread_in
     cov_out   <- T %*% cov_in  %*% t(T)
     rcov_out  <- T %*% rcov_in %*% t(T)
     S_out     <- S_in %*% t(T)
+
+    stopifnot(isTRUE(all.equal(crossprod(S_out), rcov_out, tolerance = 1e-10)))
     
     out_cols <- .make_entity_cols(out_entity_ids)
     
     dimnames(cov_out)  <- list(out_cols, out_cols)
     dimnames(rcov_out) <- list(out_cols, out_cols)
     colnames(S_out)    <- out_cols
-    
-    # bread is Jout x Jin; set informative dimnames
-    dimnames(bread_out) <- list(out_cols, .make_entity_cols(firm_ids))
     
     # rebuild S df: keep ONLY resp_id
     S_out_df <- cbind(
@@ -182,7 +178,6 @@ add_industry_means_to_results <- function(
     out_res$firm_table <- out_tbl
     out_res$mats <- list(
       S     = S_out_df,
-      bread = bread_out,
       cov   = cov_out,
       rcov  = rcov_out
     )

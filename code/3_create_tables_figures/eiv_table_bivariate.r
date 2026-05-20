@@ -116,8 +116,7 @@ tex_code_table8 <- kable(
   pack_rows("\\\\textit{Gender}", n_ls + n_borda_race + 1, n_ls + n_borda, italic = TRUE, escape = FALSE)
 
 out_tex_table8 <- file.path(tables, "EIV_univariate_wt_ols_borda.tex")
-dir.create(dirname(out_tex_table8), showWarnings = FALSE, recursive = TRUE)
-writeLines(tex_code_table8, out_tex_table8)
+write_lines_checked(tex_code_table8, out_tex_table8, label = "EIV LaTeX table")
 message("✓ LaTeX Table 8 saved to: ", out_tex_table8)
 
 # ------------------------------------------------------------------------------
@@ -176,6 +175,5 @@ latex_lines_sq <- c(
 )
 
 out_tex_sq <- file.path(tables, "EIV_univariate_wt_ols_borda_w_gender_sq.tex")
-dir.create(dirname(out_tex_sq), showWarnings = FALSE, recursive = TRUE)
-writeLines(latex_lines_sq, out_tex_sq)
+write_lines_checked(latex_lines_sq, out_tex_sq, label = "EIV squared-specs LaTeX table")
 message("✓ LaTeX squared-specs table saved to: ", out_tex_sq)

@@ -11,9 +11,8 @@ library(ggplot2)
 
 # --- Config -----------------------------------------------------------
 full_sample_dir <- file.path(intermediate, "Full_Sample")
-models     <- c("PL", "Borda", "OL", "OLS", "OLSC")
 subset_filter <- "all"
-model_title_map <- c(OLS = "Likert", OLSC = "Likert Centered")
+model_title_map <- c(OLS = "Likert", Borda = "Borda", OLSC = "Likert Centered")
 
 # Pairs: list of (outcome_a, outcome_b, bar_label)
 race_pairs <- list(
@@ -31,6 +30,11 @@ gender_pairs <- list(
 # --- Read correlation sheet -------------------------------------------
 corr_df <- read_parquet_sheet(full_sample_dir, "correlation") %>%
   dplyr::filter(subset == subset_filter)
+
+models <- intersect(c("OLS", "Borda"), unique(as.character(corr_df$model)))
+if (length(models) == 0L) {
+  stop("No OLS/Borda rows found in correlation sheet: ", full_sample_dir)
+}
 
 # --- Helper: look up corr_c for a pair -------------------------------
 lookup_corr_c <- function(corr_df, model_name, outcome_a, outcome_b) {

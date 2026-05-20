@@ -213,18 +213,25 @@ build_corr_table_raw <- function(model = c("pl", "borda", "ol", "ols", "olsc"),
     }
   }
 
+  if (length(rows) == 0L) {
+    return(tibble::tibble(
+      model = character(),
+      outcome = character(),
+      sample1 = character(),
+      sample2 = character(),
+      J_firms = integer(),
+      raw_corr = numeric()
+    ))
+  }
   dplyr::bind_rows(rows)
 }
 
 # -------------------------------------------------------------------
-# 4. Run for all models
+# 4. Run for OLS + Borda only
 # -------------------------------------------------------------------
 
-pl_corr    <- build_corr_table_raw("pl",    intermediate, sample_filemap, sample_pairs, outcomes)
 borda_corr <- build_corr_table_raw("borda", intermediate, sample_filemap, sample_pairs, outcomes)
-ol_corr    <- build_corr_table_raw("ol",    intermediate, sample_filemap, sample_pairs, outcomes)
 ols_corr   <- build_corr_table_raw("ols",   intermediate, sample_filemap, sample_pairs, outcomes)
-olsc_corr  <- build_corr_table_raw("olsc",  intermediate, sample_filemap, sample_pairs, outcomes)
 
 # -------------------------------------------------------------------
 # 5. Build LaTeX table
@@ -288,52 +295,14 @@ get_panel_matrix_raw <- function(df_corr) {
   panel_df
 }
 
-panelA <- get_panel_matrix_raw(pl_corr)
-panelB <- get_panel_matrix_raw(borda_corr)
-panelC <- get_panel_matrix_raw(ol_corr)
-panelD <- get_panel_matrix_raw(ols_corr)
-panelE <- get_panel_matrix_raw(olsc_corr)
+panel_ols   <- get_panel_matrix_raw(ols_corr)
+panel_borda <- get_panel_matrix_raw(borda_corr)
 
 panel_rows_corr_only <- function(panel) {
   paste0("    ", panel$Row, " & ",
          panel$`Discrimination Black`, " & ",
          panel$`Discrimination Female`, " \\\\")
 }
-
-latex_lines <- c(
-  "  \\centering",
-  "  \\begin{tabular}{lcc}",
-  "    \\toprule",
-  "    & Discrimination Black & Discrimination Female \\\\",
-  "    \\midrule",
-  "    \\multicolumn{3}{l}{\\textbf{Panel A: Plackett--Luce (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelA),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelB),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel C: Ordered Logit (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelC),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel D: Likert (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelD),
-  "    \\addlinespace",
-  "    \\multicolumn{3}{l}{\\textbf{Panel E: Likert Centered (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelE),
-  "    \\bottomrule",
-  "  \\end{tabular}"
-)
-
-out_tex <- file.path(tables, "cross_sample_corr_raw.tex")
-writeLines(latex_lines, out_tex)
-message("Raw correlation LaTeX table written to: ", out_tex)
-
-# -------------------------------------------------------------------
-# 6. Generate OLS + Borda version (corr-only; no p-value columns)
-# -------------------------------------------------------------------
-
-panelA_ols_borda <- panelD
-panelB_ols_borda <- panelB
 
 latex_lines_ols_borda <- c(
   "  \\centering",
@@ -342,14 +311,52 @@ latex_lines_ols_borda <- c(
   "    & Discrimination Black & Discrimination Female \\\\",
   "    \\midrule",
   "    \\multicolumn{3}{l}{\\textbf{Panel A: Likert (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelA_ols_borda),
+  panel_rows_corr_only(panel_ols),
   "    \\addlinespace",
   "    \\multicolumn{3}{l}{\\textbf{Panel B: Borda (Raw Correlation)}}\\\\",
-  panel_rows_corr_only(panelB_ols_borda),
+  panel_rows_corr_only(panel_borda),
   "    \\bottomrule",
   "  \\end{tabular}"
 )
 
-out_tex_ols_borda <- file.path(tables, "cross_sample_corr_raw_ols_borda.tex")
-writeLines(latex_lines_ols_borda, out_tex_ols_borda)
-message("Raw correlation OLS+Borda LaTeX table written to: ", out_tex_ols_borda)
+write_latex_lines_checked <- function(latex_lines, out_tex) {
+  if (length(latex_lines) == 0L) {
+    stop("Refusing to write empty LaTeX output: ", out_tex)
+  }
+
+  tmp_tex <- tempfile(pattern = paste0(tools::file_path_sans_ext(basename(out_tex)), "_"),
+                      fileext = ".tex")
+  on.exit(unlink(tmp_tex), add = TRUE)
+
+  writeLines(latex_lines, tmp_tex, useBytes = TRUE)
+  tmp_size <- file.info(tmp_tex)$size
+  if (is.na(tmp_size) || tmp_size == 0L) {
+    stop("Temporary LaTeX output is empty before copy: ", tmp_tex)
+  }
+
+  if (file.exists(out_tex)) {
+    unlink_status <- unlink(out_tex)
+    if (unlink_status != 0L && file.exists(out_tex)) {
+      stop("Could not remove existing LaTeX output before overwrite: ", out_tex)
+    }
+  }
+
+  if (!file.copy(tmp_tex, out_tex, overwrite = TRUE)) {
+    stop("Could not copy LaTeX output into place: ", out_tex)
+  }
+
+  out_size <- file.info(out_tex)$size
+  if (is.na(out_size) || out_size == 0L) {
+    stop("LaTeX output is empty after write: ", out_tex)
+  }
+
+  invisible(out_tex)
+}
+
+for (out_tex in c(
+  file.path(tables, "cross_sample_corr_raw.tex"),
+  file.path(tables, "cross_sample_corr_raw_ols_borda.tex")
+)) {
+  write_latex_lines_checked(latex_lines_ols_borda, out_tex)
+  message("Raw correlation OLS+Borda LaTeX table written to: ", out_tex)
+}

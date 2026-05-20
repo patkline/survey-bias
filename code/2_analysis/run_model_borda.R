@@ -36,7 +36,6 @@ run_model_borda <- function(
   
   firm_scores <- out$firm_scores  # firm_id, item_worth, se, rse (centered)
   Psi         <- out$score        # n_resp x J (centered), colnames firm<id>
-  bread_mat   <- out$bread        # J x J (centered)
   cov_mat     <- out$cov          # naive covariance (centered)
   rcov_mat    <- out$rcov         # robust covariance (centered)
   
@@ -55,13 +54,11 @@ run_model_borda <- function(
   
   # Guard: ensure all needed cols exist in mats
   miss_score <- setdiff(firm_cols, colnames(Psi))
-  if (length(miss_score)) stop("run_model_borda(): score matrix missing cols: ", paste(miss_score, collapse = ", "))
+  if (length(miss_score)) stop("run_model_borda(): influence matrix missing cols: ", paste(miss_score, collapse = ", "))
   
-  if (is.null(dimnames(bread_mat)) || is.null(dimnames(cov_mat)) || is.null(dimnames(rcov_mat))) {
-    stop("run_model_borda(): bread/cov/rcov must have dimnames like firm<id>.")
+  if (is.null(dimnames(cov_mat)) || is.null(dimnames(rcov_mat))) {
+    stop("run_model_borda(): cov/rcov must have dimnames like firm<id>.")
   }
-  miss_bread <- setdiff(firm_cols, colnames(bread_mat))
-  if (length(miss_bread)) stop("run_model_borda(): bread missing cols: ", paste(miss_bread, collapse = ", "))
   miss_cov <- setdiff(firm_cols, colnames(cov_mat))
   if (length(miss_cov)) stop("run_model_borda(): cov missing cols: ", paste(miss_cov, collapse = ", "))
   miss_rcov <- setdiff(firm_cols, colnames(rcov_mat))
@@ -69,13 +66,11 @@ run_model_borda <- function(
   
   # Subset/reorder to firm_scores order
   Psi_mat   <- as.matrix(Psi[, firm_cols, drop = FALSE])
-  bread_mat <- as.matrix(bread_mat[firm_cols, firm_cols, drop = FALSE])
   cov_mat   <- as.matrix(cov_mat  [firm_cols, firm_cols, drop = FALSE])
   rcov_mat  <- as.matrix(rcov_mat [firm_cols, firm_cols, drop = FALSE])
   
   # Rename mats to entity<id>
   colnames(Psi_mat)     <- entity_cols
-  dimnames(bread_mat)   <- list(entity_cols, entity_cols)
   dimnames(cov_mat)     <- list(entity_cols, entity_cols)
   dimnames(rcov_mat)    <- list(entity_cols, entity_cols)
   
@@ -113,7 +108,6 @@ run_model_borda <- function(
     firm_table = entity_table,   # slot name kept for compat; schema is entity_*
     mats = list(
       S     = S_df,
-      bread = bread_mat,
       cov   = cov_mat,           # naive
       rcov  = rcov_mat           # robust
     ),

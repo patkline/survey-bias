@@ -5,7 +5,6 @@
 # ------------------------------------------------------------------------------
 compute_pairwise_cov_and_noise <- function(res1, res2) {
   stopifnot(!is.null(res1$mats$S), !is.null(res2$mats$S))
-  stopifnot(!is.null(res1$mats$bread), !is.null(res2$mats$bread))
   
   S1_df <- res1$mats$S
   S2_df <- res2$mats$S
@@ -43,22 +42,8 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   
   common_cols <- sort(common_cols)
   
-  B1 <- as.matrix(res1$mats$bread)
-  B2 <- as.matrix(res2$mats$bread)
-  if (is.null(dimnames(B1)) || is.null(dimnames(B2))) {
-    stop("compute_pairwise_cov_and_noise(): bread matrices must have dimnames firm<id>.")
-  }
-  
-  B1c <- B1[common_cols, common_cols, drop = FALSE]
-  B2c <- B2[common_cols, common_cols, drop = FALSE]
-  B_block <- Matrix::bdiag(B1c, B2c)
-  
   firm_ids <- as.integer(sub("^entity", "", common_cols))
-  # Center each beta vector using the full firm_table mean before computing
-  # the cross-moment so the result equals Cov(beta1, beta2) for any model.
-  # OL/Borda/OLS/OLSC are already mean-zero (sum-to-zero or recenter_objects);
-  # PL pins the baseline firm to 0, so its betas are offsets with nonzero
-  # mean and need explicit centering.
+
   beta1_full <- as.numeric(res1$firm_table$estimate)
   beta2_full <- as.numeric(res2$firm_table$estimate)
   beta1 <- res1$firm_table$estimate[match(firm_ids, res1$firm_table$entity_id)] -
@@ -66,34 +51,24 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   beta2 <- res2$firm_table$estimate[match(firm_ids, res2$firm_table$entity_id)] -
     mean(beta2_full, na.rm = TRUE)
   covariance <- mean(beta1 * beta2, na.rm = TRUE)
-  
+
   S1_full <- as.matrix(S1_df[, common_cols, drop = FALSE])
   S2_full <- as.matrix(S2_df[, common_cols, drop = FALSE])
-  
-  # overlap block
+
+  J <- as.integer(ncol(S1_full))
+
   if (Ncommon > 0L) {
     ord_ids <- sort(overlap_ids)
     map1 <- match(ord_ids, id1)
     map2 <- match(ord_ids, id2)
+
     S1_ovl <- S1_full[map1, , drop = FALSE]
     S2_ovl <- S2_full[map2, , drop = FALSE]
-    M12 <- crossprod(S1_ovl, S2_ovl)
+
+    Theta12 <- crossprod(S1_ovl, S2_ovl)
   } else {
-    M12 <- matrix(0, nrow = ncol(S1_full), ncol = ncol(S2_full))
+    Theta12 <- matrix(0, nrow = J, ncol = J)
   }
-  
-  M11 <- crossprod(S1_full)
-  M22 <- crossprod(S2_full)
-  
-  M_block <- rbind(
-    cbind(M11,    M12),
-    cbind(t(M12), M22)
-  )
-  
-  Theta_block <- B_block %*% M_block %*% B_block
-  
-  J <- as.integer(ncol(B1c))
-  Theta12 <- Theta_block[1:J, (J + 1):(2 * J), drop = FALSE]
   
   noise <- if (J > 0L) sum(Matrix::diag(Theta12)) / J else NA_real_
   

@@ -107,8 +107,7 @@ build_two_panel_table_no_fe <- function(cfg_left, cfg_right, out_tex,
     pack_rows(left_label, 1, n_left) %>%
     pack_rows(right_label, n_left + 1, n_left + n_right)
 
-  dir.create(dirname(out_tex), showWarnings = FALSE, recursive = TRUE)
-  writeLines(tex_code, out_tex)
+  write_lines_checked(tex_code, out_tex, label = "within/between EIV LaTeX table")
   message("Saved: ", out_tex)
 }
 

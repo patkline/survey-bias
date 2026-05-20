@@ -34,13 +34,29 @@ create_plots_and_tables_from_sheets <- function(dir_path,
   has_model_col <- "model" %in% names(df_coef_raw)
   df_coef_ols <- NULL
   df_eb_ols <- NULL
+  primary_model <- "PL"
+  primary_model_label <- "Plackett–Luce"
 
   if (has_model_col) {
     # New pipeline: convert long Coefficients format into legacy wide format
-    to_wide_coef <- function(df, model_name) {
+    available_models <- unique(as.character(df_coef_raw$model))
+    primary_model <- if ("PL" %in% available_models) {
+      "PL"
+    } else if ("OLS" %in% available_models) {
+      "OLS"
+    } else {
+      available_models[!is.na(available_models) & nzchar(available_models)][1]
+    }
+    primary_model_label <- dplyr::case_when(
+      primary_model == "PL" ~ "Plackett–Luce",
+      primary_model == "OLS" ~ "Likert Score",
+      TRUE ~ primary_model
+    )
+
+    to_wide_coef <- function(df, model_name, value_col = "estimate") {
       model_df <- df %>% dplyr::filter(.data$model == model_name)
 
-      if (all(c("outcome", "estimate") %in% names(model_df))) {
+      if (all(c("outcome", value_col) %in% names(model_df))) {
         if ("subset" %in% names(model_df)) {
           model_df <- model_df %>% dplyr::filter(.data$subset == "all")
         }
@@ -72,11 +88,11 @@ create_plots_and_tables_from_sheets <- function(dir_path,
                 firm    = as.character(.data[[name_col]]),
                 firm_id = suppressWarnings(as.integer(.data[[id_col]])),
                 outcome = as.character(.data$outcome),
-                estimate = suppressWarnings(as.numeric(.data$estimate))
+                value = suppressWarnings(as.numeric(.data[[value_col]]))
               ) %>%
               dplyr::filter(!is.na(.data$firm_id), !is.na(.data$outcome)) %>%
               dplyr::distinct(.data$firm_id, .data$outcome, .keep_all = TRUE) %>%
-              tidyr::pivot_wider(names_from = outcome, values_from = estimate)
+              tidyr::pivot_wider(names_from = outcome, values_from = value)
           )
         }
       }
@@ -84,18 +100,35 @@ create_plots_and_tables_from_sheets <- function(dir_path,
       model_df %>% dplyr::select(-model)
     }
 
-    df_coef <- to_wide_coef(df_coef_raw, "PL")
-    df_coef_ols <- to_wide_coef(df_coef_raw, "OLS")
-    df_borda <- to_wide_coef(df_coef_raw, "Borda")
+    df_coef <- to_wide_coef(df_coef_raw, primary_model, "estimate")
+    df_coef_ols <- to_wide_coef(df_coef_raw, "OLS", "estimate")
+    df_borda <- to_wide_coef(df_coef_raw, "Borda", "estimate")
+
+    df_eb <- if ("eb" %in% names(df_coef_raw)) {
+      to_wide_coef(df_coef_raw, primary_model, "eb")
+    } else {
+      NULL
+    }
+    df_eb_ols <- if ("eb" %in% names(df_coef_raw)) {
+      to_wide_coef(df_coef_raw, "OLS", "eb")
+    } else {
+      NULL
+    }
+    df_borda_eb <- if ("eb" %in% names(df_coef_raw)) {
+      to_wide_coef(df_coef_raw, "Borda", "eb")
+    } else {
+      NULL
+    }
 
     df_eb_raw <- tryCatch(read_parquet_sheet(dir_path, "EB Coefficients"), error = function(e) NULL)
     if (!is.null(df_eb_raw) && "model" %in% names(df_eb_raw)) {
-      df_eb <- df_eb_raw %>% dplyr::filter(.data$model == "PL") %>% dplyr::select(-model)
+      df_eb <- df_eb_raw %>% dplyr::filter(.data$model == primary_model) %>% dplyr::select(-model)
       df_eb_ols <- df_eb_raw %>% dplyr::filter(.data$model == "OLS") %>% dplyr::select(-model)
       df_borda_eb <- df_eb_raw %>% dplyr::filter(.data$model == "Borda") %>% dplyr::select(-model)
     } else {
-      df_eb <- tryCatch(read_parquet_sheet(dir_path, "Coefficients (EB)"), error = function(e) NULL)
-      df_borda_eb <- NULL
+      if (is.null(df_eb)) {
+        df_eb <- tryCatch(read_parquet_sheet(dir_path, "Coefficients (EB)"), error = function(e) NULL)
+      }
     }
     df_eb2 <- NULL
   } else {
@@ -231,12 +264,14 @@ create_plots_and_tables_from_sheets <- function(dir_path,
         borda_df$Borda_var_norm <- as.numeric(pmax(borda_raw$signal, 0)) / 0.0844
       }
 
-      # Merge all models
-      tab <- pl_df
-      if (!is.null(borda_df)) tab <- dplyr::full_join(tab, borda_df, by = "outcome")
-      if (!is.null(ol_df))    tab <- dplyr::full_join(tab, ol_df, by = "outcome")
-      if (!is.null(ols_df))   tab <- dplyr::full_join(tab, ols_df, by = "outcome")
-      if (!is.null(olsc_df))  tab <- dplyr::full_join(tab, olsc_df, by = "outcome")
+      # Merge all models. The corrected OLS/Borda pipeline does not run PL/OL/OLSC,
+      # so do not assume any particular model is present.
+      model_tabs <- Filter(Negate(is.null), list(pl_df, borda_df, ol_df, ols_df, olsc_df))
+      if (length(model_tabs) == 0L) {
+        message("No model rows found in variance sheet for: ", dir_path)
+        return(invisible(NULL))
+      }
+      tab <- Reduce(function(x, y) dplyr::full_join(x, y, by = "outcome"), model_tabs)
 
     } else {
       # --- Old pipeline: sum_signal_noise sheet ---
@@ -327,6 +362,16 @@ create_plots_and_tables_from_sheets <- function(dir_path,
       )
     }
 
+    # Downstream table code references the legacy PL/Borda columns unconditionally.
+    # Add absent model columns as NA so an OLS+Borda-only run still writes tables.
+    required_model_cols <- c(
+      "PL_sd", "PL_sd_bias_corrected", "PL_t_stat", "PL_reliability",
+      "Borda_sd", "Borda_sd_bias_corrected", "Borda_t_stat", "Borda_var_norm"
+    )
+    for (nm in required_model_cols) {
+      if (!nm %in% names(tab)) tab[[nm]] <- NA_real_
+    }
+
     # Display label mapping
     map_label <- function(x) {
       if (!is.null(label_mapping)) {
@@ -341,6 +386,15 @@ create_plots_and_tables_from_sheets <- function(dir_path,
     # Sort by displayed label then raw id
     tab <- tab %>%
       dplyr::arrange(.data$Outcome_display, .data$outcome)
+
+    has_pl_rows <- any(is.finite(tab$PL_sd) |
+                         is.finite(tab$PL_sd_bias_corrected) |
+                         is.finite(tab$PL_t_stat) |
+                         is.finite(tab$PL_reliability))
+    if (!has_pl_rows) {
+      message("Skipping legacy PL/Borda variance table because PL rows are absent: ", tex_name)
+      return(invisible(list(csv = NULL, tex = NULL, data = tab)))
+    }
 
     # CSV (numeric, full precision)
     csv_out_path <- file.path(tables_dir, csv_name)
@@ -502,16 +556,17 @@ create_plots_and_tables_from_sheets <- function(dir_path,
     }
 
     tex_out_path <- file.path(tables_dir, tex_name)
-    print(
+    write_xtable_checked(
       xt,
       include.rownames = FALSE,
       include.colnames = FALSE,
-      file = tex_out_path,
+      out_path = tex_out_path,
       add.to.row = list(pos = list(0), command = header),
       sanitize.text.function = identity,
       booktabs = TRUE,
       floating = FALSE,
-      comment = FALSE
+      comment = FALSE,
+      label = "variance LaTeX table"
     )
     cat("Variance / SD table saved:",
         basename(csv_out_path), "and", basename(tex_out_path), "\n")
@@ -603,16 +658,17 @@ create_plots_and_tables_from_sheets <- function(dir_path,
     )
 
     tex_out_path <- file.path(tables_dir, tex_name)
-    print(
+    write_xtable_checked(
       xt,
       include.rownames = FALSE,
       include.colnames = FALSE,
-      file = tex_out_path,
+      out_path = tex_out_path,
       add.to.row = list(pos = list(0), command = header),
       sanitize.text.function = identity,
       booktabs = TRUE,
       floating = FALSE,
-      comment = FALSE
+      comment = FALSE,
+      label = "OLS/Borda variance LaTeX table"
     )
     cat("Variance / SD table saved:",
         basename(csv_out_path), "and", basename(tex_out_path), "\n")
@@ -774,8 +830,9 @@ create_plots_and_tables_from_sheets <- function(dir_path,
       dplyr::select(firm, firm_id, EB_PL, Borda_EB)
     
     if (all(is.na(eb_dual$EB_PL)) || all(is.na(eb_dual$Borda_EB))) {
-      message("⚠️ Missing EB PL or Borda EB for outcome: ", new_outcome, " — skipping dual-axis Top/Bottom plot.")
+      message("⚠️ Missing ", primary_model_label, " EB or Borda EB for outcome: ", new_outcome, " — skipping dual-axis Top/Bottom plot.")
     } else {
+      primary_eb_label <- paste0(primary_model_label, " (EB)")
       mean_borda_all <- mean(eb_dual$Borda_EB, na.rm = TRUE)
       ranked_dual <- eb_dual %>% dplyr::mutate(.rank_key = Borda_EB)
       topN_dual <- ranked_dual %>% dplyr::slice_max(order_by = .rank_key, n = n_keep_overlay, with_ties = FALSE)
@@ -820,8 +877,8 @@ create_plots_and_tables_from_sheets <- function(dir_path,
         geom_segment(data = guides_dual,
                      aes(x = firm, xend = firm, y = ymin, yend = ymax),
                      inherit.aes = FALSE, linewidth = 0.3, alpha = 0.35) +
-        geom_point(aes(y = EB_PL,            color = "PL (EB)"), size = 2.6, alpha = 0.9) +
-        geom_line (aes(y = EB_PL,            color = "PL (EB)", group = 1), linewidth = 0.7, alpha = 0.9) +
+        geom_point(aes(y = EB_PL,            color = .env$primary_eb_label), size = 2.6, alpha = 0.9) +
+        geom_line (aes(y = EB_PL,            color = .env$primary_eb_label, group = 1), linewidth = 0.7, alpha = 0.9) +
         geom_point(aes(y = Borda_scaled_to_PL, color = "Borda (EB)"), size = 2.6, alpha = 0.9, shape = 17) +
         geom_line (aes(y = Borda_scaled_to_PL, color = "Borda (EB)", group = 1),
                    linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
@@ -829,13 +886,13 @@ create_plots_and_tables_from_sheets <- function(dir_path,
         geom_vline(xintercept = gap_start, linetype = "dashed", linewidth = 0.6, color = "grey55") +
         geom_vline(xintercept = gap_end,   linetype = "dashed", linewidth = 0.6, color = "grey55") +
         scale_y_continuous(
-          name     = "Plackett–Luce Item Worth (EB)",
+          name     = paste0(primary_model_label, " Item Worth (EB)"),
           sec.axis = sec_axis(~ inv_to_borda(.), name = "Borda Score (EB)")
         ) +
         scale_color_manual(
-          values = c("PL (EB)" = "steelblue", "Borda (EB)" = "darkorange"),
-          breaks = c("PL (EB)", "Borda (EB)"),
-          labels = c("PL (EB)" = "Plackett–Luce", "Borda (EB)" = "Borda Score")
+          values = stats::setNames(c("steelblue", "darkorange"), c(primary_eb_label, "Borda (EB)")),
+          breaks = c(primary_eb_label, "Borda (EB)"),
+          labels = stats::setNames(c(primary_model_label, "Borda Score"), c(primary_eb_label, "Borda (EB)"))
         ) +
         guides(color = guide_legend(
           override.aes = list(
@@ -1069,6 +1126,8 @@ create_plots_and_tables_from_sheets <- function(dir_path,
     if (nrow(tri_df) == 0) {
       message("⚠️ Missing data for tri-series scatter: ", new_outcome, " — skipping.")
     } else {
+      primary_eb_label <- paste0(primary_model_label, " (EB)")
+      primary_mle_label <- paste0(primary_model_label, " (MLE)")
       s_pl <- stats::sd(tri_df$Estimate, na.rm = TRUE);  if (!is.finite(s_pl) || s_pl == 0) s_pl <- 1
       m_pl <- mean(tri_df$Estimate, na.rm = TRUE)
       s_bd <- stats::sd(tri_df$Borda,    na.rm = TRUE);  if (!is.finite(s_bd) || s_bd == 0) s_bd <- 1
@@ -1081,19 +1140,19 @@ create_plots_and_tables_from_sheets <- function(dir_path,
       intercept45 <- m_pl - slope45 * m_bd
       
       p_tri <- ggplot(tri_df, aes(x = Borda_EB)) +
-        geom_point(aes(y = EB_PL,             color = "Plackett Luce (EB)"),  alpha = 0.6, size = 1.8) +
-        geom_point(aes(y = Estimate,          color = "Plackett Luce (MLE)"), alpha = 0.6, size = 1.8) +
+        geom_point(aes(y = EB_PL,             color = .env$primary_eb_label),  alpha = 0.6, size = 1.8) +
+        geom_point(aes(y = Estimate,          color = .env$primary_mle_label), alpha = 0.6, size = 1.8) +
         geom_point(aes(y = Borda_scaled_to_PL, color = "Borda Score"),        alpha = 0.6, size = 1.8) +
-        geom_smooth(aes(y = EB_PL,             color = "Plackett Luce (EB)"),
+        geom_smooth(aes(y = EB_PL,             color = .env$primary_eb_label),
                     method = "lm", se = FALSE, linewidth = 0.9) +
-        geom_smooth(aes(y = Estimate,          color = "Plackett Luce (MLE)"),
+        geom_smooth(aes(y = Estimate,          color = .env$primary_mle_label),
                     method = "lm", se = FALSE, linewidth = 0.9) +
         geom_smooth(aes(y = Borda_scaled_to_PL, color = "Borda Score"),
                     method = "lm", se = FALSE, linewidth = 0.9) +
         geom_abline(slope = slope45, intercept = intercept45,
                     linetype = "dashed", color = "black") +
         scale_y_continuous(
-          name = "Plackett–Luce Item Worth",
+          name = paste0(primary_model_label, " Item Worth"),
           sec.axis = sec_axis(~ inv_to_borda(.), name = "Borda Score")
         ) +
         scale_x_continuous(
@@ -1101,9 +1160,8 @@ create_plots_and_tables_from_sheets <- function(dir_path,
           expand = c(0, 0)
         ) +
         scale_color_manual(values = c(
-          "Plackett Luce (EB)"  = "#cc7a00",
-          "Plackett Luce (MLE)" = "#4b72a6",
-          "Borda Score"         = "#800000"
+          stats::setNames(c("#cc7a00", "#4b72a6"), c(primary_eb_label, primary_mle_label)),
+          "Borda Score" = "#800000"
         )) +
         labs(color = "") +
         theme_minimal(base_size = 14) +
@@ -1273,11 +1331,20 @@ write_variance_biascorrected_ols_borda_within_between <- function(
   ols_df <- build_model_cols(var_df, "OLS", "OLS")
   borda_df <- build_model_cols(var_df, "Borda", "Borda", mult = borda_mult)
   
-  tab <- dplyr::full_join(ols_df, borda_df, by = "outcome")
+  model_tabs <- Filter(Negate(is.null), list(ols_df, borda_df))
+  if (length(model_tabs) == 0L) {
+    message("No OLS/Borda within-between rows found in variance sheet.")
+    return(invisible(NULL))
+  }
+  tab <- Reduce(function(x, y) dplyr::full_join(x, y, by = "outcome"), model_tabs)
   tab <- dplyr::full_join(
     data.frame(outcome = target_outcomes, stringsAsFactors = FALSE),
     tab, by = "outcome"
   )
+  for (nm in c("OLS_sd", "OLS_sd_bias_corrected", "OLS_t_stat",
+               "Borda_sd", "Borda_sd_bias_corrected", "Borda_t_stat")) {
+    if (!nm %in% names(tab)) tab[[nm]] <- NA_real_
+  }
   tab <- tab %>%
     dplyr::mutate(
       Borda_var_norm = ifelse(
@@ -1369,7 +1436,7 @@ write_variance_biascorrected_ols_borda_within_between <- function(
   )
   
   tex_out_path <- file.path(tables_dir, tex_name)
-  writeLines(latex_lines, tex_out_path)
+  write_lines_checked(latex_lines, tex_out_path, label = "within/between variance LaTeX table")
   
   cat("Within/between-industry variance table saved:",
       basename(csv_out_path), "and", basename(tex_out_path), "\n")
