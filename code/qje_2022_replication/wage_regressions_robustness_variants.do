@@ -7,7 +7,7 @@ do "${github}/survey-bias/code/globals.do"
 #d; 
 
 * Set file paths ;
-global rawdir "${qje_2022_replication_data}" ;
+global rawdir "${qje_2022_replication_raw}" ;
 global wrkdir "${qje_2022_replication_dump}/covariates_robustness_variants" ;
 
 **********************************
@@ -146,7 +146,7 @@ di as red _newline(4) "robustness_variant = `robustness_variant'" ;
 
 * CPS ; 
 #d;
-use "${qje_2022_replication_data}/cps_00086.dta", clear ;
+use "$rawdir/cps_00086.dta", clear ;
 
   * education ;
   gen edlevel = 1 if inrange(educ,2, 72) ;

@@ -7,7 +7,7 @@ do "${github}/survey-bias/code/globals.do"
 #d; 
 
 * Set file paths ;
-global rawdir "${qje_2022_replication_data}" ;
+global rawdir "${qje_2022_replication_raw}" ;
 global wrkdir "${qje_2022_replication_dump}/covariates_new_cleaning" ;
 
 **********************************
@@ -140,7 +140,7 @@ save "${wrkdir}/cw_in1990_sic.dta", replace ;
 
 * CPS ; 
 #d;
-use "${qje_2022_replication_data}/cps_00086.dta", clear ;
+use "$rawdir/cps_00086.dta", clear ;
 
   * education ;
   gen edlevel = 1 if inrange(educ,2, 72) ;
@@ -336,5 +336,4 @@ svmat estgender2, names(col) ;
 save "${wrkdir}/`ind'_gender_wage_gap", replace ; 
 
 } ; 
-
 

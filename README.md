@@ -273,7 +273,7 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
    1. `/code/qje_2022_replication` --- Folder that contains self-contained code for reproducing exhibits in Kline-Rose-Walters (2022)
       1. Includes the Stata metafile, original rr_misc cleaning baseline, corrected-cleaning variant, figure construction scripts, and comparison scripts
       2. Large inputs and generated outputs live in `qje_2022_replication_data_and_outputs/`, routed through the same GitHub-vs-Dropbox storage switch as `data/` and `output/`
-      3. The full paper replication package lives at `qje_2022_replication_data_and_outputs/qje_2022_full_replication_package/` for provenance checks and line diffs against the authors' original code
+      3. The full paper replication package lives at `qje_2022_replication_data_and_outputs/data/raw/qje_2022_full_replication_package/` for provenance checks and line diffs against the authors' original code
 
 4. Git LFS hook policy (fail-closed)
    1. This repo uses fail-closed hooks in `.githooks/` for `post-checkout`, `post-merge`, and `pre-push`
