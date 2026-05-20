@@ -18,7 +18,7 @@ from pathlib import Path
 # ------------------------------------------------------------------------------
 # User -> Dropbox root (same entries as globals.R)
 dropbox_roots_by_user = {
-    "nicorotundo": "/Users/nicorotundo/Opportunity Insights Dropbox/Nico Rotundo/Survey/consolidated_code",
+    "nicorotundo": "/Users/nicorotundo/Library/CloudStorage/Dropbox/Survey/consolidated_code",
     "monicahea": "/Users/monicahea/Dropbox/Survey/consolidated_code",
     "jordancammarota": "/Users/jordancammarota/Dropbox/consolidated_code",
     "anh-huynguyen": "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
@@ -99,10 +99,11 @@ tables = output / "tables"
 qje_2022_replication_code = code / "qje_2022_replication"
 qje_2022_replication_data = qje_2022_data_and_outputs / "data"
 qje_2022_replication_outputs = qje_2022_data_and_outputs / "outputs"
-qje_2022_replication_package = qje_2022_replication_data / "paper_replication_package"
+qje_2022_replication_raw = qje_2022_replication_data / "raw"
+qje_2022_replication_package = qje_2022_replication_raw / "qje_2022_full_replication_package"
 qje_2022_replication_figures = qje_2022_replication_outputs / "figures"
 qje_2022_replication_tables = qje_2022_replication_outputs / "tables"
-qje_2022_replication_dump = qje_2022_replication_outputs / "dump"
+qje_2022_replication_dump = qje_2022_replication_data / "dump"
 
 # ------------------------------------------------------------------------------
 # Edit other python settings 

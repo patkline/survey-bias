@@ -21,7 +21,7 @@ local user = lower("`c(username)'")
 
 * Map system user --> Dropbox consolidated_code root
 if "`user'" == "nicorotundo" {
-    global dropbox_survey_bias_root "/Users/nicorotundo/Opportunity Insights Dropbox/Nico Rotundo/Survey/consolidated_code"
+    global dropbox_survey_bias_root "/Users/nicorotundo/Library/CloudStorage/Dropbox/Survey/consolidated_code"
 }
 else if "`user'" == "monicahea" {
     global dropbox_survey_bias_root "/Users/monicahea/Dropbox/Survey/consolidated_code"
@@ -115,12 +115,13 @@ global qje_2022_replication_data    "${qje_2022_data_and_outputs}/data"
 global qje_2022_replication_outputs "${qje_2022_data_and_outputs}/outputs"
 
 * Original replication package files
-global qje_2022_replication_package "${qje_2022_replication_data}/paper_replication_package"
+global qje_2022_replication_raw "${qje_2022_replication_data}/raw"
+global qje_2022_replication_package "${qje_2022_replication_raw}/qje_2022_full_replication_package"
 
 * Output subfolders
 global qje_2022_replication_figures "${qje_2022_replication_outputs}/figures"
 global qje_2022_replication_tables  "${qje_2022_replication_outputs}/tables"
-global qje_2022_replication_dump    "${qje_2022_replication_outputs}/dump"
+global qje_2022_replication_dump    "${qje_2022_replication_data}/dump"
 
 /* ---------------------------------------------------------------------------------------------
 Python virtual environment
