@@ -102,9 +102,12 @@ foreach touse in white male {
     assert _merge == 3
     drop _merge
 
+    * Define the original Figure 9 row order
+    local figure9_order wage_level_race wage_gap_race share_black_ind mgmt_dif_black_ind col_share_gap_race ///
+        wage_level_gender wage_gap_gender share_female_ind mgmt_dif_female_ind col_share_gap_gender top4share
+
     * Standardize covariates within the firm-level analysis sample
-    foreach var of varlist wage_level_race wage_gap_race share_black_ind mgmt_dif_black_ind col_share_gap_race ///
-        wage_level_gender wage_gap_gender share_female_ind mgmt_dif_female_ind col_share_gap_gender top4share {
+    foreach var of local figure9_order {
 
         qui su `var'
         assert r(N) > 0
@@ -135,8 +138,7 @@ foreach touse in white male {
 
     * Run posterior-gap regressions
     eststo clear
-    foreach var of varlist wage_level_race wage_gap_race share_black_ind mgmt_dif_black_ind col_share_gap_race ///
-        wage_level_gender wage_gap_gender share_female_ind mgmt_dif_female_ind col_share_gap_gender top4share {
+    foreach var of local figure9_order {
 
         qui eststo: reg `var' post_mean_beta, robust
         estimates store ef_`var'
@@ -152,9 +154,17 @@ foreach touse in white male {
             double append
     }
 
+    * Explicitly list estimates so coefplot cannot reorder wildcard matches
+    local posterior_estimates
+    local shrinkage_estimates
+    foreach var of local figure9_order {
+        local posterior_estimates "`posterior_estimates' ef_`var'"
+        local shrinkage_estimates "`shrinkage_estimates' fe_`var'"
+    }
+
     * Export full Figure 9 panel
-    coefplot (ef_*, label("Posterior mean")) ///
-        (fe_*, label("Linear shrinkage")), ///
+    coefplot (`posterior_estimates', label("Posterior mean")) ///
+        (`shrinkage_estimates', label("Linear shrinkage")), ///
         aseq ///
         swapnames ///
         eqrename(^ef_(.*)$ = \1 ^fe_(.*)$ = \1, regex) ///

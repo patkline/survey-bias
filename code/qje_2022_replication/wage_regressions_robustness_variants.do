@@ -139,7 +139,7 @@ use "$rawdir/cw_sic87_ind1990ddx.dta", clear ;
 save "${wrkdir}/cw_in1990_sic.dta", replace ; 
 
 * Loop over robustness variants ;
-foreach robustness_variant in hourwage ignore_allocation_flags { ;
+foreach robustness_variant in hourwage ignore_allocation_flags college_share_ignore_allocation_flags { ;
 
 * Print the robustness variant currently being built ;
 di as red _newline(4) "robustness_variant = `robustness_variant'" ;
@@ -167,8 +167,8 @@ use "$rawdir/cps_00086.dta", clear ;
   * female ;
   gen female = sex==2 ;
 
-  * Recode missing values for the weekly earnings wage measure in the allocation-flag robustness variant ;
-  if inlist("`robustness_variant'", "ignore_allocation_flags") { ;
+  * Recode missing values for constructed wage variants ;
+  if inlist("`robustness_variant'", "ignore_allocation_flags", "college_share_ignore_allocation_flags") { ;
     replace earnweek = . if earnweek == 9999.99 ;
     replace uhrsworkorg = . if inlist(uhrsworkorg, 998, 999) ; 
   } ;
@@ -184,6 +184,23 @@ use "$rawdir/cps_00086.dta", clear ;
   keep if inlist(wkstat, 11) ;
   keep if inlist(classwkr, 22, 23) ;
 
+  * Merge in SIC codes  ; 
+  merge m:1 ind1990 using "${wrkdir}/cw_in1990_sic.dta", nogen; 
+  merge m:1 ind1990 using "${wrkdir}/cw_ind1990_naics2012_3.dta", nogen ;
+
+  * Save broader ORG sample for the college-share-only allocation-flag robustness ;
+  if inlist("`robustness_variant'", "college_share_ignore_allocation_flags") { ;
+    tempfile college_share_temp ;
+    save `college_share_temp' ;
+  } ;
+
+  * Keep the corrected main wage-regression sample in the college-share-only robustness ;
+  if inlist("`robustness_variant'", "college_share_ignore_allocation_flags") { ;
+    keep if qearnwee == 0 ;
+    keep if quhrsworkorg == 0 ;
+    drop if earnweek == 0 ;
+  } ;
+
   * Drop zero weekly earnings before constructing wages in the allocation-flag robustness variant ;
   if inlist("`robustness_variant'", "ignore_allocation_flags") { ;
     drop if earnweek == 0 ;
@@ -196,12 +213,8 @@ use "$rawdir/cps_00086.dta", clear ;
     di as text "qhourwag == 0 keeps " _N " of `observations_before_qhourwag' observations" ;
   } ;
   
-  * Merge in SIC codes  ; 
-  merge m:1 ind1990 using "${wrkdir}/cw_in1990_sic.dta", nogen; 
-  merge m:1 ind1990 using "${wrkdir}/cw_ind1990_naics2012_3.dta", nogen ;
-
-  * Generate the constructed hourly wage in the allocation-flag robustness variant ;
-  if inlist("`robustness_variant'", "ignore_allocation_flags") { ;
+  * Generate the constructed hourly wage in constructed wage variants ;
+  if inlist("`robustness_variant'", "ignore_allocation_flags", "college_share_ignore_allocation_flags") { ;
     gen hr_wage = earnweek/uhrsworkorg ; 
   } ;
   
@@ -222,7 +235,12 @@ save `temp' ;
 foreach ind in "sic" "naics3" { ; 
 ** Employment and college share gaps by industry ;
   * By race ;
-  use `temp', clear ; 
+  if inlist("`robustness_variant'", "college_share_ignore_allocation_flags") { ;
+    use `college_share_temp', clear ;
+  } ;
+  else { ;
+    use `temp', clear ; 
+  } ;
 
   bys `ind' black: egen emp = mean(earnwt) ; 
   bys `ind' black: egen college_share = wtmean(college), weight(hwtfinl) ; 
@@ -249,7 +267,12 @@ foreach ind in "sic" "naics3" { ;
   save  `race' ; 
 
   * By gender ;
-  use `temp', clear ; 
+  if inlist("`robustness_variant'", "college_share_ignore_allocation_flags") { ;
+    use `college_share_temp', clear ;
+  } ;
+  else { ;
+    use `temp', clear ; 
+  } ;
   
   bys `ind' female: egen emp = mean(earnwt) ; 
   bys `ind' female: egen college_share = wtmean(college), weight(hwtfinl) ; 

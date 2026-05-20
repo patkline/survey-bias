@@ -12,7 +12,7 @@ do "${github}/survey-bias/code/globals.do"
 Build NAICS3-level CPS covariate files
 ----------------------------------------------------------------------------------------------------------- */
 * Loop over CPS robustness variants
-foreach robustness_variant in hourwage ignore_allocation_flags {
+foreach robustness_variant in hourwage ignore_allocation_flags college_share_ignore_allocation_flags {
 
 * Print the robustness variant currently being built
 di as red _newline(4) "robustness_variant = `robustness_variant'"
