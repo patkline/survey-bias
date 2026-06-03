@@ -349,6 +349,52 @@ sentiment_scores_dedup AS (
     ORDER BY
         ss.rcid::text,
         ss.num_reviews DESC NULLS LAST
+),
+
+individual_diversity_inclusion_ratings AS (
+    /*
+       Average the 1-5 diversity and inclusion rating from 2023 individual
+       reviews by current full-time employees at seniority level 1.
+    */
+    SELECT
+        sir.rcid::text AS rcid,
+        COUNT(*) AS n_di_rating_reviews_current_ft_seniority1_2023,
+        AVG(sir.rating_diversity_and_inclusion::double precision)
+            AS avg_di_rating_current_ft_seniority1_2023
+    FROM revelio_sentiment.sentiment_individual_reviews AS sir
+    INNER JOIN target_rcids AS t
+        ON sir.rcid::text = t.rcid
+    INNER JOIN (
+        SELECT DISTINCT
+            cm.rcid::text AS rcid
+        FROM revelio_common.company_mapping AS cm
+    ) AS id_table
+        ON sir.rcid::text = id_table.rcid
+    WHERE sir.review_date BETWEEN DATE '2023-01-01' AND DATE '2023-12-31'
+      AND TRIM(sir.seniority::text) = '1'
+      AND (
+          LOWER(TRIM(sir.reviewer_current_job::text)) IN (
+              'true',
+              't',
+              '1',
+              'yes',
+              'y'
+          )
+          OR POSITION('current' IN LOWER(TRIM(sir.reviewer_current_job::text))) > 0
+      )
+      AND (
+          LOWER(TRIM(sir.reviewer_employment_status::text)) IN (
+              'regular',
+              'ft'
+          )
+          OR (
+              POSITION('full' IN LOWER(TRIM(sir.reviewer_employment_status::text))) > 0
+              AND POSITION('time' IN LOWER(TRIM(sir.reviewer_employment_status::text))) > 0
+          )
+      )
+      AND sir.rating_diversity_and_inclusion::double precision BETWEEN 1 AND 5
+    GROUP BY
+        sir.rcid::text
 )
 
 SELECT
@@ -408,7 +454,10 @@ SELECT
     sd.co_and_division_size_sentiment,
     sd.perks_and_benefits_sentiment,
     sd.onboarding_sentiment,
-    sd.remote_work_sentiment
+    sd.remote_work_sentiment,
+
+    idir.n_di_rating_reviews_current_ft_seniority1_2023,
+    idir.avg_di_rating_current_ft_seniority1_2023
 
 FROM target_rcids AS t
 LEFT JOIN company_names AS cn
@@ -419,6 +468,8 @@ LEFT JOIN demographic_shares AS d
     ON t.rcid = d.rcid
 LEFT JOIN sentiment_scores_dedup AS sd
     ON t.rcid = sd.rcid
+LEFT JOIN individual_diversity_inclusion_ratings AS idir
+    ON t.rcid = idir.rcid
 ORDER BY
     company NULLS LAST,
     t.rcid;
@@ -434,5 +485,9 @@ print(f"Saved {len(df):,} rows to {out_file}")
 print("Rows with no company name:", int(df["company"].isna().sum()))
 print("Rows with no 2023 worker match:", int((df["has_2023_worker_match"] == 0).sum()))
 print("Rows with no sentiment match:", int((df["sentiment_match_type"] == "no_sentiment_match").sum()))
+print(
+    "Rows with no 2023 current full-time seniority-1 D&I rating:",
+    int(df["avg_di_rating_current_ft_seniority1_2023"].isna().sum())
+)
 
 df.head()
