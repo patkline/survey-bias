@@ -143,4 +143,4 @@ gisid sic_two_digit_bin_aer
 
 * Compress and save
 compress
-save "${dump}/industry_emp_by_demographic_eeo1.dta", replace
+save "${dump}/industry_emp_share_by_demographic_eeo1.dta", replace

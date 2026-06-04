@@ -276,6 +276,16 @@ foreach demographic_cut in black sex {
 * Close post file 
 postclose ``demographic_cut'_gap_dataset'
 
-* Export coefficients file 
-save "${dump}/industry_residualized_wage_gaps_levels_`demographic_cut'", replace
 }
+
+/* -----------------------------------------------------------------------------------------------------------
+Export
+----------------------------------------------------------------------------------------------------------- */ 
+* Import race dataset with residualized wage gaps and levels
+use `black_gap_residualized', clear
+
+* Merge on sex dataset with residualized wage gaps and levels
+merge 1:1 sic_two_digit_bin_aer using `sex_gap_residualized', assert(3) nogen
+
+* Export as csv to use in the EIV regressions 
+export delimited using "${dump}/cps_industry_wage_gaps_levels_residualized.csv", replace
