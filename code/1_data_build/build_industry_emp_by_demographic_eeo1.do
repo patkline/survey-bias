@@ -1,10 +1,9 @@
 /* -----------------------------------------------------------------------------------------------------------
-Purpose: Clean EEO-1 2023 Public Use File (PUF) and aggregate to the
-naics3 industry x race x sex level with employment counts
+Purpose: Clean EEO-1 2023 Public Use File (PUF) employment counts by race, gender, and 
+job, and crosswalk from 2022 naics to the aggregated sic buckets in this paper's data 
 
 Created: Nico Rotundo 2026-04-24
 ----------------------------------------------------------------------------------------------------------- */
-
 * Run globals
 do "${github}/survey-bias/code/globals.do"
 
@@ -69,83 +68,78 @@ drop if mi(naics3)
 gisid naics3
 
 /* -----------------------------------------------------------------------------------------------------------
-Keep nescessary variables, rename to be more descriptive, convert employment counts 
-to numeric, and compute employment for black + non-black workers
+Keep nescessary variables, rename to be more descriptive, and convert employment counts 
+to numeric
 ----------------------------------------------------------------------------------------------------------- */
-* Keep only naics3 keys + 14 race-sex-total columns aggregated across jobs 
+* Keep only naics3 keys + (1) total, (2) black, (3) female employment counts for (i) across all jobs, (ii) senior off and managers, (iii) mid off and managers, and (iv) potential ``front line'' employees
 keep naics3 naics3_name ///
-     mt10 whm10 blkm10 hispm10 asianm10 aianm10 nhopim10 tomrm10 ///
-     ft10 whf10 blkf10 hispf10 asianf10 aianf10 nhopif10 tomrf10
+  total10 blkt10 ft10 ///
+  total1 blkt1 ft1   ///
+  total1_2 blkt1_2 ft1_2 ///
+  total4 blkt4 ft4 ///
+  total5 blkt5 ft5 ///
+  total6 blkt6 ft6 ///
+  total8 blkt8 ft8 ///
+  total9 blkt9 ft9
 
-* Cast the 14 race-sex total columns to numeric
-foreach variable of varlist mt10 whm10 blkm10 hispm10 asianm10 aianm10 nhopim10 tomrm10 ///
-                     ft10 whf10 blkf10 hispf10 asianf10 aianf10 nhopif10 tomrf10 {
-    destring `variable', replace
-    assert ~mi(`variable')
+* Cast the 14 race-sex total columns to numeric 
+ds naics3 naics3_name total10, not 
+foreach variable in `r(varlist)' {
+  * Destring --- only non-numeric strings are *, so fine to force (these are small cell supression from eeo1) 
+  destring `variable', replace force 
 }
 
 * Rename variables to be more descriptive 
-rename (mt10 ft10) (total_male_emp total_female_emp)
-rename (whm10 whf10) (white_male_emp white_female_emp)
-rename (blkm10 blkf10) (black_male_emp black_female_emp)
-rename (hispm10 hispf10) (hispanic_male_emp hispanic_female_emp)
-rename (asianm10 asianf10) (asian_male_emp asian_female_emp)
-rename (aianm10 aianf10) (aian_male_emp aian_female_emp)
-rename (nhopim10 nhopif10) (hawaiian_pi_male_emp hawaiian_pi_female_emp)
-rename (tomrm10 tomrf10) (two_plus_race_male_emp two_plus_race_female_emp)
+rename (total10 blkt10 ft10) (emp_pooled_all_jobs emp_black_all_jobs emp_female_all_jobs)
+rename (total1 blkt1 ft1) (emp_pooled_senior_off_manager emp_black_senior_off_manager emp_female_senior_off_manager) 
+rename (total1_2 blkt1_2 ft1_2) (emp_pooled_mid_off_manager emp_black_mid_off_manager emp_female_mid_off_manager)
+rename (total4 blkt4 ft4) (emp_pooled_sales emp_black_sales emp_female_sales)
+rename (total5 blkt5 ft5) (emp_pooled_clerk emp_black_clerk emp_female_clerk)
+rename (total6 blkt6 ft6) (emp_pooled_craft emp_black_craft emp_female_craft)
+rename (total8 blkt8 ft8) (emp_pooled_laborer emp_black_laborer emp_female_laborer)
+rename (total9 blkt9 ft9) (emp_pooled_service emp_black_service emp_female_service)
 
-* Compute non-black employment and drop race-specific employment variables
-foreach gender in male female {
-  egen double non_black_`gender'_emp = rowtotal(white_`gender'_emp hispanic_`gender'_emp asian_`gender'_emp aian_`gender'_emp hawaiian_pi_`gender'_emp two_plus_race_`gender'_emp)
-
-  drop white_`gender'_emp hispanic_`gender'_emp asian_`gender'_emp aian_`gender'_emp hawaiian_pi_`gender'_emp two_plus_race_`gender'_emp
-}
-
-* Check this is the same as total employment minus black employment for each gender and then drop total employment variables
-foreach gender in male female {
-  * Assertion 
-  assert non_black_`gender'_emp == total_`gender'_emp - black_`gender'_emp
-  
-  * Drop 
-  drop total_`gender'_emp
-}
+* Rename naics variables to be consistent with conventions from elsewhere in our codebase
+rename (naics3 naics3_name) (naics_2022_three_digit naics_2022_three_digit_title)
 
 /* -----------------------------------------------------------------------------------------------------------
-Reshape long by race and gender 
+Merge on 2022 NAICS 3-digit to SIC bin crosswalk and collapse to aer sic bins 
 ----------------------------------------------------------------------------------------------------------- */
-* Rename variables for reshape convenience
-rename *_emp emp_*
+* Merge aer sic bins on
+* Only keeping matches since other 2022 naics 3 digit codes (3 in total) are useless, and so are the aer sic bins that do not match to a 2022 naics 3 digit code in the ee01 (2 total) 
+merge 1:1 naics_2022_three_digit using "${dump}/naics_2022_three_digit_sic_bin_aer_crosswalk.dta", keep(3) nogen
 
-* Reshape long by gender 
-reshape long emp_black_ emp_non_black_, i(naics3) j(sex) string
-rename *_ *
-
-* Reshape long by race 
-reshape long emp_, i(naics3 sex) j(black_indicator) string
-rename *_ *
-
-* Rename race strings to match CPS coding 
-replace black_indicator = "Black" if black_indicator == "black"
-replace black_indicator = "Not Black" if black_indicator == "non_black"
-
-* Rename employment variable 
-rename emp employment_eeo1
+* Collapse to aer two-digit sic bins by summing employment counts across naics3 codes within each sic bin
+ds naics_2022_three_digit naics_2022_three_digit_title sic_two_digit_bin_aer sic_two_digit_bin_title_aer, not v(32)
+collapse (sum) `r(varlist)', by(sic_two_digit_bin_aer sic_two_digit_bin_title_aer)
 
 /* -----------------------------------------------------------------------------------------------------------
-Aggregate naics3 to sic
+Generate employment shares by demographic group x job type within each aer two-digit 
+sic bin
 ----------------------------------------------------------------------------------------------------------- */
+* Loop over demographic groups 
+foreach demographic_group in black female {
+  foreach job_type in all_jobs mid_off_manager {
+    * Generate variable for share of {black, female} employment among {all jobs, mid_off_manager} within each two-digit sic bin
+    gen share_emp_`demographic_group'_`job_type' = emp_`demographic_group'_`job_type' / emp_pooled_`job_type'
+  }
+
+  * Try version focused on front-line workers (sales, clerks, craft, laborer, service)
+  gen share_emp_`demographic_group'_front_line = ///
+  (emp_`demographic_group'_sales + emp_`demographic_group'_clerk + emp_`demographic_group'_craft + emp_`demographic_group'_laborer + emp_`demographic_group'_service) / (emp_pooled_sales + emp_pooled_clerk + emp_pooled_craft + emp_pooled_laborer + emp_pooled_service)
+}
+
+* Keep only employment share variables and sic bins 
+keep sic_two_digit_bin_aer sic_two_digit_bin_title_aer share_emp*
 
 /* -----------------------------------------------------------------------------------------------------------
 Export
 ----------------------------------------------------------------------------------------------------------- */
-* Assert expected cell count: 88 naics3 x 2 race x 2 sex = 352
-assert _N == 88 * 2 * 2
+* Assert expected cell count: 1 row per aer two-digit sic bin (19 total)
+assert _N == 19
 
 * Check uniqueness
-gisid naics3 black_indicator sex
-
-* Order variables
-order naics3 naics3_name black_indicator sex
+gisid sic_two_digit_bin_aer
 
 * Compress and save
 compress

@@ -5,7 +5,6 @@ industry (2-digit SIC) x race x sex x age_bin level with employment and hourly w
 Created: Nico Rotundo 2026-04-21
 
 ----------------------------------------------------------------------------------------------------------- */
-
 * Run globals
 do "${github}/survey-bias/code/globals.do"
 
@@ -19,8 +18,8 @@ tempfile cps_dta
 shell gunzip -kc "${external}/cps_extract_2022_2026.dta.gz" > "`cps_dta'"
 
 * Load CPS extract with necessary variables 
-use cpsidp year month earnwt age sex race wkstat classwkr ind1990 ///
-    earnweek2 uhrsworkorg uhrswork1 eligorg qearnwee quhrsworkorg quhrswork1 ///
+use cpsidp year month earnwt age sex race wkstat classwkr ind1990 educ ///
+    earnweek2 uhrsworkorg eligorg qearnwee quhrsworkorg ///
     using "`cps_dta'", clear
 
 * Format cpsidp 
@@ -46,10 +45,6 @@ Filter to ORG earnings universe + validate race/sex codes and generate indicator
 * Keep respondents in the ORG earnings universe --- those in rotation months 4/8 + employed as a wage/salary worker
 keep if eligorg == 1
 
-* Store count of total org sample
-count
-local total_org_sample = r(N)
-
 * Keep private sector only  --- classwkr 22 = private, 23 = private nonprofit
 * Note. EEO-1 covers private firms only, so doing this upstream of CPS-vs-EEO-1 makes sense 
 * Also matches old Stata (wage_regressions.do L169)
@@ -64,6 +59,30 @@ assert inlist(race, 100, 200, 300, 651, 652, 700) | inrange(race, 801, 819) | in
 * Indicator for black vs non-black
 gen str black_indicator = cond(race == 200, "Black", "Not Black")
 
+* Encode black indicator 
+encode black_indicator, gen(black)
+
+* Drop black indicator 
+drop black_indicator
+
+/* -----------------------------------------------------------------------------------------------------------
+Merge on ind1990 --> 2-digit SIC bin crosswalk to map to our industry codes in the paper
+and save tempfile for org sample
+----------------------------------------------------------------------------------------------------------- */
+* Merge, keeping only matched observations since we won't be able to assign a sic bin to those without an ind1990 code in the crosswalk 
+* _merge ==1 <--> ind1990 codes not in crosswalk (i.e., we do not have firms in these industries);  58,344 observations (13.63% of sample)
+* _merge ==2 <--> ind1990 codes in crosswalk that do not appear in this sample
+merge m:1 ind1990 using "${dump}/ind1990_sic_bin_aer_crosswalk.dta", keep(3) nogen
+
+* Encode sic bin title
+encode sic_two_digit_bin_title_aer, gen(temp)
+
+* Drop string version of the sic bin title variable 
+drop sic_two_digit_bin_title_aer
+
+* Rename encoded sic bin title
+rename temp sic_two_digit_bin_title_aer
+
 * Tempfile
 tempfile cps_org_sample
 save `cps_org_sample'
@@ -75,17 +94,15 @@ non-allocated/imputed variables --- and generate age bins
 * Import ORG sample
 use `cps_org_sample', clear
 
-* Keep "usually full-time" workers 
-* Note. Old Stata (wage_regressions.do L166) used wkstat == 11 only --- broader codes still classify as "usually FT", so keeping those here 
-keep if inlist(wkstat, 11, 12, 13, 21)
+* Keep "usually full-time" workers who worked 35+ hours in reference week (wkstat == 11) 
+keep if inlist(wkstat, 11)
 
 * Display number of observations dropped by this filter
 display "🎃 Number of observations dropped by usually full time: " %8.0fc `r(N_drop)'
 
-* Keep hourly workers only --- uhrsworkorg == 999 <--> NIU <--> salaried)
-* Note. Functionally same as old Stata (L162) which recoded uhrsworkorg=999 to missing, such that wage denominator for salaried was missing
-assert ~mi(uhrsworkorg)
-keep if uhrsworkorg != 999
+* Keep hourly workers only --- uhrsworkorg == {998, 999} <--> {don't know, NIU<--> salaried}
+assert ~mi(uhrsworkorg) & ~inlist(uhrsworkorg, 998)
+keep if ~inlist(uhrsworkorg, 999)
 
 * Display number of observations dropped by this filter
 display "🎃 Number of observations dropped by restricting to hourly workers: " %8.0fc `r(N_drop)'
@@ -97,21 +114,63 @@ keep if inrange(age, 20, 60)
 display "🎃 Number of observations dropped by restricting to ages 20-60: " %8.0fc `r(N_drop)'
 
 * Drop allocated/imputed earnings and hours observations 
-* Note. Old Stata (L167-168) used `qearnwee != 0 & quhrsworkorg != 0` i.e., retained only allocated rows
 keep if inlist(qearnwee, 0) & inlist(quhrsworkorg, 0)
 
 * Display number of observations dropped by this filter
 display "🎃 Number of observations dropped by restricting to non-allocated earnings and hours: " %8.0fc `r(N_drop)'
 
-* Drop filter columns no longer needed
-drop eligorg quhrsworkorg quhrswork1 wkstat classwkr uhrswork1
+* Drop extraneous variables
+drop eligorg quhrsworkorg wkstat classwkr
 
 /* -----------------------------------------------------------------------------------------------------------
-Compute hourly wage
+Generate education level variable 
 ----------------------------------------------------------------------------------------------------------- */
-* Check weekly earnings are non-allocated/imputed 
-assert qearnwee == 0
+* Assert education level is not NIU
+assert ~inlist(educ, 0, 1) & ~mi(educ)
 
+** Generate education level variable using codes in cps 
+* Less than high school diploma
+gen education_level = 1 if inrange(educ, 2, 72)
+
+* High school diploma
+replace education_level = 2 if inlist(educ, 73)
+
+* Some college, no degree
+replace education_level = 3 if inrange(educ, 80, 90)
+
+* Associate's degree
+replace education_level = 4 if inrange(educ, 91, 109)
+
+* Bachelor's degree 
+replace education_level = 5 if inrange(educ, 110, 122)
+
+* Post-graduate degree
+replace education_level = 6 if inrange(educ, 123, 125)
+
+* Should not be missing education level 
+assert ~mi(education_level)
+
+* Define labels 
+label define education_level_label ///
+    1 "Less than high school diploma" ///
+    2 "High school diploma" ///
+    3 "Some college, no degree" ///
+    4 "Associate's degree" ///
+    5 "Bachelor's degree" ///
+    6 "Post-graduate degree"
+
+* Label values of education level 
+label values education_level education_level_label
+
+* Crosstab to check 
+tab educ education_level
+
+* Drop original education variable
+drop educ
+
+/* -----------------------------------------------------------------------------------------------------------
+Compute hourly wage and save tempfile for wage sample
+----------------------------------------------------------------------------------------------------------- */
 * Drop rows with anomalous / NIU earnweek2 (0 = data anomaly; 999999.99 = NIU)
 * Note. Old Stata (L161) recoded earnweek=9999.99 to missing, while we drop directly + use earnweek2 since it's a new harmonized rounding scheme the CPS implemented 
 drop if inlist(earnweek2, 0, 999999.99)
@@ -119,111 +178,104 @@ drop if inlist(earnweek2, 0, 999999.99)
 * Display number of observations dropped by this filter
 display "🎃 Number of observations dropped by restricting to valid weekly earnings: " %8.0fc `r(N_drop)'
 
-* Assert usual hours worked is not zero, don't know or not in universe 
+* Assert usual hours worked is not {zero, don't know or not in universe} 
 * Note. Old Stata (L162) used uhrsworkorg=. if inlist(998, 999)
 assert ~inlist(uhrsworkorg, 0, 998, 999)
 
 * Compute hourly wage for hourly workers 
 * Note. Same formula as old Stata (L176) except earnweek is now earnweek2
-gen double hourly_wage = earnweek2 / uhrsworkorg
-assert ~mi(hourly_wage)
+gen double ln_hourly_wage = ln(earnweek2 / uhrsworkorg)
+assert ~mi(ln_hourly_wage)
 
-* Drop raw wage components
+* Drop wage and hour components
 drop earnweek2 uhrsworkorg
 
-/* -----------------------------------------------------------------------------------------------------------
-Generate age bins
------------------------------------------------------------------------------------------------------------ */
-* Generate age bins 
-gen str age_bin = ""
-replace age_bin = "20_29" if inrange(age, 20, 29)
-replace age_bin = "30_39" if inrange(age, 30, 39)
-replace age_bin = "40_49" if inrange(age, 40, 49)
-replace age_bin = "50_60" if inrange(age, 50, 60)
-
-* Assert no missing age bins 
-assert ~mi(age_bin)
-
-* Drop raw age column
-drop age
+* Tempfile 
+tempfile cps_wage_sample
+save `cps_wage_sample'
 
 /* -----------------------------------------------------------------------------------------------------------
-Merge ind1990 → 2-digit SIC crosswalk
+Generate residualized industry-specific {black vs non-black, female vs male} wage gaps and levels by
+partialing out year, education, and demographic composition
 ----------------------------------------------------------------------------------------------------------- */
-* Merge ind1990 → sic_87_two_digit; keep master + matched 
-* _merge == 2 are ind1990 codes in the crosswalk that do not appear in the sample 
-merge m:1 ind1990 using "${dump}/ind1990_crosswalks.dta", keep(1 3) keepusing(sic_87_two_digit) nogen
+foreach demographic_cut in black sex {
+    * Show cut 
+    di "`demographic_cut'"
 
-* Drop rows with missing sic_87_two_digit
-drop if mi(sic_87_two_digit)
+    * Set locals per demographic cut 
+    if inlist("`demographic_cut'", "black") {
+        * Local base category
+        local base_category 2
 
-* Display number of observations dropped
-display "🎃 Number of observations dropped by missing sic_87_two_digit: " %8.0fc `r(N_drop)'
+        * Local for other category
+        local not_base_category 1
 
-/* -----------------------------------------------------------------------------------------------------------
-Aggregate to industry × race × sex × age_bin and merge broader cps employment pooling 
-over age 
------------------------------------------------------------------------------------------------------------ */
-* Collapse to (sic_87_two_digit, black_indicator, sex, age_bin): weighted mean wage + weighted count + unweighted obs count
-gcollapse (mean)   avg_hourly_wage_cps = hourly_wage   ///
-          (rawsum) count_avg_hourly_wage_cps = earnwt        ///
-          (count)  n_obs_cps = earnwt        ///
-          [pw=earnwt], ///
-    by(sic_87_two_digit black_indicator sex age_bin)
+        * Local for other demographic cut 
+        local other_demographic_cut "sex"
+    }
 
-* Order columns: keys first, then wage-sample metrics, then broader (EEO-1-comparable) metrics
-order sic_87_two_digit black_indicator sex age_bin ///
-      avg_hourly_wage_cps count_avg_hourly_wage_cps n_obs_cps
+    * Set locals per demographic cut 
+    if inlist("`demographic_cut'", "sex") {
+        * Local base category
+        local base_category 1
 
-/* -----------------------------------------------------------------------------------------------------------
-Export
------------------------------------------------------------------------------------------------------------ */
-* Sort by keys
-gsort sic_87_two_digit black_indicator sex age_bin
+        * Local for other category
+        local not_base_category 2
 
-* Assert final uniqueness
-gisid sic_87_two_digit black_indicator sex age_bin
+        * Local for other demographic cut 
+        local other_demographic_cut "black"
+    }
 
-* Report final cell count
-count
-display "🎃 Final industry × race × sex × age_bin cells: " %8.0fc `r(N)'
+    * Import wage sample
+    use `cps_wage_sample', clear
 
-* Compress and save
-compress
-save "${dump}/industry_emp_wage_by_demographic_cps.dta", replace
+    * Run wage-adjustment regression for given gap
+    reg ln_hourly_wage ib`base_category'.`demographic_cut'##i.sic_two_digit_bin_title_aer i.year c.age##c.age##c.age##c.age i.`other_demographic_cut' i.education_level [pw=earnwt], robust
 
+    * Check all observations are in estimation sample 
+    assert e(sample) == 1
 
-/* -----------------------------------------------------------------------------------------------------------
-Build broader CPS employment aggregate for EEO-1 comparison
------------------------------------------------------------------------------------------------------------ */
-* Import org sample
-use `cps_org_sample', clear
+    * Set tempfile to store regression results for `demographic_cut' wage gap, with variables for 
+    tempname `demographic_cut'_gap_dataset
+    tempfile `demographic_cut'_gap_residualized
+    postfile ``demographic_cut'_gap_dataset' ///
+        str40(sic_two_digit_bin_aer sic_two_digit_bin_title_aer) ///
+        double(wage_gap_`demographic_cut'_coef wage_gap_`demographic_cut'_se) ///
+        double(wage_level_`demographic_cut'_coef) double(wage_level_`demographic_cut'_se) ///
+        using ``demographic_cut'_gap_residualized'
 
-* Merge ind1990 --> sic_87_two_digit
-* Drops _merge == 2 i.e., ind1990 values from crosswalk not in this subsample
-merge m:1 ind1990 using "${dump}/ind1990_crosswalks.dta", keep(1 3) keepusing(sic_87_two_digit) nogen
+    * Store each industry bin as a local
+    levelsof sic_two_digit_bin_title_aer, local(sic_bins)
 
-* Drop those with missing sic_87_two_digit since they cannot be merged onto EEO-1 data --- .6% of the sample 
-drop if mi(sic_87_two_digit)
+    * Loop over industry bins, storing residualized {wage gap, wage level} for each industry 
+    foreach sic_bin of local sic_bins {
+        * Store local with bin title 
+        local sic_bin_title: label (sic_two_digit_bin_title_aer) `sic_bin'
 
-* Save broader sample for reuse across the two year-window collapses
-tempfile broader_sample
-save `broader_sample'
+        * Store value range for this industry bin
+        qui levelsof sic_two_digit_bin_aer if sic_two_digit_bin_title_aer == `sic_bin', local(sic_bin_range) clean
 
-* Collapse to industry x race x gender level, pooling all 5 years
-gcollapse (rawsum) emp_cps_eeo1_comparable = earnwt (count) n_obs_cps_eeo1_comparable = earnwt, ///
-    by(sic_87_two_digit black_indicator sex)
-tempfile broader_aggregate_pool
-save `broader_aggregate_pool'
+        * Display given industry bin being processed
+        display "🎃 Industry bin: `sic_bin_range', `sic_bin_title'"
 
-* Collapse to industry x race x gender level, keeping just 2023
-use if inlist(year, 2023) using `broader_sample', clear
-gcollapse (rawsum) emp_cps_eeo1_comparable_2023 = earnwt (count) n_obs_cps_eeo1_comparable_2023 = earnwt, ///
-    by(sic_87_two_digit black_indicator sex)
+        * Store the `demographic_cut' - Not `demographic_cut' adjusted log wage gap in this bin
+        lincom _b[`not_base_category'.`demographic_cut'] + _b[`not_base_category'.`demographic_cut'#`sic_bin'.sic_two_digit_bin_title_aer]
 
-* Merge 2023-only onto 5-year pool 
-merge 1:1 sic_87_two_digit black_indicator sex using `broader_aggregate_pool', assert(2 3) nogen
+        * Store coefficient and estimate 
+        local gap_coef = r(estimate)
+        local gap_se = r(se)
 
-* Save broader aggregate for merge onto wage-sample aggregate downstream
-tempfile broader_cps_emp_eeo1_comp
-save `broader_cps_emp_eeo1_comp'
+        * Store Not-`demographic_cut' adjusted log wage level in this bin 
+        lincom _b[_cons] + _b[`sic_bin'.sic_two_digit_bin_title_aer]
+
+        post ``demographic_cut'_gap_dataset' /// 
+        ("`sic_bin_range'") ("`sic_bin_title'") /// 
+        (`gap_coef') (`gap_se') (r(estimate)) (r(se))
+    }
+
+* Close post file 
+postclose ``demographic_cut'_gap_dataset'
+
+* Export coefficients file 
+save "${dump}/industry_residualized_wage_gaps_levels_`demographic_cut'", replace
+}
