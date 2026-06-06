@@ -107,14 +107,17 @@ run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_refusa.py"
 # Harmonize industry codes across data sources and creates final crosswalk of firms to industries for use in analysis
 run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_industry_map.py"))
 
-# Build industry crosswalks (ind1990 → 2-digit SIC + 3-digit NAICS)
-run_stata_fail_fast(file.path(build, "create_ind1990_crosswalks.do"))
-
-# Clean EEO-1 2023 PUF and aggregate to naics3 x race x sex employment
-run_stata_fail_fast(file.path(build, "build_industry_emp_by_demographic_eeo1.do"))
-
-# Clean CPS ORG microdata and aggregate to industry x race x sex x age_bin employment and wage
-run_stata_fail_fast(file.path(build, "build_industry_emp_wage_by_demographic_cps.do"))
-
 # Create final working datasets
 source(file.path(build, "sample_prep.R"))
+
+# Build crosswalk from 2022 NAICS 3-digit to SIC bins from aer paper
+run_stata_fail_fast(file.path(build, "create_naics_2022_three_digit_sic_bin_aer_crosswalk.do"))
+
+# Build crosswalk from ind1990 codes to SIC bins from aer paper
+run_stata_fail_fast(file.path(build, "create_ind1990_sic_bin_aer_crosswalk.do"))
+
+# Clean EEO-1 2023 PUF and compute SIC-bin employment shares by demographic group
+run_stata_fail_fast(file.path(build, "build_industry_emp_share_by_demographic_eeo1.do"))
+
+# Clean CPS ORG microdata and compute SIC-bin residualized wage gaps/levels by demographic group
+run_stata_fail_fast(file.path(build, "build_cps_industry_wage_gaps_levels_residualized.do"))

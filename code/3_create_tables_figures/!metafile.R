@@ -33,6 +33,7 @@ source(file.path(create_tables_figures, "cross_model_corr.R"))
 source(file.path(create_tables_figures, "valence_correlation_bars.R"))
 source(file.path(create_tables_figures, "opposite_valence_corr_table.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between.R"))
+source(file.path(create_tables_figures, "eiv_table_industry_characteristics.R"))
 source(file.path(create_tables_figures, "industry_decomposition_line_charts.R"))
 source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 
