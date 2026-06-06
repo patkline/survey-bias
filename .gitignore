@@ -43,3 +43,6 @@ code/scratch_nico/**/*.svg
 code/scratch_nico/**/*.log
 code/scratch_nico/**/*.rds
 code/scratch_nico/**/*.parquet
+
+# Temporary table-preview folder (fully ignored, including the .tex)
+code/scratch_nico/temp_tex/
