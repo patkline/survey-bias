@@ -1,9 +1,8 @@
 /* -----------------------------------------------------------------------------------------------------------
-Purpose: Clean IPUMS CPS ORG microdata (2022-2026) and aggregate to the
-industry (2-digit SIC) x race x sex x age_bin level with employment and hourly wage 
+Purpose: Clean IPUMS CPS ORG microdata (2022-2026), run adjusted wage regressions for 
+each industry, and output wage gaps and levels byb demographic group 
 
 Created: Nico Rotundo 2026-04-21
-
 ----------------------------------------------------------------------------------------------------------- */
 * Run globals
 do "${github}/survey-bias/code/globals.do"
@@ -286,6 +285,15 @@ use `black_gap_residualized', clear
 
 * Merge on sex dataset with residualized wage gaps and levels
 merge 1:1 sic_two_digit_bin_aer using `sex_gap_residualized', assert(3) nogen
+
+* Sort by industry bin
+gsort sic_two_digit_bin_aer
+
+* Assert expected cell count: 1 row per aer two-digit sic bin (19 total)
+assert _N == 19
+
+* Check uniqueness
+gisid sic_two_digit_bin_aer
 
 * Export as csv to use in the EIV regressions 
 export delimited using "${dump}/cps_industry_wage_gaps_levels_residualized.csv", replace
