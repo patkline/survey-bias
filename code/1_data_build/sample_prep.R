@@ -69,11 +69,12 @@ data <- data %>%
                                   na_if(conduct_favor_male,   -1))
   )
 
-# Read industry map and keep firm-name key and archived aer_naics2 variable
-industry_map <- read_excel(file.path(processed, "industry_map.xlsx")) %>% 
-  select(firm_clean, aer_naics2)
+# Read industry map and keep firm-name key, archived aer_naics2 variable, and AER bin name
+industry_map <- read_excel(file.path(processed, "industry_map.xlsx")) %>%
+  select(firm_clean, aer_naics2,
+         aer_naics2_name = sic_code_aggregated_two_digit_harmonized_names_aer)
 
-# Merge aer_naics2 onto sample data by firm name
+# Merge aer_naics2 and the AER bin name onto sample data by firm name
 data <- left_join(data, industry_map, by = c("firm" = "firm_clean"))
 
 # Keep observations with non-missing and non-literal-"nan" firm values for merge and non-missing aer_naics2 checks
