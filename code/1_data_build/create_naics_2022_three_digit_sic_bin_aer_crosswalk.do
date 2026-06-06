@@ -218,6 +218,7 @@ drop if naics_2017_three_digit == 519 & count_2017 > 1
 * Case where NAICS 2022 == 455 (General Merchandise Retailers) --> NAICS 2017 = {452 (General Merchandise Stores), 453 (Miscellaneous Store Retailers)} --- keeping NAICS 2017 = 452 (General Merchandise Stores) based on name  
 drop if naics_2017_three_digit == 453 & naics_2022_three_digit == 455 & count_2017 > 1
 
+** XXNR: do not have any bite since these map to the saame sic bins downstream regardless --- just deduplicating (probably a more elegant way to do this)
 * Case where NAICS 2022 == 459 (Sporting Goods, Hobby, Musical Instrument, Book, and Miscellaneous Retailers) --> NAICS 2017 = {451 (Sporting Goods, Hobby, Musical Instrument, and Book Stores), 453 (Miscellaneous Store Retailers)} --- keeping NAICS 2017 = 451 (Sporting Goods, Hobby, Musical Instrument, and Book Stores) based on name
 drop if naics_2017_three_digit == 453 & naics_2022_three_digit == 459 & count_2017 > 1
 

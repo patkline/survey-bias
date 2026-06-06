@@ -138,9 +138,12 @@ Export
 * Assert expected cell count: 1 row per aer two-digit sic bin (19 total)
 assert _N == 19
 
+* Sort by industry bin
+gsort sic_two_digit_bin_aer
+
 * Check uniqueness
 gisid sic_two_digit_bin_aer
 
 * Compress and save
 compress
-save "${dump}/industry_emp_share_by_demographic_eeo1.dta", replace
+export delimited using "${dump}/industry_emp_share_by_demographic_eeo1.csv", replace
