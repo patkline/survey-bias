@@ -148,3 +148,16 @@ for (i in seq_len(nrow(runs))) {
             " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
   }
 }
+
+message("Running Revelio EIV outputs")
+revelio_eiv_by_subdir <- run_revelio_eiv_for_subdirs(default_revelio_eiv_filemap$subdir)
+
+message("Revelio EIV write check:")
+for (subdir in default_revelio_eiv_filemap$subdir) {
+  check_path <- parquet_sheet_path(file.path(intermediate, subdir), "EIV_revelio_firm")
+  check_info <- file.info(check_path)
+  message("  ", subdir, "/", basename(check_path),
+          " | exists=", file.exists(check_path),
+          " | size=", check_info$size,
+          " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
+}

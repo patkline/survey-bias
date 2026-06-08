@@ -1,46 +1,34 @@
 # ------------------------------------------------------------------------------
-# Purpose: EIV tables using Revelio workforce composition / sentiment outcomes
+# Purpose: EIV tables using Revelio firm-level share controls
 #
-# This mirrors the OLS/Borda EIV tables, but replaces the experimental contact-gap
-# left-hand side with external Revelio firm-level measures.
+# The data build creates data/processed/revelio_firm_measures.csv, and section 2
+# writes EIV_revelio_firm parquet sheets. This script only reads analysis outputs
+# and formats the full-sample main table plus subsample appendix tables.
 # ------------------------------------------------------------------------------
 
 source("code/globals.R")
-source(file.path(analysis, "eivreg.R"))
-source(file.path(analysis, "eiv_functions.R"))
 
-`%||%` <- function(x, y) if (is.null(x)) y else x
-
-fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
-
-revelio_file <- "revelio_company_race_gender_sentiment_2023_weighted_by_rcid.csv"
-
-resolve_project_file <- function(primary_path, github_relative_path, label) {
-  if (file.exists(primary_path)) return(primary_path)
-
-  fallback_path <- file.path(git_survey_bias_root, github_relative_path)
-  if (file.exists(fallback_path)) return(fallback_path)
-
-  stop(label, " not found at either ", primary_path, " or ", fallback_path)
+fmt3 <- function(x) {
+  ifelse(is.na(x), "", sprintf("%.3f", as.numeric(x)))
 }
 
-revelio_path <- resolve_project_file(
-  file.path(external, revelio_file),
-  file.path("data", "external", revelio_file),
-  "Revelio composition file"
-)
+fmt_se <- function(x) {
+  x <- as.numeric(x)
+  if (any(x < -sqrt(.Machine$double.eps), na.rm = TRUE)) {
+    stop("Negative standard error found in EIV table inputs.", call. = FALSE)
+  }
+  ifelse(is.na(x), "", paste0("(", sprintf("%.3f", abs(x)), ")"))
+}
 
-survey_path <- resolve_project_file(
-  file.path(processed, "long_survey_final.csv"),
-  file.path("data", "processed", "long_survey_final.csv"),
-  "Analysis survey file"
-)
+latex_escape <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\\\", "\\\\textbackslash{}", x)
+  x <- gsub("([#$%&_{}])", "\\\\\\1", x, perl = TRUE)
+  x
+}
 
-# Set these when testing locally, e.g.
-# REVELIO_EIV_TABLES_DIR=output/tables REVELIO_EIV_WRITE_SHEETS=false
 tables_out <- Sys.getenv("REVELIO_EIV_TABLES_DIR", unset = tables)
-write_eiv_sheets <- tolower(Sys.getenv("REVELIO_EIV_WRITE_SHEETS", unset = "true")) %in%
-  c("1", "true", "yes", "y")
+full_sample_dir <- file.path(intermediate, "Full_Sample")
 
 default_filemap <- tibble::tibble(
   Sample = c("Full Sample",
@@ -67,258 +55,21 @@ default_filemap <- tibble::tibble(
              "Subset_Age_lt40")
 )
 
-normalize_company_name <- function(x) {
-  x <- iconv(x, from = "", to = "ASCII//TRANSLIT")
-  x <- tolower(x)
-  x <- gsub("&", " and ", x, fixed = TRUE)
-  x <- gsub("[^a-z0-9]+", " ", x)
-
-  drop_words <- c(
-    "inc", "incorporated", "corp", "corporation", "co", "company",
-    "companies", "cos", "group", "holdings", "holding", "plc",
-    "llc", "ltd", "limited", "the"
-  )
-
-  for (word in drop_words) {
-    x <- gsub(paste0("\\b", word, "\\b"), " ", x)
-  }
-
-  trimws(gsub("\\s+", " ", x))
+read_full_sample_sheet <- function(sheet) {
+  read_parquet_sheet(full_sample_dir, sheet)
 }
 
-company_aliases <- c(
-  "adp" = "automatic data processing",
-  "carrier" = "carrier global",
-  "costco" = "costco wholesale",
-  "disney" = "walt disney",
-  "dowdupont" = "dow",
-  "dr pepper snapple" = "keurig dr pepper",
-  "estee lauder" = "estee lauder",
-  "general electric" = "ge aerospace",
-  "ibm" = "international business machines",
-  "icahn enterprises" = "icahn enterprises lp",
-  "jpmorgan chase" = "jpmorgan chase and",
-  "laboratory of america" = "labcorp",
-  "merck" = "merck and",
-  "otis" = "otis worldwide",
-  "sears" = "sears roebuck and",
-  "synnex" = "td synnex",
-  "united continental" = "united airlines",
-  "ups" = "united parcel service",
-  "verizon" = "verizon communications",
-  "victoria s secret" = "victoria s secret and",
-  "wells fargo" = "wells fargo and",
-  "xpo logistics" = "xpo"
-)
+appendix_filemap <- default_filemap
 
-apply_company_aliases <- function(key) {
-  out <- key
-  matched <- key %in% names(company_aliases)
-  out[matched] <- unname(company_aliases[key[matched]])
-  out
+read_appendix_firm_for_subdir <- function(subdir) {
+  read_parquet_sheet(file.path(intermediate, subdir), "EIV_firm")
 }
 
-revelio <- readr::read_csv(revelio_path, show_col_types = FALSE) %>%
-  dplyr::mutate(
-    revelio_key_company = apply_company_aliases(normalize_company_name(.data$company)),
-    revelio_key_company_name = apply_company_aliases(normalize_company_name(.data$company_name))
-  )
-
-revelio_lookup <- dplyr::bind_rows(
-  revelio %>% dplyr::mutate(revelio_key = .data$revelio_key_company),
-  revelio %>% dplyr::mutate(revelio_key = .data$revelio_key_company_name)
-) %>%
-  dplyr::filter(!is.na(.data$revelio_key), nzchar(.data$revelio_key)) %>%
-  dplyr::select(
-    revelio_key,
-    rcid,
-    revelio_company = company,
-    female_share,
-    black_share,
-    div_and_inclusion_sentiment,
-    avg_di_rating_current_ft_seniority1_2023
-  ) %>%
-  dplyr::distinct()
-
-dupe_lookup <- revelio_lookup %>%
-  dplyr::distinct(.data$revelio_key, .data$rcid) %>%
-  dplyr::count(.data$revelio_key, name = "n_rcid") %>%
-  dplyr::filter(.data$n_rcid > 1)
-
-if (nrow(dupe_lookup) > 0) {
-  stop("Duplicate normalized Revelio lookup keys: ", paste(dupe_lookup$revelio_key, collapse = ", "))
-}
-
-survey_industry_map <- readr::read_csv(survey_path, show_col_types = FALSE) %>%
-  dplyr::transmute(
-    entity_id = as.integer(.data$firm_id),
-    aer_naics2 = suppressWarnings(as.integer(.data$aer_naics2))
-  ) %>%
-  dplyr::distinct()
-
-make_revelio_firm_map <- function(coef_firm_wide) {
-  firm_names <- coef_firm_wide %>%
-    dplyr::distinct(entity_id, entity) %>%
-    dplyr::mutate(
-      survey_key = apply_company_aliases(normalize_company_name(.data$entity))
-    )
-
-  out <- firm_names %>%
-    dplyr::left_join(
-      revelio_lookup,
-      by = c("survey_key" = "revelio_key")
-    )
-
-  unmatched <- out %>%
-    dplyr::filter(is.na(.data$rcid)) %>%
-    dplyr::arrange(.data$entity)
-
-  if (nrow(unmatched) > 0) {
-    message(
-      "Revelio unmatched firms (kept as missing LHS): ",
-      paste(unmatched$entity, collapse = "; ")
-    )
-  }
-
-  out %>%
-    dplyr::select(
-      entity_id,
-      female_share,
-      black_share,
-      div_and_inclusion_sentiment,
-      avg_di_rating_current_ft_seniority1_2023
-    )
-}
-
-to_wide_by_outcome <- function(coef_long) {
-  survey_coef_wide <- coef_long %>%
-    dplyr::filter(.data$subset == "subset97",
-                  .data$entity_type == "Firm",
-                  .data$model %in% c("OLS", "Borda")) %>%
-    dplyr::select(model, entity_id, entity, outcome, estimate, njobs) %>%
-    dplyr::distinct() %>%
-    tidyr::pivot_wider(
-      id_cols = c(model, entity_id, entity, njobs),
-      names_from = outcome,
-      values_from = estimate
-    )
-
-  experimental_wide <- coef_long %>%
-    dplyr::filter(.data$subset == "subset97",
-                  .data$entity_type == "Firm",
-                  .data$model == "EXPERIMENTAL") %>%
-    dplyr::select(entity_id, outcome, estimate) %>%
-    dplyr::distinct() %>%
-    tidyr::pivot_wider(
-      id_cols = entity_id,
-      names_from = outcome,
-      values_from = estimate
-    )
-
-  dplyr::left_join(survey_coef_wide, experimental_wide, by = "entity_id")
-}
-
-rhs_outcomes <- c(
-  "FirmCont_favor_male", "conduct_favor_male", "pooled_favor_male",
-  "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_white"
-)
-
-zero_error_controls <- c("female_share", "black_share")
-
-add_zero_error_controls <- function(noise_mat, controls) {
-  missing_controls <- setdiff(controls, rownames(noise_mat))
-  if (!length(missing_controls)) return(noise_mat)
-
-  expanded_names <- c(rownames(noise_mat), missing_controls)
-  out <- matrix(
-    0,
-    nrow = length(expanded_names),
-    ncol = length(expanded_names),
-    dimnames = list(expanded_names, expanded_names)
-  )
-
-  out[rownames(noise_mat), colnames(noise_mat)] <- noise_mat
-  out
-}
-
-regs_revelio <- list(
-  list(lhs = "female_share", rhs = c("FirmCont_favor_male")),
-  list(lhs = "female_share", rhs = c("conduct_favor_male")),
-  list(lhs = "female_share", rhs = c("pooled_favor_male")),
-  list(lhs = "black_share", rhs = c("FirmCont_favor_white")),
-  list(lhs = "black_share", rhs = c("conduct_favor_white")),
-  list(lhs = "black_share", rhs = c("pooled_favor_white")),
-  list(lhs = "div_and_inclusion_sentiment", rhs = c("FirmCont_favor_male")),
-  list(lhs = "div_and_inclusion_sentiment", rhs = c("conduct_favor_male")),
-  list(lhs = "div_and_inclusion_sentiment", rhs = c("pooled_favor_male")),
-  list(lhs = "div_and_inclusion_sentiment", rhs = c("FirmCont_favor_white")),
-  list(lhs = "div_and_inclusion_sentiment", rhs = c("conduct_favor_white")),
-  list(lhs = "div_and_inclusion_sentiment", rhs = c("pooled_favor_white")),
-  list(lhs = "avg_di_rating_current_ft_seniority1_2023", rhs = c("FirmCont_favor_male")),
-  list(lhs = "avg_di_rating_current_ft_seniority1_2023", rhs = c("conduct_favor_male")),
-  list(lhs = "avg_di_rating_current_ft_seniority1_2023", rhs = c("pooled_favor_male")),
-  list(lhs = "avg_di_rating_current_ft_seniority1_2023", rhs = c("FirmCont_favor_white")),
-  list(lhs = "avg_di_rating_current_ft_seniority1_2023", rhs = c("conduct_favor_white")),
-  list(lhs = "avg_di_rating_current_ft_seniority1_2023", rhs = c("pooled_favor_white")),
-  list(lhs = "log_dif_gender", rhs = c("FirmCont_favor_male", "female_share")),
-  list(lhs = "log_dif_gender", rhs = c("conduct_favor_male", "female_share")),
-  list(lhs = "log_dif_gender", rhs = c("pooled_favor_male", "female_share")),
-  list(lhs = "log_dif", rhs = c("FirmCont_favor_white", "black_share")),
-  list(lhs = "log_dif", rhs = c("conduct_favor_white", "black_share")),
-  list(lhs = "log_dif", rhs = c("pooled_favor_white", "black_share"))
-)
-
-run_revelio_eiv_for_subdir <- function(subdir) {
-  dir_path <- file.path(intermediate, subdir)
-  if (!dir.exists(dir_path)) {
-    warning("Skipping missing intermediate directory: ", dir_path)
-    return(tibble::tibble())
-  }
-
-  coef_long <- read_parquet_sheet(dir_path, "Coefficients")
-  variance_df <- read_parquet_sheet(dir_path, "variance")
-  covariance_df <- read_parquet_sheet(dir_path, "covariance")
-
-  coef_firm_wide <- to_wide_by_outcome(coef_long) %>%
-    dplyr::left_join(survey_industry_map, by = "entity_id") %>%
-    dplyr::left_join(make_revelio_firm_map(.), by = "entity_id")
-
-  models_to_run <- c("OLS", "Borda")
-  noise_mats <- setNames(vector("list", length(models_to_run)), models_to_run)
-
-  for (model in models_to_run) {
-    noise_mats[[model]] <- build_noise_matrix(
-      variance_df = variance_df,
-      covariance_df = covariance_df,
-      outcomes = rhs_outcomes,
-      subset_value = "subset97",
-      model_value = model
-    ) %>%
-      add_zero_error_controls(zero_error_controls)
-  }
-
-  eiv_df <- run_eiv_suite(
-    regs = regs_revelio,
-    coef_df_wide = coef_firm_wide,
-    noise_mats_97 = noise_mats,
-    models = models_to_run,
-    id_col = "entity_id",
-    model_col = "model",
-    fe_col = "aer_naics2",
-    weights_col = "njobs",
-    use_fe = TRUE
-  )
-
-  if (isTRUE(write_eiv_sheets)) {
-    write_parquet_sheet(dir_path, "EIV_revelio_firm", eiv_df)
-  }
-
-  eiv_df
-}
-
-pull_est_from_df <- function(eiv_df, lhs_var, rhs_var, model_filter, coef_num,
-                             formula_filter = NULL) {
-  if (!nrow(eiv_df)) return("NA (NA)")
+pull_eiv_value <- function(eiv_df, lhs_var, rhs_var, model_filter, coef_num,
+                           formula_filter = NULL,
+                           statistic = c("estimate", "se")) {
+  statistic <- match.arg(statistic)
+  if (!nrow(eiv_df)) return(NA_real_)
 
   eiv_df$coef <- suppressWarnings(as.numeric(eiv_df$coef))
 
@@ -331,179 +82,339 @@ pull_est_from_df <- function(eiv_df, lhs_var, rhs_var, model_filter, coef_num,
     )
 
   if (!is.null(formula_filter) && "formula" %in% names(out)) {
-    out <- out %>%
-      dplyr::filter(.data$formula == formula_filter)
+    out <- out %>% dplyr::filter(.data$formula == formula_filter)
   }
 
-  if (!nrow(out)) return("NA (NA)")
+  if (!nrow(out)) return(NA_real_)
 
-  est <- suppressWarnings(as.numeric(out$sample_est[1]))
-  se <- suppressWarnings(as.numeric(out$sample_se[1]))
-
-  paste0(fmt3(est), " (", fmt3(se), ")")
+  if (statistic == "estimate") {
+    suppressWarnings(as.numeric(out$sample_est[1]))
+  } else {
+    suppressWarnings(as.numeric(out$sample_se[1]))
+  }
 }
 
 rhs_formula <- function(rhs_var, control = NULL) {
   paste(c(rhs_var, control), collapse = " + ")
 }
 
-build_panel_df <- function(eiv_by_subdir, model_filter, lhs, rhs_contact,
-                           rhs_conduct, rhs_pooled,
-                           control = NULL,
-                           filemap = default_filemap) {
-  filemap %>%
-    dplyr::rowwise() %>%
-    dplyr::mutate(
-      `(1) Contact` = pull_est_from_df(eiv_by_subdir[[.data$subdir]] %||% tibble::tibble(),
-                                       lhs, rhs_contact, model_filter, 1L,
-                                       rhs_formula(rhs_contact, control)),
-      `(2) Contact (Industry FE)` = pull_est_from_df(eiv_by_subdir[[.data$subdir]] %||% tibble::tibble(),
-                                                     lhs, rhs_contact, model_filter, 2L,
-                                                     rhs_formula(rhs_contact, control)),
-      `(3) Conduct` = pull_est_from_df(eiv_by_subdir[[.data$subdir]] %||% tibble::tibble(),
-                                       lhs, rhs_conduct, model_filter, 1L,
-                                       rhs_formula(rhs_conduct, control)),
-      `(4) Conduct (Industry FE)` = pull_est_from_df(eiv_by_subdir[[.data$subdir]] %||% tibble::tibble(),
-                                                     lhs, rhs_conduct, model_filter, 2L,
-                                                     rhs_formula(rhs_conduct, control)),
-      `(5) Pooled` = pull_est_from_df(eiv_by_subdir[[.data$subdir]] %||% tibble::tibble(),
-                                      lhs, rhs_pooled, model_filter, 1L,
-                                      rhs_formula(rhs_pooled, control)),
-      `(6) Pooled (Industry FE)` = pull_est_from_df(eiv_by_subdir[[.data$subdir]] %||% tibble::tibble(),
-                                                    lhs, rhs_pooled, model_filter, 2L,
-                                                    rhs_formula(rhs_pooled, control))
-    ) %>%
-    dplyr::ungroup() %>%
+new_empty_row <- function(label = "") {
+  as.list(stats::setNames(c(label, rep("", 8)), c("row_label", paste0("col", 1:8))))
+}
+
+main_cells <- function(eiv_firm, eiv_revelio, lhs, belief_rhs, share_rhs,
+                       statistic = c("estimate", "se")) {
+  statistic <- match.arg(statistic)
+  out <- rep(NA_real_, 8)
+  names(out) <- paste0("col", 1:8)
+
+  col_index <- 1L
+  for (model in c("OLS", "Borda")) {
+    for (with_share_control in c(FALSE, TRUE)) {
+      for (coef_num in c(1L, 2L)) {
+        if (with_share_control) {
+          out[col_index] <- pull_eiv_value(
+            eiv_df = eiv_revelio,
+            lhs_var = lhs,
+            rhs_var = belief_rhs,
+            model_filter = model,
+            coef_num = coef_num,
+            formula_filter = rhs_formula(belief_rhs, share_rhs),
+            statistic = statistic
+          )
+        } else {
+          out[col_index] <- pull_eiv_value(
+            eiv_df = eiv_firm,
+            lhs_var = lhs,
+            rhs_var = belief_rhs,
+            model_filter = model,
+            coef_num = coef_num,
+            formula_filter = belief_rhs,
+            statistic = statistic
+          )
+        }
+        col_index <- col_index + 1L
+      }
+    }
+  }
+
+  out
+}
+
+main_share_cells <- function(eiv_revelio, lhs, belief_rhs, share_rhs,
+                             statistic = c("estimate", "se")) {
+  statistic <- match.arg(statistic)
+  out <- rep(NA_real_, 8)
+  names(out) <- paste0("col", 1:8)
+
+  col_index <- 1L
+  for (model in c("OLS", "Borda")) {
+    for (with_share_control in c(FALSE, TRUE)) {
+      for (coef_num in c(1L, 2L)) {
+        if (with_share_control) {
+          out[col_index] <- pull_eiv_value(
+            eiv_df = eiv_revelio,
+            lhs_var = lhs,
+            rhs_var = share_rhs,
+            model_filter = model,
+            coef_num = coef_num,
+            formula_filter = rhs_formula(belief_rhs, share_rhs),
+            statistic = statistic
+          )
+        }
+        col_index <- col_index + 1L
+      }
+    }
+  }
+
+  out
+}
+
+make_value_row <- function(label, values, formatter) {
+  as.list(stats::setNames(
+    c(label, formatter(values)),
+    c("row_label", paste0("col", 1:8))
+  ))
+}
+
+make_panel_rows <- function(panel_label, eiv_firm, eiv_revelio, lhs, belief_rhs,
+                            share_rhs) {
+  belief_est <- main_cells(eiv_firm, eiv_revelio, lhs, belief_rhs, share_rhs, "estimate")
+  belief_se <- main_cells(eiv_firm, eiv_revelio, lhs, belief_rhs, share_rhs, "se")
+  share_est <- main_share_cells(eiv_revelio, lhs, belief_rhs, share_rhs, "estimate")
+  share_se <- main_share_cells(eiv_revelio, lhs, belief_rhs, share_rhs, "se")
+
+  tibble::as_tibble(dplyr::bind_rows(
+    new_empty_row(panel_label),
+    make_value_row("Beliefs", belief_est, fmt3),
+    make_value_row("", belief_se, fmt_se),
+    make_value_row("Shares", share_est, fmt3),
+    make_value_row("", share_se, fmt_se),
+    new_empty_row("")
+  ))
+}
+
+make_main_table_df <- function(eiv_firm, eiv_revelio) {
+  dplyr::bind_rows(
+    make_panel_rows(
+      panel_label = "Panel A: Race",
+      eiv_firm = eiv_firm,
+      eiv_revelio = eiv_revelio,
+      lhs = "log_dif",
+      belief_rhs = "pooled_favor_white",
+      share_rhs = "black_share"
+    ),
+    make_panel_rows(
+      panel_label = "Panel B: Gender",
+      eiv_firm = eiv_firm,
+      eiv_revelio = eiv_revelio,
+      lhs = "log_dif_gender",
+      belief_rhs = "pooled_favor_male",
+      share_rhs = "female_share"
+    ),
+    tibble::as_tibble(dplyr::bind_rows(
+      make_value_row("Industry FE", c("", "X", "", "X", "", "X", "", "X"), identity),
+      make_value_row("Share controls", c("", "", "X", "X", "", "", "X", "X"), identity)
+    ))
+  )
+}
+
+pull_eiv_cell <- function(eiv_df, lhs_var, rhs_var, model_filter, coef_num,
+                          formula_filter = NULL) {
+  est <- pull_eiv_value(
+    eiv_df = eiv_df,
+    lhs_var = lhs_var,
+    rhs_var = rhs_var,
+    model_filter = model_filter,
+    coef_num = coef_num,
+    formula_filter = formula_filter,
+    statistic = "estimate"
+  )
+  se <- pull_eiv_value(
+    eiv_df = eiv_df,
+    lhs_var = lhs_var,
+    rhs_var = rhs_var,
+    model_filter = model_filter,
+    coef_num = coef_num,
+    formula_filter = formula_filter,
+    statistic = "se"
+  )
+
+  if (is.na(est) || is.na(se)) return("NA (NA)")
+  paste(fmt3(est), fmt_se(se))
+}
+
+appendix_specs <- tibble::tribble(
+  ~col_name, ~model_filter, ~rhs_type, ~coef_num,
+  "col1", "OLS", "contact", 1L,
+  "col2", "OLS", "contact", 2L,
+  "col3", "OLS", "conduct", 1L,
+  "col4", "OLS", "conduct", 2L,
+  "col5", "Borda", "contact", 1L,
+  "col6", "Borda", "contact", 2L,
+  "col7", "Borda", "conduct", 1L,
+  "col8", "Borda", "conduct", 2L
+)
+
+build_subsample_appendix_panel <- function(eiv_by_subdir, lhs, rhs_contact,
+                                           rhs_conduct,
+                                           filemap = appendix_filemap) {
+  pull_appendix_col <- function(subdir, model_filter, rhs_type, coef_num) {
+    rhs <- if (rhs_type == "contact") rhs_contact else rhs_conduct
+    pull_eiv_cell(
+      eiv_df = eiv_by_subdir[[subdir]],
+      lhs_var = lhs,
+      rhs_var = rhs,
+      model_filter = model_filter,
+      coef_num = coef_num,
+      formula_filter = rhs
+    )
+  }
+
+  out <- filemap %>%
+    dplyr::select(Sample, subdir)
+
+  for (i in seq_len(nrow(appendix_specs))) {
+    spec <- appendix_specs[i, ]
+    out[[spec$col_name]] <- vapply(
+      out$subdir,
+      pull_appendix_col,
+      character(1),
+      model_filter = spec$model_filter,
+      rhs_type = spec$rhs_type,
+      coef_num = spec$coef_num
+    )
+  }
+
+  out %>%
     dplyr::select(-subdir)
 }
 
-write_two_panel_table <- function(eiv_by_subdir, lhs, rhs_contact, rhs_conduct,
-                                  rhs_pooled, out_file, control = NULL) {
-  df_likert <- build_panel_df(
-    eiv_by_subdir = eiv_by_subdir,
-    model_filter = "OLS",
-    lhs = lhs,
-    rhs_contact = rhs_contact,
-    rhs_conduct = rhs_conduct,
-    rhs_pooled = rhs_pooled,
-    control = control
+make_subsample_appendix_sections <- function(eiv_by_subdir) {
+  list(
+    "Panel A: Race Discrimination/Beliefs" = build_subsample_appendix_panel(
+      eiv_by_subdir = eiv_by_subdir,
+      lhs = "log_dif",
+      rhs_contact = "FirmCont_favor_white",
+      rhs_conduct = "conduct_favor_white"
+    ),
+    "Panel B: Gender Discrimination/Beliefs" = build_subsample_appendix_panel(
+      eiv_by_subdir = eiv_by_subdir,
+      lhs = "log_dif_gender",
+      rhs_contact = "FirmCont_favor_male",
+      rhs_conduct = "conduct_favor_male"
+    )
   )
-
-  df_borda <- build_panel_df(
-    eiv_by_subdir = eiv_by_subdir,
-    model_filter = "Borda",
-    lhs = lhs,
-    rhs_contact = rhs_contact,
-    rhs_conduct = rhs_conduct,
-    rhs_pooled = rhs_pooled,
-    control = control
-  )
-
-  common_cols <- colnames(df_likert)
-  combined_df <- dplyr::bind_rows(df_likert[, common_cols], df_borda[, common_cols])
-
-  n_likert <- nrow(df_likert)
-  n_borda <- nrow(df_borda)
-
-  tex_code <- knitr::kable(
-    combined_df,
-    format = "latex",
-    booktabs = TRUE,
-    align = c("l", rep("c", ncol(combined_df) - 1)),
-    col.names = common_cols,
-    linesep = "",
-    escape = FALSE
-  ) %>%
-    kableExtra::pack_rows("Panel A: Likert", 1, n_likert) %>%
-    kableExtra::pack_rows("Panel B: Borda", n_likert + 1, n_likert + n_borda)
-
-  out_tex <- file.path(tables_out, out_file)
-  write_lines_checked(tex_code, out_tex, label = "Revelio EIV LaTeX table")
-  message("Saved: ", out_tex)
 }
 
-message("Reading Revelio measures from: ", revelio_path)
-message("Reading EIV inputs from: ", intermediate)
-message("Writing tables to: ", tables_out)
-message("Write EIV_revelio_firm parquet sheets: ", write_eiv_sheets)
+write_grouped_header <- function(lines, first_label, subheaders) {
+  c(
+    lines,
+    " & \\multicolumn{4}{c}{Likert} & \\multicolumn{4}{c}{Borda} \\\\",
+    "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}",
+    paste(latex_escape(c(first_label, subheaders)), collapse = " & "),
+    "\\\\",
+    "\\midrule"
+  )
+}
+
+write_latex_grid <- function(table_df, out_file) {
+  align <- paste0("l", paste(rep("c", 8), collapse = ""))
+  lines <- c(
+    paste0("\\begin{tabular}{", align, "}"),
+    "\\toprule"
+  )
+  lines <- write_grouped_header(lines, "", paste0("(", 1:8, ")"))
+
+  for (i in seq_len(nrow(table_df))) {
+    row_label <- table_df$row_label[i]
+    cells <- unname(unlist(table_df[i, paste0("col", 1:8)], use.names = FALSE))
+
+    if (grepl("^Panel ", row_label)) {
+      lines <- c(
+        lines,
+        paste0("\\multicolumn{9}{l}{\\textbf{", latex_escape(row_label), "}} \\\\")
+      )
+    } else if (!nzchar(row_label) && all(!nzchar(cells))) {
+      lines <- c(lines, "\\addlinespace")
+    } else {
+      lines <- c(
+        lines,
+        paste(latex_escape(c(row_label, cells)), collapse = " & "),
+        "\\\\"
+      )
+    }
+  }
+
+  lines <- c(lines, "\\bottomrule", "\\end{tabular}")
+
+  out_tex <- file.path(tables_out, out_file)
+  write_lines_checked(lines, out_tex, label = "Revelio EIV LaTeX table")
+  message("Saved: ", out_tex)
+  invisible(out_tex)
+}
+
+write_latex_sections <- function(sections, out_file) {
+  subheaders <- rep(
+    c("Contact", "Contact (Industry FE)", "Conduct", "Conduct (Industry FE)"),
+    2
+  )
+  align <- paste0("l", paste(rep("c", length(subheaders)), collapse = ""))
+  lines <- c(
+    paste0("\\begin{tabular}{", align, "}"),
+    "\\toprule"
+  )
+  lines <- write_grouped_header(lines, "Sample", subheaders)
+
+  for (section_name in names(sections)) {
+    section_df <- sections[[section_name]]
+    lines <- c(
+      lines,
+      paste0("\\multicolumn{9}{l}{\\textbf{", latex_escape(section_name), "}} \\\\")
+    )
+
+    for (i in seq_len(nrow(section_df))) {
+      lines <- c(
+        lines,
+        paste(latex_escape(unname(unlist(section_df[i, ], use.names = FALSE))), collapse = " & "),
+        "\\\\"
+      )
+    }
+
+    lines <- c(lines, "\\addlinespace")
+  }
+
+  lines <- c(lines, "\\bottomrule", "\\end{tabular}")
+
+  out_tex <- file.path(tables_out, out_file)
+  write_lines_checked(lines, out_tex, label = "Revelio EIV appendix LaTeX table")
+  message("Saved: ", out_tex)
+  invisible(out_tex)
+}
+
+message("Reading full-sample EIV sheets from: ", full_sample_dir)
+message("Writing Revelio EIV tables to: ", tables_out)
+
+eiv_firm <- read_full_sample_sheet("EIV_firm")
+eiv_revelio <- read_full_sample_sheet("EIV_revelio_firm")
+
+main_table <- make_main_table_df(eiv_firm, eiv_revelio)
+
+write_latex_grid(
+  main_table,
+  "EIV_revelio_full_sample_pooled_share_controls.tex"
+)
 
 eiv_by_subdir <- setNames(
-  lapply(default_filemap$subdir, run_revelio_eiv_for_subdir),
-  default_filemap$subdir
+  lapply(appendix_filemap$subdir, read_appendix_firm_for_subdir),
+  appendix_filemap$subdir
 )
 
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "female_share",
-  rhs_contact = "FirmCont_favor_male",
-  rhs_conduct = "conduct_favor_male",
-  rhs_pooled = "pooled_favor_male",
-  out_file = "EIV_revelio_female_share_gender_ols_borda.tex"
-)
+appendix_sections <- make_subsample_appendix_sections(eiv_by_subdir)
 
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "black_share",
-  rhs_contact = "FirmCont_favor_white",
-  rhs_conduct = "conduct_favor_white",
-  rhs_pooled = "pooled_favor_white",
-  out_file = "EIV_revelio_black_share_race_ols_borda.tex"
-)
-
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "div_and_inclusion_sentiment",
-  rhs_contact = "FirmCont_favor_male",
-  rhs_conduct = "conduct_favor_male",
-  rhs_pooled = "pooled_favor_male",
-  out_file = "EIV_revelio_div_and_inclusion_sentiment_gender_ols_borda.tex"
-)
-
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "div_and_inclusion_sentiment",
-  rhs_contact = "FirmCont_favor_white",
-  rhs_conduct = "conduct_favor_white",
-  rhs_pooled = "pooled_favor_white",
-  out_file = "EIV_revelio_div_and_inclusion_sentiment_race_ols_borda.tex"
-)
-
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "avg_di_rating_current_ft_seniority1_2023",
-  rhs_contact = "FirmCont_favor_white",
-  rhs_conduct = "conduct_favor_white",
-  rhs_pooled = "pooled_favor_white",
-  out_file = "EIV_revelio_avg_di_rating_race_ols_borda.tex"
-)
-
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "avg_di_rating_current_ft_seniority1_2023",
-  rhs_contact = "FirmCont_favor_male",
-  rhs_conduct = "conduct_favor_male",
-  rhs_pooled = "pooled_favor_male",
-  out_file = "EIV_revelio_avg_di_rating_gender_ols_borda.tex"
-)
-
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "log_dif_gender",
-  rhs_contact = "FirmCont_favor_male",
-  rhs_conduct = "conduct_favor_male",
-  rhs_pooled = "pooled_favor_male",
-  out_file = "EIV_revelio_log_dif_gender_control_female_share_ols_borda.tex",
-  control = "female_share"
-)
-
-write_two_panel_table(
-  eiv_by_subdir = eiv_by_subdir,
-  lhs = "log_dif",
-  rhs_contact = "FirmCont_favor_white",
-  rhs_conduct = "conduct_favor_white",
-  rhs_pooled = "pooled_favor_white",
-  out_file = "EIV_revelio_log_dif_race_control_black_share_ols_borda.tex",
-  control = "black_share"
+write_latex_sections(
+  appendix_sections,
+  "EIV_revelio_contact_conduct_subsamples_appendix.tex"
 )
 
 message("Revelio EIV composition tables complete.")

@@ -7,8 +7,17 @@
 # Import library to interact with the operating system
 import os
 
+# Import library to import modules dynamically
+import importlib
+
 # Import library to get current system user
 import getpass
+
+# Import library to install missing Python packages
+import subprocess
+
+# Import library for current Python executable path
+import sys
 
 # Import path management library
 from pathlib import Path
@@ -29,6 +38,66 @@ user = getpass.getuser().lower()
 
 # Assign Dropbox root for current user
 dropbox_survey_bias_root = dropbox_roots_by_user.get(user)
+
+# ------------------------------------------------------------------------------
+# Define optional user-specific WRDS username
+# ------------------------------------------------------------------------------
+# Put only WRDS usernames here, never passwords. Leave as None to make WRDS prompt
+# or use the WRDS_USERNAME environment variable / --wrds-username CLI flag.
+wrds_usernames_by_user = {
+    "nicorotundo": None,
+    "monicahea": None,
+    "jordancammarota": None,
+    "anh-huynguyen": "anhhuynguyen",
+}
+
+# WRDS_USERNAME environment variable overrides the user-specific default above
+wrds_username = os.environ.get("WRDS_USERNAME") or wrds_usernames_by_user.get(user)
+
+# ------------------------------------------------------------------------------
+# Define required Python packages
+# ------------------------------------------------------------------------------
+# Package name -> import name. Keep this in sync with required_python_packages
+# in globals.R.
+required_python_packages = {
+    "numpy": "numpy",
+    "pandas": "pandas",
+    "openpyxl": "openpyxl",
+    "wrds": "wrds",
+}
+
+
+def ensure_python_packages(package_names=None):
+    """Install missing project Python packages into the active interpreter."""
+    if package_names is None:
+        package_names = required_python_packages.keys()
+
+    missing_packages = []
+    for package_name in package_names:
+        import_name = required_python_packages[package_name]
+        try:
+            importlib.import_module(import_name)
+        except ModuleNotFoundError:
+            missing_packages.append(package_name)
+
+    if not missing_packages:
+        return
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "pip",
+            "setuptools",
+            "wheel",
+        ]
+    )
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", *missing_packages]
+    )
 
 # ------------------------------------------------------------------------------
 # Auto-detect project root (similar to R's here::here())
@@ -80,9 +149,10 @@ else:
 
 # GitHub code paths
 code = git_survey_bias_root / "code"
-build = code / "data_build"
-analysis = code / "analysis"
-create_tables_figures = code / "create_tables_figures"
+build = code / "1_data_build"
+analysis = code / "2_analysis"
+create_tables_figures = code / "3_create_tables_figures"
+helper_functions = code / "helper_functions"
 
 # Data paths
 raw = data / "raw"
@@ -92,6 +162,7 @@ dump = data / "dump"
 
 # Output paths
 excel = output / "excel"
+intermediate = output / "intermediate"
 figures = output / "figures"
 tables = output / "tables"
 

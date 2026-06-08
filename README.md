@@ -2,7 +2,7 @@
 Purpose: README file for survey bias project
 
 Created: Nico Rotundo 2026-01-06
-Edited: Monica Essig Aberg 2026-04-30
+Edited: Anh-Huy Nguyen 2026-06-07
 # ----------------------------------------------------------------------------->
 
 # Getting started 
@@ -158,6 +158,7 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
 **Output:** `data/processed/long_survey_final.csv` + firm--industry crosswalks
 
 - `!metafile.R` --- runs Python crosswalk scripts then R sample prep
+  - `revelio_pull.py` --- optional WRDS pull for Revelio workforce/salary data; writes to `data/external/` by default
   - `clean_raw_qualtrics_data.py` --- raw Qualtrics export → cleaned long survey
   - `create_firm_industry_crosswalk_aer_replication_package.py` --- AER package → SIC mapping
   - `create_firm_industry_crosswalk_refusa.py` --- RefUSA → SIC mapping
@@ -165,11 +166,25 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
   - `sample_prep.R` --- applies sample restrictions; writes `long_survey_final.csv`
     - `helper_functions/leave_in_connected.R` --- keeps largest connected component of firm-respondent graph
     - `helper_functions/1_preprocessing_v3.R` --- builds outcome variables (favor-x, dif, log_dif, etc.)
+  - `build_revelio_firm_measures.py` --- matches the saved Revelio CSV to survey `firm_id`; writes `data/processed/revelio_firm_measures.csv`
+
+To run the Revelio pull directly, first create a WRDS account at wrds-www.wharton.upenn.edu. Then, put your WRDS username in
+`wrds_usernames_by_user` in `code/globals.py`, set `WRDS_USERNAME`, or pass
+`--wrds-username`: `python code/1_data_build/revelio_pull.py`. The WRDS Python
+package is included in the project Python package bootstrap in `code/globals.R`.
+The pull runs in checkpointed WRDS batches by default, so interrupted runs can
+resume from completed batch CSVs next to the final output file. Each batch is
+one direct RCID by default, uses a fresh WRDS connection, and retries failures.
+To include it in the data-build metafile, set `RUN_REVELIO_PULL=true` before running
+`Rscript code/1_data_build/!metafile.R`. By default, the metafile skips the WRDS
+pull and uses the already-saved
+`data/external/revelio_company_race_gender_salary_2023_with_parent_subsidiaries.csv`
+for the lightweight firm-name match step.
 
 ### 2. Analysis --- `code/2_analysis/`
 
-**Input:** `data/processed/long_survey_final.csv`
-**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `EIV_firm`, `EIV_within`, `EIV_between`
+**Input:** `data/processed/long_survey_final.csv`; Revelio EIV also uses `data/processed/revelio_firm_measures.csv`
+**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `EIV_firm`, `EIV_within`, `EIV_between`, `EIV_revelio_firm`
 
 **Models currently enabled** in `!metafile.R`: **Borda + OLS** only (`run_pl = run_ol = run_ols_centered = FALSE`). The PL / OL / OLSC fitters below still exist and can be toggled back on; downstream `3_create_tables_figures/` scripts auto-detect whichever models the `variance` / `Coefficients` sheets contain.
 
@@ -198,6 +213,7 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
     - **EIV regressions**
       - `eivreg.R` --- measurement-error regression with `Σ_error`
       - `eiv_functions.R` --- runs `eivreg` over (lhs × rhs × subset × model) specs
+      - `revelio_eiv.R` --- reads matched Revelio firm measures and writes `EIV_revelio_firm`
       - `make_industry_means.R` --- njobs-weighted within/between industry decomposition
     - **Misc**
       - `experimental.R` --- ad-hoc outcome transforms (dif, log_dif, etc.)
@@ -234,6 +250,8 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
   - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
   - `opposite_valence_corr_table.R` --- Black-vs-White, Male-vs-Female pair correlations
   - `industry_decomposition_line_charts.R` --- within- vs between-industry contribution to signal
+  - `eiv_revelio_outcome_tables.R` --- Controlling for Revelio workforce shares on the RHS of main EIV regs 
+  - `eiv_revelio_composition_tables.R` --- Revelio outcomes (race/gender workforce share and paygaps as LHS)
 
 ## Documentation on codebase
 

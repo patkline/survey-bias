@@ -12,10 +12,10 @@ source("code/globals.R")
 # execution if the given script fails
 # ------------------------------------------------------------------------------
 # Define a helper function that runs one Python script
-run_python_fail_fast <- function(script_path) {
+run_python_fail_fast <- function(script_path, script_args = character(0)) {
 
   # Run the script using the project's Python virtual environment
-  status <- system2(python_venv_installation, args = script_path)
+  status <- system2(python_venv_installation, args = c(script_path, script_args))
 
   # Check if the script failed
   if (status != 0L) {
@@ -95,13 +95,27 @@ run_stata_fail_fast <- function(script_path) {
 # Data build
 # ------------------------------------------------------------------------------
 
+# Optional WRDS/Revelio pull. Off by default because it requires WRDS access,
+# credentials, network access, and sometimes MFA.
+run_revelio_pull <- tolower(Sys.getenv("RUN_REVELIO_PULL", unset = "false")) %in%
+  c("1", "true", "yes", "y")
+
+if (run_revelio_pull) {
+  run_python_fail_fast(
+    file.path(build, "revelio_pull.py"),
+    c("--batch-size", "1", "--batch-retries", "2")
+  )
+} else {
+  message("Skipping WRDS/Revelio pull; using the saved external CSV if present.")
+}
+
 # Clean raw Qualtrics data
 run_python_fail_fast(file.path(build, "clean_raw_qualtrics_data.py"))
 
-# Output firm-industry sic code mapping from aer paper replication package  
+# Output firm-industry sic code mapping from aer paper replication package
 run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_aer_replication_package.py"))
 
-# Output firm-industry sic code mapping from RefUSA and aer paper replication package 
+# Output firm-industry sic code mapping from RefUSA and aer paper replication package
 run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_refusa.py"))
 
 # Harmonize industry codes across data sources and creates final crosswalk of firms to industries for use in analysis
@@ -121,3 +135,6 @@ run_stata_fail_fast(file.path(build, "build_industry_emp_share_by_demographic_ee
 
 # Clean CPS ORG microdata and compute SIC-bin residualized wage gaps/levels by demographic group
 run_stata_fail_fast(file.path(build, "build_cps_industry_wage_gaps_levels_residualized.do"))
+
+# Match Revelio firm measures to the survey firm IDs
+run_python_fail_fast(file.path(build, "build_revelio_firm_measures.py"))

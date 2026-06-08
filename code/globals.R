@@ -214,7 +214,8 @@ if (!file.exists(python_venv_installation)) {
 required_python_packages <- c(
   "numpy",
   "pandas",
-  "openpyxl"
+  "openpyxl",
+  "wrds"
 )
 
 # Initialize vector to hold missing Python packages
@@ -236,9 +237,29 @@ for (package in required_python_packages) {
   
 # Install Python packages iff missing
 if (length(missing_python_packages) > 0) {
+    # Upgrade Python packaging tools before installing project packages. This helps
+    # pip find prebuilt wheels instead of trying to compile packages like psycopg2.
+    message("🎃 Updating Python packaging tools before installing missing packages")
+    packaging_tools_status <- system2(
+      python_venv_installation,
+      args = c("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel")
+    )
+
+    if (packaging_tools_status != 0) {
+      stop("Failed to upgrade Python packaging tools in .venv", call. = FALSE)
+    }
+
     message("🎃 Installing missing Python packages: ", paste(missing_python_packages, collapse = ", "))
-    system2(python_venv_installation, 
-        args = c("-m", "pip", "install", paste(missing_python_packages, collapse = " ")))
+    install_status <- system2(python_venv_installation, 
+        args = c("-m", "pip", "install", missing_python_packages))
+    
+    if (install_status != 0) {
+      stop(
+        "Failed to install missing Python packages: ",
+        paste(missing_python_packages, collapse = ", "),
+        call. = FALSE
+      )
+    }
 }
 
 # ------------------------------------------------------------------------------
