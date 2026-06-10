@@ -37,6 +37,7 @@ source(file.path(create_tables_figures, "eiv_table_industry_characteristics.R"))
 source(file.path(create_tables_figures, "industry_decomposition_line_charts.R"))
 source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
+source(file.path(create_tables_figures, "eiv_coefplot.R"))
 
 
 message("🎃 Tables and figures complete")
