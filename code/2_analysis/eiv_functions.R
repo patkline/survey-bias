@@ -1,184 +1,444 @@
-# ------------------------------------------------------------------------------
-# Purpose: Run EIV (univariate or bivariate)
+# ----------------------------------------------------------------------------------------
+# Purpose: Define the shared errors-in-variables (EIV) regression functions
+# used in the codebase
+#   - build_noise_matrix(): assemble the measurement-error covariance matrix
+#     (Sigma_error) fed to eivreg(), from the variance and covariance sheets
+#   - run_eiv_one(): run one EIV specification (one LHS, one+ RHS) for one model
+#   - run_eiv_suite(): loop run_eiv_one() over specifications x models
+#   - write_eiv_sheet(): run a suite and write the results to a parquet sheet
 #
-# Created: Jordan Cammarota 03-06-2026
-# ------------------------------------------------------------------------------
-run_eiv_one <- function(
-    coef_df_wide,
-    noise_mat,
-    model_value,
-    lhs_var,
-    rhs_vars,
-    id_col = "entity_id",      # set "firm_id" if needed
-    model_col = "model",
-    fe_col = "aer_naics2",
-    weights_col = NULL,        # e.g. "njobs" or "weights"; if NULL => equal weights
-    use_fe = TRUE              # set FALSE for within/between industry EIV (no FE)
+# Created: Jordan Cammarota 2026-03-06
+# Edited: Nico Rotundo 2026-06-10
+# ----------------------------------------------------------------------------------------
+# Run globals
+source("code/globals.R")
+
+# ----------------------------------------------------------------------------------------
+# build_noise_matrix() --- assemble the sampling-noise variance-covariance 
+# matrix for one model from the variance and covariance sheets
+#   - one row/column per belief measure with,
+#       i. noise variances on the diagonal 
+#       ii. noise covariances off the diagonal
+# ----------------------------------------------------------------------------------------
+build_noise_matrix <- function(
+  # Variance sheet dataframe; one row per subset x model x belief measure with its noise variance
+  variance_df,
+
+  # Covariance sheet dataframe; one row per subset x model x belief-measure pair with its noise covariance
+  covariance_df,
+
+  # Belief measures to include as rows/columns; NULL = every measure present in either sheet
+  outcomes = NULL,
+
+  # Subset to build the matrix for (e.g., "all", "subset97")
+  subset_value = "all",
+
+  # Model to build the matrix for (e.g., OLS, Borda, etc...)
+  model_value  = "OL",
+
+  # Column name in both the variance and covariance sheets that identifies the subset
+  subset_col = "subset",
+
+  # Column name in both the variance and covariance sheets that identifies the model
+  model_col  = "model",
+
+  # Column name in variance_df that identifies the belief measure
+  outcome_col = "outcome",
+
+  # Column names in covariance_df that identify the two belief measures of each pair; unrelated to the regression LHS/RHS
+  lhs_col = "lhs",
+  rhs_col = "rhs"
 ) {
-  stopifnot(is.data.frame(coef_df_wide))
-  stopifnot(model_col %in% names(coef_df_wide))
-  if (use_fe) stopifnot(fe_col %in% names(coef_df_wide))
-  stopifnot(id_col %in% names(coef_df_wide))
-  stopifnot(length(rhs_vars) >= 1)
-  
-  # --- 1) Restrict to correct model ---
-  df_m <- coef_df_wide |> dplyr::filter(.data[[model_col]] == model_value)
-  
-  if (!is.null(weights_col)) {
-    # If you want to ALSO require non-missing weights, uncomment the filter line.
-    # reg_data <- reg_data |> dplyr::filter(!is.na(.data[[weights_col]]))
-    df_m[["weight"]] <- df_m[[weights_col]]
-  } else {
-    df_m[["weight"]] <- 1
-  }
-  
-  # --- required columns check ---
-  need_cols <- unique(c(id_col, if (use_fe) fe_col, lhs_var, rhs_vars, "weight"))
-  miss_cols <- setdiff(need_cols, names(df_m))
-  if (length(miss_cols) > 0) {
-    stop(
-      "run_eiv_one(): Missing columns in coef_df_wide for model ", model_value, ": ",
-      paste(miss_cols, collapse = ", ")
-    )
-  }
 
+  # Check the variance and covariance sheet inputs are dataframes
+  stopifnot(is.data.frame(variance_df), is.data.frame(covariance_df))
 
+  # Check the variance sheet has the subset, model, belief measure, and noise columns
+  stopifnot(all(c(subset_col, model_col, outcome_col, "noise") %in% names(variance_df)))
 
-  reg_data <- df_m |>
-    dplyr::select(dplyr::all_of(need_cols)) |>
-    dplyr::filter(!is.na(.data[[lhs_var]]))
+  # Check the covariance sheet has the subset, model, belief-measure pair, and noise columns
+  stopifnot(all(c(subset_col, model_col, lhs_col, rhs_col, "noise") %in% names(covariance_df)))
+  
+  # If no belief measures are passed, use every measure present in either sheet, dropping NA and empty names
+  if (is.null(outcomes)) {
 
-  if (use_fe) {
-    reg_data <- reg_data |> dplyr::filter(!is.na(.data[[fe_col]]))
-  }
-  
-  for (rv in rhs_vars) {
-    reg_data <- reg_data |> dplyr::filter(!is.na(.data[[rv]]))
-  }
-  
-  
-  # --- Build Sigma_error for RHS vars ---
-  if (is.null(dimnames(noise_mat)) || is.null(rownames(noise_mat)) || is.null(colnames(noise_mat))) {
-    stop("run_eiv_one(): noise_mat must have rownames/colnames equal to variable names.")
-  }
-  if (!all(rhs_vars %in% rownames(noise_mat)) || !all(rhs_vars %in% colnames(noise_mat))) {
-    missN <- setdiff(rhs_vars, intersect(rownames(noise_mat), colnames(noise_mat)))
-    stop("run_eiv_one(): RHS vars missing from noise_mat dimnames: ", paste(missN, collapse = ", "))
+    # Define a character vector of the distinct belief measure names in the variance sheet
+    belief_measures_in_variance_df <- unique(variance_df[[outcome_col]])
+
+    # Define a character vector of the distinct belief measure names in the stacked pair columns of the covariance sheet
+    belief_measures_in_covariance_df <- unique(c(covariance_df[[lhs_col]], covariance_df[[rhs_col]]))
+
+    # Define the belief measure universe, i.e., the sorted union of the two vectors
+    outcomes <- sort(unique(c(belief_measures_in_variance_df, belief_measures_in_covariance_df)))
+
+    # Drop NA and empty-string names
+    outcomes <- outcomes[!is.na(outcomes) & nzchar(outcomes)]
   }
 
-  Sigma1 <- as.matrix(noise_mat[rhs_vars, rhs_vars, drop = FALSE])
+  # Define empty matrix (i.e., NA values) with one row and column per belief measure
+  noise_variance_covariance_matrix <- matrix(NA_real_, nrow = length(outcomes), ncol = length(outcomes), dimnames = list(outcomes, outcomes))
 
-  # --- formulas ---
-  rhs_part <- paste(rhs_vars, collapse = " + ")
-  f_no_fe  <- stats::as.formula(paste(lhs_var, "~", rhs_part))
+  # Restrict the variance sheet to the given subset x model
+  noise_variance_per_belief_measure <- variance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
 
-  # --- FE dummies and FE formula (only when use_fe = TRUE) ---
-  if (use_fe) {
-    fe_mat <- stats::model.matrix(
-      stats::as.formula(paste0("~ factor(", fe_col, ") - 1")),
-      data = reg_data
-    )
-    colnames(fe_mat) <- paste0("fe_", seq_len(ncol(fe_mat)))
-    reg_data <- dplyr::bind_cols(reg_data, as.data.frame(fe_mat))
-    fe_cols <- colnames(fe_mat)
+  # Keep just the belief measure and noise variance columns 
+  noise_variance_per_belief_measure <- noise_variance_per_belief_measure |> dplyr::select(dplyr::all_of(c(outcome_col, "noise")))
 
-    Sigma2 <- matrix(
-      0,
-      nrow = length(rhs_vars) + length(fe_cols),
-      ncol = length(rhs_vars) + length(fe_cols),
-      dimnames = list(c(rhs_vars, fe_cols), c(rhs_vars, fe_cols))
-    )
-    Sigma2[rhs_vars, rhs_vars] <- Sigma1
+  # Find each belief measure's row position in the filtered variance sheet; NA when the measure has no row
+  belief_measure_row_positions <- match(outcomes, noise_variance_per_belief_measure[[outcome_col]])
 
-    f_fe <- stats::as.formula(paste(lhs_var, "~ 0 +", paste(c(rhs_vars, fe_cols), collapse = " + ")))
-  }
-  
-  # --- helper to extract coef + se for RHS vars only ---
-  extract_coef_rows <- function(fit, coef_tag) {
-    if (is.null(fit) || is.null(fit$vcov)) return(data.frame())
-    cf <- stats::coef(fit)
-    V  <- fit$vcov
+  # Fill the diagonal with the noise variances, reordered to the matrix row order; absent measures stay NA
+  diag(noise_variance_covariance_matrix) <- as.numeric(noise_variance_per_belief_measure$noise[belief_measure_row_positions])
+
+  # Restrict the covariance sheet to the given subset x model
+  noise_covariance_per_belief_measure_pair <- covariance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
+
+  # Keep just the two belief-measure pair columns and the noise covariance column
+  noise_covariance_per_belief_measure_pair <- noise_covariance_per_belief_measure_pair |> dplyr::select(dplyr::all_of(c(lhs_col, rhs_col, "noise")))
+
+  # Fill the off-diagonals one belief-measure pair at a time
+  if (nrow(noise_covariance_per_belief_measure_pair) > 0) {
     
-    out <- lapply(rhs_vars, function(rv) {
-      est <- if (rv %in% names(cf)) unname(cf[[rv]]) else NA_real_
-      se  <- if (!is.null(dim(V)) && rv %in% rownames(V) && rv %in% colnames(V)) sqrt(V[rv, rv]) else NA_real_
-      data.frame(
-        model      = model_value,
-        lhs        = lhs_var,
-        formula    = rhs_part,
-        rhs        = rv,
-        coef       = coef_tag,   # 1=no FE, 2=FE
-        sample_est = est,
-        sample_se  = se,
-        n          = nrow(reg_data),
-        stringsAsFactors = FALSE
-      )
-    })
-    dplyr::bind_rows(out)
+    # Loop through each row in the pair dataframe
+    for (pair_row in seq_len(nrow(noise_covariance_per_belief_measure_pair))) {
+      
+      # Extract the name of the first belief measure
+      belief_measure_1 <- as.character(noise_covariance_per_belief_measure_pair[[lhs_col]][pair_row])
+      
+      # Extract the name of the second belief measure
+      belief_measure_2 <- as.character(noise_covariance_per_belief_measure_pair[[rhs_col]][pair_row])
+      
+      # Extract the noise covariance value for the current pair 
+      noise_covariance_value <- as.numeric(noise_covariance_per_belief_measure_pair$noise[pair_row])
+
+      # If both measures are rows/columns of the matrix, fill the pair's two symmetric cells
+      if (!is.na(belief_measure_1) && !is.na(belief_measure_2) && belief_measure_1 %in% outcomes && belief_measure_2 %in% outcomes) {
+        # Fill the first cell
+        noise_variance_covariance_matrix[belief_measure_1, belief_measure_2] <- noise_covariance_value
+        
+        # Fill the second cell
+        noise_variance_covariance_matrix[belief_measure_2, belief_measure_1] <- noise_covariance_value
+      }
+    }
+  }
+
+  # Return the completed noise variance-covariance matrix
+  noise_variance_covariance_matrix
+}
+
+# ----------------------------------------------------------------------------------------
+# run_eiv_one() --- run one EIV specification for one model
+# ----------------------------------------------------------------------------------------
+run_eiv_one <- function(
+  # One-row-per-entity (i.e., firm or industry) dataframe of model coefficients, wide by belief measure 
+  coef_df_wide,
+
+  # Sampling-noise matrix with one row/col per belief measure; rhs_vars block subset of this matrix becomes Sigma_error
+  noise_mat,
+
+  # Model to run (e.g., OLS, Borda, etc...)
+  model_value,
+
+  # LHS variable name for given regression
+  lhs_var,
+
+  # RHS variable name(s) for given regression
+  rhs_vars,
+
+  # Column name in coef_df_wide that identifies the entity
+  id_col = "entity_id",      
+
+  # Column name in coef_df_wide that identifies the model (e.g. OLS, Borda, etc...)
+  model_col = "model",
+
+  # Column name in coef_df_wide that identifies the fixed effect group (e.g. "aer_naics2"); only used if use_fe = TRUE
+  fe_col = "aer_naics2",
+
+  # Column name in coef_df_wide that contains regression weights (default: NULL, no weighting is applied)
+  weights_col = NULL,
+
+  # Option to run with or without fes (default: TRUE)
+  use_fe = TRUE
+) {
+
+  # Check coefficient input is a dataframe
+  stopifnot(is.data.frame(coef_df_wide))
+
+  # Check model identifier column exists in coef_df_wide
+  stopifnot(model_col %in% names(coef_df_wide))
+
+  # If running the FE spec, check that the FE column exists in coef_df_wide
+  if (use_fe) stopifnot(fe_col %in% names(coef_df_wide))
+
+  # Check that the entity identifier column exists in coef_df_wide
+  stopifnot(id_col %in% names(coef_df_wide))
+
+  # Check at least one RHS belief measure was passed 
+  stopifnot(length(rhs_vars) >= 1)
+
+  # Restrict the coefficient dataframe to the given model
+  coef_df_wide <- coef_df_wide |> dplyr::filter(.data[[model_col]] == model_value)
+  
+  # Assign regression weights from weights_col; equal weights when NULL
+  if (!is.null(weights_col)) {
+    coef_df_wide[["weight"]] <- coef_df_wide[[weights_col]]
+  } else {
+    coef_df_wide[["weight"]] <- 1
   }
   
-  message("Running EIV: Model = ", model_value, ", LHS = ", lhs_var, ", RHS = ", rhs_part)
+  # Assign required regression variables to a vector 
+  required_columns <- unique(c(id_col, if (use_fe) fe_col, lhs_var, rhs_vars, "weight"))
   
-  fit1 <- tryCatch(
-    eivreg(f_no_fe, data = reg_data, Sigma_error = Sigma1, weights = reg_data[["weight"]]),
+  # Stop execution if any regression columns are missing
+  if (!all(required_columns %in% names(coef_df_wide))) {
+    stop(
+      "🪦 Error in run_eiv_one(): missing columns in coef_df_wide for model ", model_value, ": ",
+      paste(setdiff(required_columns, names(coef_df_wide)), collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  # Define an estimation sample dataframe with just the required columns for the regression
+  estimation_sample <- coef_df_wide |> dplyr::select(dplyr::all_of(required_columns)) 
+    
+  # Restrict the estimation sample dataframe to observations with non-missing LHS values
+  estimation_sample <- estimation_sample |> dplyr::filter(!is.na(.data[[lhs_var]]))
+
+  # If using fixed effects, restrict the estimation sample to observations with non-missing FE values
+  if (use_fe) {
+    estimation_sample <- estimation_sample |> dplyr::filter(!is.na(.data[[fe_col]]))
+  }
+  
+  # Restrict the estimation sample dataframe to observations with non-missing RHS values
+  for (rhs_var in rhs_vars) {
+    estimation_sample <- estimation_sample |> dplyr::filter(!is.na(.data[[rhs_var]]))
+  }
+  
+  # Stop if the noise matrix lacks row/column names since the noise variance-covariance matrix block is extracted by name
+  if (is.null(dimnames(noise_mat)) || is.null(rownames(noise_mat)) || is.null(colnames(noise_mat))) {
+    stop("🪦 Error in run_eiv_one(): noise_mat must have rownames/colnames equal to variable names.", call. = FALSE)
+  }
+
+  # Stop if any RHS variables are missing from the noise variance-covariance matrix
+  if (!all(rhs_vars %in% rownames(noise_mat)) || !all(rhs_vars %in% colnames(noise_mat))) {
+    stop(
+      "🪦 Error in run_eiv_one(): RHS vars missing from noise_mat dimnames: ",
+      paste(setdiff(rhs_vars, intersect(rownames(noise_mat), colnames(noise_mat))), collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  # Extract the noise variance-covariance matrix for the RHS variables
+  rhs_vars_noise_variance_covariance_matrix <- as.matrix(noise_mat[rhs_vars, rhs_vars, drop = FALSE])
+
+  # Extract the formula text for the RHS variables
+  rhs_formula_text <- paste(rhs_vars, collapse = " + ")
+
+  # Additional setup for when using fixed effects
+  if (use_fe) {
+    
+    # List the FE groups present in the estimation sample
+    fe_groups <- sort(unique(estimation_sample[[fe_col]]))
+
+    # Create a one-row-per-entity dataset (for those entities in the estimation sample) with one indicator column per FE group, that takes the value 1 if the entity belongs to that group and 0 otherwise
+    fe_dummy_matrix <- sapply(fe_groups, function(fe_group) as.integer(estimation_sample[[fe_col]] == fe_group))
+    
+    # Rename indicator columns in fe_dummy_matrix to fe_1, fe_2, ...
+    colnames(fe_dummy_matrix) <- paste0("fe_", seq_len(ncol(fe_dummy_matrix)))
+    
+    # Append the fe indicator columns to the estimation sample dataframe 
+    estimation_sample <- dplyr::bind_cols(estimation_sample, as.data.frame(fe_dummy_matrix))
+    
+    # Store the names of the dummy columns as a vector 
+    fe_dummy_columns <- colnames(fe_dummy_matrix)
+
+    # Define an expanded noise variance-covariance matrix for the RHS variables with rows/columns of zeros for the fe indicators 
+    rhs_vars_noise_variance_covariance_matrix_fe <- matrix(
+      0,
+      nrow = length(rhs_vars) + length(fe_dummy_columns),
+      ncol = length(rhs_vars) + length(fe_dummy_columns),
+      dimnames = list(c(rhs_vars, fe_dummy_columns), c(rhs_vars, fe_dummy_columns))
+    )
+    
+    # Fill in the noise variance-covariance matrix for the RHS variables
+    rhs_vars_noise_variance_covariance_matrix_fe[rhs_vars, rhs_vars] <- rhs_vars_noise_variance_covariance_matrix
+  }
+  
+  # Report the EIV run
+  message("🎃 Running EIV: Model = ", model_value, ", LHS = ", lhs_var, ", RHS = ", rhs_formula_text)
+  
+  # Run the no-FE EIV regression
+  eiv_regression_result_no_fe <- tryCatch(
+    eivreg(
+      
+      # Regression spec is LHS var regressed on concatenated RHS vars string
+      stats::as.formula(paste(lhs_var, "~", rhs_formula_text)),
+      
+      # Data is the estimation sample defined above 
+      data = estimation_sample,
+
+      # Noise variance-covariance matrix for the RHS variables used to account for measurement error
+      Sigma_error = rhs_vars_noise_variance_covariance_matrix,
+      
+      # Weights for the regression
+      weights = estimation_sample[["weight"]]
+    ),
+
+    # On any error return NULL so the spec yields no output rows, i.e., NA in tables
     error = function(e) NULL
   )
   
+  # If call specifies FEs, run the FE EIV regression
   if (use_fe) {
-    fit2 <- tryCatch(
-      eivreg(f_fe, data = reg_data, Sigma_error = Sigma2, weights = reg_data[["weight"]]),
+
+    # Run the FE EIV regression
+    eiv_regression_result_fe <- tryCatch(
+      eivreg(
+
+        # Regression spec is LHS var regressed on concatenated RHS vars + FE indicators string; omit the intercept since the FE indicators span it
+        stats::as.formula(paste(lhs_var, "~ 0 +", paste(c(rhs_vars, fe_dummy_columns), collapse = " + "))),
+
+        # Data is the estimation sample defined above
+        data = estimation_sample,
+
+        # Expanded noise variance-covariance matrix used to account for measurement error; zero rows/columns for the FE indicators
+        Sigma_error = rhs_vars_noise_variance_covariance_matrix_fe,
+
+        # Weights for the regression
+        weights = estimation_sample[["weight"]]
+      ),
+
+      # On any error return NULL so the spec yields no output rows, i.e., NA in tables
       error = function(e) NULL
     )
-
-    dplyr::bind_rows(
-      extract_coef_rows(fit1, coef_tag = 1L),
-      extract_coef_rows(fit2, coef_tag = 2L)
-    )
-  } else {
-    extract_coef_rows(fit1, coef_tag = 1L)
   }
+
+  # Define list of EIV regression results that we will extract coefficients, ses, etc... from, add the no fixed effect spec to this list, and tag its coefficient with an indicator for no fe present (i.e., 1L)
+  eiv_regression_results <- list(list(fit = eiv_regression_result_no_fe, coef_tag = 1L))
+  
+  # If call specifies FEs, add the FE spec to the regression result list, and tag its coefficient with an indicator for FE present (i.e., 2L) 
+  if (use_fe) {
+    eiv_regression_results <- c(eiv_regression_results, list(list(fit = eiv_regression_result_fe, coef_tag = 2L)))
+  }
+
+  # Define list to hold one output row per RHS variable per regression
+  output_rows <- list()
+
+  # Loop over the regression results and extract the output rows
+  for (eiv_regression_result in eiv_regression_results) {
+
+    # Skip regressions that errored i.e., NULL fits with no results to extract
+    if (is.null(eiv_regression_result$fit) || is.null(eiv_regression_result$fit$vcov)) next
+
+    # Extract the corrected coefficient estimates and their variance-covariance matrix
+    coefficient_estimates <- stats::coef(eiv_regression_result$fit)
+    coefficient_vcov <- eiv_regression_result$fit$vcov
+
+    # Build one output row per RHS variable; NA when the coefficient or se is unavailable
+    for (rhs_var in rhs_vars) {
+      
+      # Append one output row for the current RHS variable
+      output_rows[[length(output_rows) + 1L]] <- data.frame(
+        
+        # Model identifier e.g., OLS, Borda
+        model      = model_value,
+        
+        # LHS variable of the regression
+        lhs        = lhs_var,
+
+        # Full RHS formula text 
+        formula    = rhs_formula_text,
+        
+        # RHS variable the row's coefficient is for 
+        rhs        = rhs_var,
+
+        # Coefficient tag indicating whether fixed effects are used
+        coef       = eiv_regression_result$coef_tag,
+        
+        # Corrected coefficient estimate for this RHS variable
+        sample_est = coefficient_estimates[[rhs_var]],
+        
+        # Standard error i.e., the square root of this RHS variable's diagonal entry of the variance-covariance matrix
+        sample_se  = sqrt(coefficient_vcov[rhs_var, rhs_var]),
+        
+        # Number of observations in the estimation sample of the regression
+        n          = nrow(estimation_sample),
+        
+        # Keep character columns as strings rather than converting to factors 
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  # Append the output rows into one dataframe; zero rows when all eiv regressions failed
+  dplyr::bind_rows(output_rows)
 }
 
-# ==============================================================================
-# Outer function you call: run_eiv_suite()
-# (Assumes you already have an inner function named run_eiv_once() in your codebase
-#  that returns the row-format you described.)
-# If you DON'T have it yet, keep this outer call and I’ll match it to your inner
-# function once you paste your current run_eiv_once().
-# ==============================================================================
-# ==============================================================================
-# Outer runner: loops over regressions x models and calls run_eiv_one()
-# ==============================================================================
-
+# ----------------------------------------------------------------------------------------
+# run_eiv_suite() --- loop run_eiv_one() over specifications x models
+# ----------------------------------------------------------------------------------------
 run_eiv_suite <- function(
-    regs,
-    coef_df_wide,
-    noise_mats_97,
-    models = names(noise_mats_97),
-    id_col = "entity_id",
-    model_col = "model",
-    fe_col = "aer_naics2",
-    weights_col = NULL,
-    use_fe = TRUE
+  # List of regression specifications; each element is a list with $lhs (LHS variable name) and $rhs (RHS variable name(s))
+  regs,
+
+  # One-row-per-entity (i.e., firm or industry) dataframe of model coefficients, wide by belief measure
+  coef_df_wide,
+
+  # List of sampling-noise matrices keyed by model name, e.g., noise_mats_97[["OLS"]]
+  noise_mats_97,
+
+  # Models to run (default: every model with a noise matrix)
+  models = names(noise_mats_97),
+
+  # Column name in coef_df_wide that identifies the entity; passed through to run_eiv_one()
+  id_col = "entity_id",
+
+  # Column name in coef_df_wide that identifies the model; passed through to run_eiv_one()
+  model_col = "model",
+
+  # Column name in coef_df_wide that identifies the fixed effect group; passed through to run_eiv_one()
+  fe_col = "aer_naics2",
+
+  # Column name in coef_df_wide that contains regression weights; passed through to run_eiv_one()
+  weights_col = NULL,
+
+  # Option to run with or without fes; passed through to run_eiv_one()
+  use_fe = TRUE
 ) {
+  
+  # Check that the regression specification input is a list and the coefficient input is a dataframe
   stopifnot(is.list(regs), is.data.frame(coef_df_wide))
+  
+  # Check the noise matrix input is a list
   stopifnot(is.list(noise_mats_97))
-  
+
+  # Keep only models that have a noise matrix
   models <- intersect(models, names(noise_mats_97))
-  if (length(models) == 0) stop("run_eiv_suite(): no models to run (models not in noise_mats_97).")
   
-  rows <- list()
-  k <- 1L
-  
-  for (spec in regs) {
-    lhs_var <- spec$lhs
-    rhs_vars <- spec$rhs
-    
+  # Stop if no models remain
+  if (length(models) == 0) stop("🪦 Error in run_eiv_suite(): no models to run (models not in noise_mats_97).", call. = FALSE)
+
+  # Define list to hold one output dataframe per specification x model run
+  output_dataframes <- list()
+
+  # Loop over the regression specifications
+  for (eiv_specification in regs) {
+
+    # Assign the LHS and RHS variable names for the current specification
+    lhs_var <- eiv_specification$lhs
+    rhs_vars <- eiv_specification$rhs
+
+    # Loop over the relevant models 
     for (model_value in models) {
+
+      # Extract the current model's noise matrix
       noise_mat <- noise_mats_97[[model_value]]
-      if (is.null(noise_mat)) next
       
-      out_df <- run_eiv_one(
+      # If the noise matrix is null, skip this model
+      if (is.null(noise_mat)) next
+
+      # Run the EIV regressions for the current specification x model; returns one row per RHS variable per spec i.e., no FE and FE
+      eiv_output_rows <- run_eiv_one(
         coef_df_wide = coef_df_wide,
         noise_mat    = noise_mat,
         model_value  = model_value,
@@ -190,35 +450,58 @@ run_eiv_suite <- function(
         weights_col  = weights_col,
         use_fe       = use_fe
       )
-      
-      if (!is.null(out_df) && nrow(out_df) > 0) {
-        rows[[k]] <- out_df
-        k <- k + 1L
+
+      # If the output is not null and has rows, add it to the list of output dataframes
+      if (!is.null(eiv_output_rows) && nrow(eiv_output_rows) > 0) {
+        output_dataframes[[length(output_dataframes) + 1L]] <- eiv_output_rows
       }
     }
   }
-  
-  dplyr::bind_rows(rows)
+
+  # Append all output dataframes into a single dataframe
+  dplyr::bind_rows(output_dataframes)
 }
 
-# ==============================================================================
-# Convenience writer to Excel
-# ==============================================================================
-
+# ----------------------------------------------------------------------------------------
+# write_eiv_sheet() --- run an EIV suite and write the results to a parquet sheet
+# ----------------------------------------------------------------------------------------
 write_eiv_sheet <- function(
-    output_dir,
-    sheet_name = "EIV",
-    regs,
-    coef_df_wide,
-    noise_mats_97,
-    models = names(noise_mats_97),
-    id_col = "entity_id",
-    model_col = "model",
-    fe_col = "aer_naics2",
-    weights_col = NULL,
-    use_fe = TRUE
+  # Directory the parquet sheet is written into
+  output_dir,
+
+  # Name of the parquet sheet, e.g., "EIV_firm", "EIV_between"
+  sheet_name = "EIV",
+
+  # List of regression specifications; passed through to run_eiv_suite()
+  regs,
+
+  # One-row-per-entity (i.e., firm or industry) dataframe of model coefficients; passed through to run_eiv_suite()
+  coef_df_wide,
+
+  # List of sampling-noise matrices keyed by model name; passed through to run_eiv_suite()
+  noise_mats_97,
+
+  # Models to run; passed through to run_eiv_suite()
+  models = names(noise_mats_97),
+
+  # Column name in coef_df_wide that identifies the entity; passed through to run_eiv_suite()
+  id_col = "entity_id",
+
+  # Column name in coef_df_wide that identifies the model; passed through to run_eiv_suite()
+  model_col = "model",
+
+  # Column name in coef_df_wide that identifies the fixed effect group; passed through to run_eiv_suite()
+  fe_col = "aer_naics2",
+
+  # Column name in coef_df_wide that contains regression weights; passed through to run_eiv_suite()
+  weights_col = NULL,
+
+  # Option to run with or without fes; passed through to run_eiv_suite()
+  use_fe = TRUE
 ) {
-  eiv_df <- run_eiv_suite(
+
+  # Run the EIV regressions for all specifications x models, storing the results in a dataframe
+  eiv_output_dataframe <- run_eiv_suite(
     regs         = regs,
     coef_df_wide = coef_df_wide,
     noise_mats_97 = noise_mats_97,
@@ -230,68 +513,9 @@ write_eiv_sheet <- function(
     use_fe       = use_fe
   )
 
-  write_parquet_sheet(output_dir, sheet_name, eiv_df)
+  # Write the output rows to the parquet sheet
+  write_parquet_sheet(output_dir, sheet_name, eiv_output_dataframe)
 
-  invisible(eiv_df)
-}
-
-# -------------------------------------------------------------------
-# Build a JxJ NOISE matrix from variance_df + covariance_df
-#  - diag(j)   = variance_df$noise for outcome j
-#  - offdiag   = covariance_df$noise for (lhs, rhs)
-#  - symmetric, with dimnames = outcomes
-# -------------------------------------------------------------------
-build_noise_matrix <- function(
-    variance_df,
-    covariance_df,
-    outcomes = NULL,
-    subset_value = "all",
-    model_value  = "OL",
-    subset_col = "subset",
-    model_col  = "model",
-    outcome_col = "outcome",
-    lhs_col = "lhs",
-    rhs_col = "rhs"
-) {
-  stopifnot(is.data.frame(variance_df), is.data.frame(covariance_df))
-  stopifnot(all(c(subset_col, model_col, outcome_col, "noise") %in% names(variance_df)))
-  stopifnot(all(c(subset_col, model_col, lhs_col, rhs_col, "noise") %in% names(covariance_df)))
-  
-  # determine outcome universe
-  if (is.null(outcomes)) {
-    outcomes_var <- unique(variance_df[[outcome_col]])
-    outcomes_cov <- unique(c(covariance_df[[lhs_col]], covariance_df[[rhs_col]]))
-    outcomes <- sort(unique(c(outcomes_var, outcomes_cov)))
-    outcomes <- outcomes[!is.na(outcomes) & nzchar(outcomes)]
-  }
-  
-  J <- length(outcomes)
-  N <- matrix(NA_real_, nrow = J, ncol = J, dimnames = list(outcomes, outcomes))
-  
-  # --- fill diagonal from variance_df ---
-  vsub <- variance_df |>
-    dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value) |>
-    dplyr::select(dplyr::all_of(c(outcome_col, "noise")))
-  
-  diag(N) <- as.numeric(vsub$noise[match(outcomes, vsub[[outcome_col]])])
-  
-  # --- fill off-diagonals from covariance_df ---
-  csub <- covariance_df |>
-    dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value) |>
-    dplyr::select(dplyr::all_of(c(lhs_col, rhs_col, "noise")))
-  
-  if (nrow(csub) > 0) {
-    for (i in seq_len(nrow(csub))) {
-      a <- as.character(csub[[lhs_col]][i])
-      b <- as.character(csub[[rhs_col]][i])
-      val <- as.numeric(csub$noise[i])
-      
-      if (!is.na(a) && !is.na(b) && a %in% outcomes && b %in% outcomes) {
-        N[a, b] <- val
-        N[b, a] <- val
-      }
-    }
-  }
-  
-  N
+  # Return the output rows invisibly, i.e., not printed when the call result is unassigned
+  invisible(eiv_output_dataframe)
 }
