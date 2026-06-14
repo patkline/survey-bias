@@ -156,6 +156,7 @@ required_r_packages <- c(
   "magick", 
   "ggpattern",
   "ragg",
+  "httpgd",
   "rlang",
   "ordinal",
   "readr"
