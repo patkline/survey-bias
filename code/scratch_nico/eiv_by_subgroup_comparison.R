@@ -9,6 +9,9 @@ source("code/globals.R")
 # Source the errors-in-variables estimator
 source("code/2_analysis/eivreg.R")
 
+# Source the Katz correction
+source("code/2_analysis/katz_correct.R")
+
 # -----------------------------------------------------------------------------------------------------------------------------
 # Construct firm -> industry crosswalk from microdata 
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -193,7 +196,172 @@ for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking",
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Merge the four datasets into one firm x subgroup analysis dataset
+# Construct dataset of njobs-weighted belief noise by subgroup i.e., the njobs-weighted EIV measurement-error variance
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define dataframe to store all subgroup weighted noise
+aggregated_subgroup_weighted_noise <- data.frame()
+
+# Loop through each subgroup
+for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40")) {
+    # Load in given subgroup's firm-level coefficients
+    subgroup_firm_coefficients <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", subgroup)), "Coefficients")
+    
+    # Keep OLS and Borda observations
+    subgroup_firm_coefficients <- subgroup_firm_coefficients |> dplyr::filter(model %in% c("OLS", "Borda"))
+
+    # Keep just the two pooled belief measures
+    subgroup_firm_coefficients <- subgroup_firm_coefficients |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male"))
+
+    # Keep just the 97-firm sample from the correspondence paper
+    subgroup_firm_coefficients <- subgroup_firm_coefficients |> dplyr::filter(subset == "subset97")
+
+    # Should be just firm-level observations
+    stopifnot(all(subgroup_firm_coefficients$entity_type == "Firm"))
+
+    # Should be 97 firms x 2 models x 2 belief measures = 388 observations, none with a missing job weight
+    stopifnot(nrow(subgroup_firm_coefficients) == 388, !anyNA(subgroup_firm_coefficients$njobs))
+    
+    # Collapse to the number-of-jobs-weighted mean of the squared robust standard error (rse) across firms, by model and belief measure
+    subgroup_weighted_noise <- subgroup_firm_coefficients |> dplyr::group_by(model, outcome) |> dplyr::summarize(njobs_weighted_mean_squared_standard_error_across_firms = weighted.mean(rse^2, njobs), .groups = "drop")
+    
+    # Lowercase the aggregation method for the wide column suffix
+    subgroup_weighted_noise <- subgroup_weighted_noise |> dplyr::mutate(model = tolower(model))
+
+    # Reshape wide to one row per subgroup, one column per belief measure x aggregation method
+    subgroup_weighted_noise <- subgroup_weighted_noise |> tidyr::pivot_wider(names_from = c(outcome, model), values_from = njobs_weighted_mean_squared_standard_error_across_firms, names_glue = "{outcome}_{model}_{.value}")
+    
+    # Should be a single row, none missing
+    stopifnot(nrow(subgroup_weighted_noise) == 1, !anyNA(subgroup_weighted_noise))
+
+    # Define a variable to indicate the subsample
+    subgroup_weighted_noise <- subgroup_weighted_noise |> dplyr::mutate(subsample = tolower(subgroup))
+
+    # Place the subsample variable at the beginning of the dataset
+    subgroup_weighted_noise <- subgroup_weighted_noise |> dplyr::select(subsample, everything())
+
+    # Append the subgroup weighted noise to the aggregated dataframe
+    aggregated_subgroup_weighted_noise <- rbind(aggregated_subgroup_weighted_noise, subgroup_weighted_noise)
+}
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Construct dataset of number-of-jobs-weighted Katz signal variance by subgroup i.e., the 
+# njobs-weighted Katz measurement-error inputs
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define dataframe to store all subgroup weighted Katz inputs
+aggregated_subgroup_weighted_katz <- data.frame()
+
+# Loop through each subgroup
+for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40")) {
+    # Load the firm-level robust covariance matrix 
+    subgroup_rcov <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", subgroup)), "rcov")
+
+    # Uniquely identified by sample x aggregation model x outcome x firm i x firm j, none missing
+    stopifnot(!anyDuplicated(subgroup_rcov[c("subset", "model", "outcome", "entity_id_i", "entity_id_j")]), !anyNA(subgroup_rcov[c("subset", "model", "outcome", "entity_id_i", "entity_id_j")]))
+
+    # Keep OLS and Borda observations
+    subgroup_rcov <- subgroup_rcov |> dplyr::filter(model %in% c("OLS", "Borda"))
+
+    # Keep just the two pooled belief measures
+    subgroup_rcov <- subgroup_rcov |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male"))
+
+    # Keep just the 97-firm sample from the correspondence paper
+    subgroup_rcov <- subgroup_rcov |> dplyr::filter(subset == "subset97")
+
+    # Should be 97 firms x 97 firms x 2 models x 2 belief measures = 37636 observations remaining
+    stopifnot(nrow(subgroup_rcov) == 97 * 97 * 2 * 2)
+
+    # Assign this subgroup's firm beliefs and job weights to a one-row-per-firm dataframe 
+    subgroup_belief_rows <- aggregated_subgroup_beliefs |> dplyr::filter(subsample == tolower(subgroup))
+
+    # Sort by firm_id
+    subgroup_belief_rows <- subgroup_belief_rows |> dplyr::arrange(firm_id)
+
+    # Check number of jobs does not vary within firm
+    stopifnot(nrow(dplyr::distinct(subgroup_belief_rows, firm_id, number_of_jobs)) == dplyr::n_distinct(subgroup_belief_rows$firm_id))
+
+    # Normalize the job weights to sum to one
+    subgroup_belief_rows <- subgroup_belief_rows |> dplyr::mutate(firm_weight = number_of_jobs / sum(number_of_jobs))
+
+    # Loop over aggregation method
+    for (aggregation_model in c("OLS", "Borda")) {
+        # Loop over each belief measure
+        for (belief_measure in c("pooled_favor_white", "pooled_favor_male")) {
+
+            # Keep covariance rows corresponding to given aggregation method 
+            cell_rcov <- subgroup_rcov |> dplyr::filter(model == aggregation_model)
+            
+            # Keep covariance rows corresponding to given belief measure
+            cell_rcov <- cell_rcov |> dplyr::filter(outcome == belief_measure)
+
+            # Should be 97 firms x 97 firms = 9409 firm pairs
+            stopifnot(nrow(cell_rcov) == 97 * 97)
+
+            # Firm ids in a fixed order, used for both the covariance matrix and the belief and weight vectors
+            firm_id_vector <- sort(unique(cell_rcov$entity_id_i))
+
+            # Define a matrix of 0s to hold the robust covariance matrix for the given subgroup x aggregation method x belief measure
+            firm_robust_covariance_matrix <- matrix(
+                0, 
+                nrow = length(firm_id_vector), 
+                ncol = length(firm_id_vector), 
+                dimnames = list(firm_id_vector, firm_id_vector)
+            )
+
+            # Populate the robust covariance matrix with the values from the cell_rcov dataframe for the given aggregation method x belief measure
+            firm_robust_covariance_matrix[cbind(as.character(cell_rcov$entity_id_i), as.character(cell_rcov$entity_id_j))] <- cell_rcov$rcov
+            
+            # Should be 97 x 97
+            stopifnot(nrow(firm_robust_covariance_matrix) == 97, ncol(firm_robust_covariance_matrix) == 97)
+
+            # Check belief rows share the covariance matrix firm order
+            stopifnot(all(subgroup_belief_rows$firm_id == firm_id_vector))
+
+            # Assign this cell's belief column to a generic name
+            subgroup_belief_rows <- subgroup_belief_rows |> dplyr::mutate(belief = .data[[paste0(belief_measure, "_", tolower(aggregation_model))]])
+
+            # Compute a version of the given belief centered at its weighted mean across firms
+            subgroup_belief_rows <- subgroup_belief_rows |> dplyr::mutate(belief_centered = belief - sum(firm_weight * belief))
+
+            # Compute the weighted variance of the centered belief across firms
+            njobs_weighted_variance_across_firms <- sum(subgroup_belief_rows$firm_weight * subgroup_belief_rows$belief_centered^2)
+
+            # Compute the weighted mean squared standard error across firms i.e., the weighted noise
+            njobs_weighted_noise_across_firms <- sum(subgroup_belief_rows$firm_weight * diag(firm_robust_covariance_matrix))
+
+            # Weighted unbiased signal variance estimate i.e., weighted variance minus weighted noise
+            njobs_weighted_unbiased_signal_variance <- njobs_weighted_variance_across_firms - njobs_weighted_noise_across_firms
+
+            # Job-weighted centered beliefs i.e., the weight times the centered belief for each firm
+            subgroup_belief_rows <- subgroup_belief_rows |> dplyr::mutate(weighted_belief_centered = firm_weight * belief_centered)
+
+            # Sampling variance of the weighted unbiased signal variance estimate
+            njobs_weighted_signal_variance_sampling_variance <-
+                4 * sum(subgroup_belief_rows$weighted_belief_centered * (firm_robust_covariance_matrix %*% subgroup_belief_rows$weighted_belief_centered)) -
+                2 * sum((subgroup_belief_rows$firm_weight * firm_robust_covariance_matrix) * t(subgroup_belief_rows$firm_weight * firm_robust_covariance_matrix))
+
+            # Katz-corrected weighted signal variance
+            njobs_weighted_katz_corrected_signal_variance <- katz_correct(njobs_weighted_unbiased_signal_variance, njobs_weighted_signal_variance_sampling_variance)
+
+            # Append this cell's weighted variance and Katz-corrected signal variance
+            aggregated_subgroup_weighted_katz <- rbind(aggregated_subgroup_weighted_katz, data.frame(
+                subsample = tolower(subgroup),
+                aggregation_method = tolower(aggregation_model),
+                belief_measure = belief_measure,
+                njobs_weighted_variance_across_firms = njobs_weighted_variance_across_firms,
+                njobs_weighted_katz_corrected_signal_variance_across_firms = njobs_weighted_katz_corrected_signal_variance
+            ))
+        }
+    }
+}
+
+# Reshape wide to one row per subgroup, one column per belief measure x aggregation method
+aggregated_subgroup_weighted_katz <- aggregated_subgroup_weighted_katz |> tidyr::pivot_wider(names_from = c(belief_measure, aggregation_method), values_from = c(njobs_weighted_variance_across_firms, njobs_weighted_katz_corrected_signal_variance_across_firms), names_glue = "{belief_measure}_{aggregation_method}_{.value}")
+
+# Should be 10 subgroups, none missing
+stopifnot(nrow(aggregated_subgroup_weighted_katz) == 10, !anyNA(aggregated_subgroup_weighted_katz))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Merge the six datasets into one firm x subgroup analysis dataset
 # -----------------------------------------------------------------------------------------------------------------------------
 # Merge subgroup noise onto the beliefs m:1  (many firms per subsample : one noise row per subsample)
     # relationship = "many-to-one" enforces the using side is unique on subsample; errors otherwise
@@ -202,6 +370,18 @@ firm_subgroup_data <- aggregated_subgroup_beliefs |> dplyr::left_join(aggregated
 
 # assert(3) i.e., every subsample matches on both sides
 stopifnot(setequal(aggregated_subgroup_beliefs$subsample, aggregated_subgroup_noise$subsample))
+
+# Merge subgroup number-of-jobs-weighted noise onto the analysis dataset m:1  (many firms per subsample : one weighted-noise row per subsample)
+firm_subgroup_data <- firm_subgroup_data |> dplyr::left_join(aggregated_subgroup_weighted_noise, by = "subsample", relationship = "many-to-one")
+
+# assert(3) i.e., every subsample matches on both sides
+stopifnot(setequal(firm_subgroup_data$subsample, aggregated_subgroup_weighted_noise$subsample))
+
+# Merge subgroup number-of-jobs-weighted Katz inputs onto the analysis dataset m:1  (many firms per subsample : one weighted-Katz row per subsample)
+firm_subgroup_data <- firm_subgroup_data |> dplyr::left_join(aggregated_subgroup_weighted_katz, by = "subsample", relationship = "many-to-one")
+
+# assert(3) i.e., every subsample matches on both sides
+stopifnot(setequal(firm_subgroup_data$subsample, aggregated_subgroup_weighted_katz$subsample))
 
 # Merge firm-level audit gaps onto the analysis dataset m:1  (many subgroups per firm : one audit-gap row per firm)
     # relationship = "many-to-one" enforces the using side is unique on firm_id; errors otherwise
@@ -263,8 +443,11 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
                 dplyr::all_of(lhs_variable),
                 dplyr::all_of(rhs_variable),
                 dplyr::all_of(paste0(rhs_variable, "_mean_squared_standard_error_across_firms")),
+                dplyr::all_of(paste0(rhs_variable, "_njobs_weighted_mean_squared_standard_error_across_firms")),
                 dplyr::all_of(paste0(rhs_variable, "_variance_across_firms")),
-                dplyr::all_of(paste0(rhs_variable, "_katz_corrected_signal_variance_across_firms"))
+                dplyr::all_of(paste0(rhs_variable, "_katz_corrected_signal_variance_across_firms")),
+                dplyr::all_of(paste0(rhs_variable, "_njobs_weighted_variance_across_firms")),
+                dplyr::all_of(paste0(rhs_variable, "_njobs_weighted_katz_corrected_signal_variance_across_firms"))
             )
 
             # Build interaction term for rhs variable interacted with a subgroup indicator
@@ -279,8 +462,8 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
             # Since we are weighting firms in the eivreg by its number of jobs, we want to split the weight evenly between the two given subsamples 
             stopifnot(nrow(dplyr::distinct(estimation_sample, firm_id, number_of_jobs)) == dplyr::n_distinct(estimation_sample$firm_id))
 
-            # Loop over the measurement-error correction fed to eivreg: raw mean squared standard error (no) vs the Katz-corrected version (yes)
-            for (katz_correction in c("no", "yes")) {
+            # Loop over how the noise matrix fed to eivreg is constructed: unweighted raw, unweighted Katz, number-of-jobs-weighted raw, number-of-jobs-weighted Katz
+            for (noise_matrix_construction in c("no_katz_unweighted", "katz_unweighted", "no_katz_weighted_njobs", "katz_weighted_njobs")) {
 
                 # Initialize a matrix for eivreg to subtracts the noise from the table of summed products of the two belief columns before computing the slopes; the white entry corrects the white slope for measurement error, the black entry the black slope
                 # Rows = columns = the two belief columns, so eivreg lines up each noise value with the correct rhs variable column; off-diagonals stay zero since a row is either white or black, so the two columns are never both nonzero
@@ -288,12 +471,18 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
 
                 # Fill each subgroup's diagonal entry, halved because eivreg multiplies this matrix by the row count (194 stacked) before subtracting, so halving rescales to the 97-row standalone correction
                 for (subgroup in subgroup_comparison) {
-                    if (katz_correction == "no") {
-                        # No-Katz: the raw mean squared standard error across firms
+                    if (noise_matrix_construction == "no_katz_unweighted") {
+                        # No-Katz unweighted: the raw mean squared standard error across firms
                         regressor_noise_matrix[paste0(rhs_variable, "_x_", subgroup), paste0(rhs_variable, "_x_", subgroup)] <- unique(estimation_sample[[paste0(rhs_variable, "_mean_squared_standard_error_across_firms")]][estimation_sample$subsample == subgroup]) / 2
-                    } else {
-                        # Katz: total variance across firms minus the Katz-corrected signal variance
+                    } else if (noise_matrix_construction == "katz_unweighted") {
+                        # Katz unweighted: total variance across firms minus the Katz-corrected signal variance
                         regressor_noise_matrix[paste0(rhs_variable, "_x_", subgroup), paste0(rhs_variable, "_x_", subgroup)] <- unique(estimation_sample[[paste0(rhs_variable, "_variance_across_firms")]][estimation_sample$subsample == subgroup] - estimation_sample[[paste0(rhs_variable, "_katz_corrected_signal_variance_across_firms")]][estimation_sample$subsample == subgroup]) / 2
+                    } else if (noise_matrix_construction == "no_katz_weighted_njobs") {
+                        # No-Katz number-of-jobs-weighted: the number-of-jobs-weighted mean squared standard error across firms
+                        regressor_noise_matrix[paste0(rhs_variable, "_x_", subgroup), paste0(rhs_variable, "_x_", subgroup)] <- unique(estimation_sample[[paste0(rhs_variable, "_njobs_weighted_mean_squared_standard_error_across_firms")]][estimation_sample$subsample == subgroup]) / 2
+                    } else {
+                        # Katz number-of-jobs-weighted: weighted variance across firms minus the weighted Katz-corrected signal variance
+                        regressor_noise_matrix[paste0(rhs_variable, "_x_", subgroup), paste0(rhs_variable, "_x_", subgroup)] <- unique(estimation_sample[[paste0(rhs_variable, "_njobs_weighted_variance_across_firms")]][estimation_sample$subsample == subgroup] - estimation_sample[[paste0(rhs_variable, "_njobs_weighted_katz_corrected_signal_variance_across_firms")]][estimation_sample$subsample == subgroup]) / 2
                     }
                 }
 
@@ -356,7 +545,7 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
                             subgroup_comparison = paste0(subgroup_comparison[1], "_minus_", subgroup_comparison[2]),
                             subgroup = subgroup,
                             industry_fe_indicator = industry_fe_indicator,
-                            katz_correction = katz_correction,
+                            noise_matrix_construction = noise_matrix_construction,
                             lhs_variable = lhs_variable,
                             rhs_variable = rhs_variable,
                             rhs_variable_coefficient = as.numeric(eiv_specification$coefficients[paste0(rhs_variable, "_x_", subgroup)]),
@@ -374,14 +563,14 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
 View(eiv_regression_results)
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Plot the EIV coefficients in a bar graph for {ols, borda} x (lhs_variable, rhs_variable) x 
-# {no katz correction, katz correction}
+# Plot the EIV coefficients in a bar graph for {ols, borda} x (lhs_variable, rhs_variable) x
+# {no_katz_unweighted, katz_unweighted, no_katz_weighted_njobs}
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each RHS belief measure (embeds both the LHS gap and the aggregation method)
 for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda", "pooled_favor_male_ols", "pooled_favor_male_borda")) {
 
-    # Loop over each Katz correction specification
-    for (katz_correction_value in c("no", "yes")) {
+    # Loop over each noise matrix construction
+    for (noise_matrix_construction_value in c("no_katz_unweighted", "katz_unweighted", "no_katz_weighted_njobs", "katz_weighted_njobs")) {
 
         # Restrict to the current RHS belief measure and aggregation method
         eiv_bar_graph_data <- eiv_regression_results |> dplyr::filter(rhs_variable == rhs_variable_value)
@@ -392,8 +581,8 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
         # Pull the LHS variable off the filtered data for the export filename
         lhs_variable_value <- unique(eiv_bar_graph_data$lhs_variable)
 
-        # Restrict to the current Katz correction specification
-        eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::filter(katz_correction == katz_correction_value)
+        # Restrict to the current noise matrix construction
+        eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::filter(noise_matrix_construction == noise_matrix_construction_value)
 
         # Should be 5 subgroup comparisons x 2 subgroups x 2 industry-FE specs = 20 bars
         stopifnot(nrow(eiv_bar_graph_data) == 20)
@@ -461,7 +650,7 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
             scale_y_continuous(expand = expansion(mult = c(0.05, 0.2))) +
 
             # Single "Subsample" x-axis title; y-axis names the RHS belief; legend title states the dimensions this figure is restricted to
-            labs(x = "Subsample", y = paste0("EIV coefficient on ", unique(eiv_bar_graph_data$rhs_variable)), fill = paste0("Aggregation: ", sub(".*_", "", unique(eiv_bar_graph_data$rhs_variable)), "\nLHS gap: ", unique(eiv_bar_graph_data$lhs_variable), "\nKatz: ", unique(eiv_bar_graph_data$katz_correction))) +
+            labs(x = "Subsample", y = paste0("EIV coefficient on ", unique(eiv_bar_graph_data$rhs_variable)), fill = paste0("Aggregation: ", sub(".*_", "", unique(eiv_bar_graph_data$rhs_variable)), "\nLHS gap: ", unique(eiv_bar_graph_data$lhs_variable), "\nNoise matrix: ", unique(eiv_bar_graph_data$noise_matrix_construction))) +
 
             # Theme baseline (larger base font)
             theme_minimal(base_size = 13) +
@@ -488,6 +677,70 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
             )
 
         # Export the figure to the scratch folder, one file per RHS belief x Katz specification
-        ggsave(file.path(code, "scratch_nico", "figures", paste0("eiv_by_subgroup_comparison_katz_correction_", katz_correction_value, "_lhs_variable_", lhs_variable_value, "_rhs_variable_", rhs_variable_value, ".png")), plot = eiv_bar_graph, width = 24, height = 8, dpi = 300, bg = "white")
+        ggsave(file.path(code, "scratch_nico", "figures", paste0("eiv_by_subgroup_comparison_noise_matrix_construction_", noise_matrix_construction_value, "_lhs_variable_", lhs_variable_value, "_rhs_variable_", rhs_variable_value, ".png")), plot = eiv_bar_graph, width = 24, height = 8, dpi = 300, bg = "white")
+
+        # Produce one clean illustration variant for the weighted-Katz Borda male slice only
+        if (rhs_variable_value == "pooled_favor_male_borda" && noise_matrix_construction_value == "katz_weighted_njobs") {
+
+            # Clean illustration variant of the bar graph
+            temp_eiv_bar_graph <- ggplot(eiv_bar_graph_data, aes(x = bar_x_position, y = rhs_variable_coefficient, fill = fe_label)) +
+
+                # Horizontal reference line at zero
+                geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
+
+                # Bars with a slight gap within each pair
+                geom_col(width = 0.85) +
+
+                # Thin black 95% confidence interval error bars
+                geom_errorbar(aes(ymin = rhs_variable_coefficient - 1.96 * rhs_variable_se, ymax = rhs_variable_coefficient + 1.96 * rhs_variable_se), width = 0.2, linewidth = 0.3, color = "black") +
+
+                # Grey dashed separators between subgroup comparisons
+                geom_vline(xintercept = (1:4) * 11 - 2.75, linetype = "dashed", color = "grey") +
+
+                # Each bar's coefficient only, without the standard error
+                geom_text(aes(x = label_x, y = rhs_variable_coefficient, hjust = label_hjust, vjust = label_vjust, label = round(rhs_variable_coefficient, 3)), size = 3.5, color = "black") +
+
+                # Coefficient difference above each pair
+                geom_text(aes(x = pair_center_x, y = pair_max_error_bar_top + 0.05 * max(pair_max_error_bar_top), label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), size = 3.5, color = "black") +
+
+                # Colors for without- and with-industry fe bars
+                scale_fill_manual(values = c("No Controls" = "steelblue", "Industry FE" = "darkorange"), breaks = c("No Controls", "Industry FE")) +
+
+                # Name each individual subsample under its bar
+                scale_x_continuous(breaks = eiv_bar_graph_data$bar_x_position, labels = eiv_bar_graph_data$subgroup_label) +
+
+                # Add top headroom so the legend clears the delta annotations
+                scale_y_continuous(expand = expansion(mult = c(0.05, 0.2))) +
+
+                # No descriptive legend title
+                labs(x = "Subsample", y = paste0("EIV coefficient on ", unique(eiv_bar_graph_data$rhs_variable)), fill = NULL) +
+
+                # Theme baseline (larger base font)
+                theme_minimal(base_size = 13) +
+
+                # Theme adjustments
+                theme(
+                    # No grid lines
+                    panel.grid = element_blank(),
+
+                    # White background
+                    panel.background = element_rect(fill = "white", color = NA),
+                    plot.background = element_rect(fill = "white", color = NA),
+
+                    # Bottom and left axis spines
+                    axis.line = element_line(color = "black"),
+
+                    # Angle the per-bar subsample labels so the two within a pair do not overlap
+                    axis.text.x = element_text(angle = 45, hjust = 1),
+
+                    # Legend inside the plot
+                    legend.position = c(0.9, 0.9),
+                    legend.background = element_blank(),
+                    legend.key = element_blank()
+                )
+
+            # Export the clean illustration variant
+            ggsave(file.path(code, "scratch_nico", "figures", "temp.png"), plot = temp_eiv_bar_graph, width = 24, height = 8, dpi = 300, bg = "white")
+        }
     }
 }
