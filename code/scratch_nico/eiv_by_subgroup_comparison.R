@@ -682,41 +682,72 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
         # Produce one clean illustration variant for the weighted-Katz Borda male slice only
         if (rhs_variable_value == "pooled_favor_male_borda" && noise_matrix_construction_value == "katz_weighted_njobs") {
 
+            # Bar width and the three edge-to-edge whitespaces controlling the layout
+            bar_width <- 1.2
+            within_pair_whitespace <- 0.6
+            inter_pair_whitespace <- 2.2
+            edge_whitespace <- 1.1
+
+            # Center-to-center spacings within a pair and between the two pairs
+            within_pair_gap <- bar_width + within_pair_whitespace
+            inter_pair_gap <- bar_width + inter_pair_whitespace
+
+            # Distance between consecutive comparison block origins
+            comparison_period <- 2 * within_pair_gap + inter_pair_gap + bar_width + 2 * edge_whitespace
+
+            # Indicator for the industry-FE pair (the second pair in each comparison)
+            eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(fe_pair = ifelse(industry_fe_indicator == "yes", 1, 0))
+
+            # Origin of each comparison block along the x-axis
+            eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(comparison_origin = (as.integer(subgroup_comparison) - 1) * comparison_period)
+
+            # Bar x position: block origin + within-pair offset + the no-FE-to-FE pair offset
+            eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(bar_x_position = comparison_origin + within_pair_position * within_pair_gap + fe_pair * (within_pair_gap + inter_pair_gap))
+
+            # Center of each pair, where the delta annotation sits
+            eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(pair_center_x = comparison_origin + fe_pair * (within_pair_gap + inter_pair_gap) + within_pair_gap / 2)
+
+            # Estimate label just right of each whisker, left-aligned
+            eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(label_x = bar_x_position + 0.2, label_hjust = 0)
+
+            # Dashed separators a symmetric edge whitespace from the last bar of one comparison and the first bar of the next
+            separator_positions <- (0:3) * comparison_period + (2 * within_pair_gap + inter_pair_gap) + bar_width / 2 + edge_whitespace
+
             # Clean illustration variant of the bar graph
             temp_eiv_bar_graph <- ggplot(eiv_bar_graph_data, aes(x = bar_x_position, y = rhs_variable_coefficient, fill = fe_label)) +
 
                 # Horizontal reference line at zero
                 geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
 
-                # Bars with a slight gap within each pair
-                geom_col(width = 0.85) +
+                # Bars
+                geom_col(width = bar_width) +
 
                 # Thin black 95% confidence interval error bars
                 geom_errorbar(aes(ymin = rhs_variable_coefficient - 1.96 * rhs_variable_se, ymax = rhs_variable_coefficient + 1.96 * rhs_variable_se), width = 0.2, linewidth = 0.3, color = "black") +
 
                 # Grey dashed separators between subgroup comparisons
-                geom_vline(xintercept = (1:4) * 11 - 2.75, linetype = "dashed", color = "grey") +
+                geom_vline(xintercept = separator_positions, linetype = "dashed", color = "grey") +
 
-                # Each bar's coefficient only, without the standard error
-                geom_text(aes(x = label_x, y = rhs_variable_coefficient, hjust = label_hjust, vjust = label_vjust, label = round(rhs_variable_coefficient, 3)), size = 3.5, color = "black") +
+                # Each bar's coefficient only, without the standard error, just right of the whisker
+                geom_text(aes(x = label_x, y = rhs_variable_coefficient, hjust = label_hjust, vjust = label_vjust, label = round(rhs_variable_coefficient, 3)), size = 3.85, color = "black") +
 
                 # Coefficient difference above each pair
-                geom_text(aes(x = pair_center_x, y = pair_max_error_bar_top + 0.05 * max(pair_max_error_bar_top), label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), size = 3.5, color = "black") +
+                geom_text(aes(x = pair_center_x, y = pair_max_error_bar_top + 0.05 * max(pair_max_error_bar_top), label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), size = 3.85, color = "black") +
 
                 # Colors for without- and with-industry fe bars
                 scale_fill_manual(values = c("No Controls" = "steelblue", "Industry FE" = "darkorange"), breaks = c("No Controls", "Industry FE")) +
 
-                # Name each individual subsample under its bar
-                scale_x_continuous(breaks = eiv_bar_graph_data$bar_x_position, labels = eiv_bar_graph_data$subgroup_label) +
+                # Name each individual subsample under its bar, with symmetric edge margins matching the vline gaps
+                scale_x_continuous(breaks = eiv_bar_graph_data$bar_x_position, labels = eiv_bar_graph_data$subgroup_label, expand = expansion(add = edge_whitespace)) +
 
-                # Add top headroom so the legend clears the delta annotations
-                scale_y_continuous(expand = expansion(mult = c(0.05, 0.2))) +
+                # Four y-axis numbers up to the top
+                scale_y_continuous(breaks = c(0, 0.5, 1.0, 1.5), limits = c(NA, 1.5), expand = expansion(mult = c(0.03, 0.02))) +
 
                 # No descriptive legend title
                 labs(x = "Subsample", y = paste0("EIV coefficient on ", unique(eiv_bar_graph_data$rhs_variable)), fill = NULL) +
 
                 # Theme baseline (larger base font)
-                theme_minimal(base_size = 13) +
+                theme_minimal(base_size = 14) +
 
                 # Theme adjustments
                 theme(
@@ -729,6 +760,9 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
 
                     # Bottom and left axis spines
                     axis.line = element_line(color = "black"),
+
+                    # Y-axis tick marks
+                    axis.ticks.y = element_line(color = "black"),
 
                     # Angle the per-bar subsample labels so the two within a pair do not overlap
                     axis.text.x = element_text(angle = 45, hjust = 1),
