@@ -213,8 +213,7 @@ make_main_table_df <- function(eiv_firm, eiv_revelio) {
       share_rhs = "female_share"
     ),
     tibble::as_tibble(dplyr::bind_rows(
-      make_value_row("Industry FE", c("", "X", "", "X", "", "X", "", "X"), identity),
-      make_value_row("Share controls", c("", "", "X", "X", "", "", "X", "X"), identity)
+      make_value_row("Industry FE", c("", "X", "", "X", "", "X", "", "X"), identity)
     ))
   )
 }
