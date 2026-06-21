@@ -66,6 +66,19 @@ table_configs <- list(
   )
 )
 
+pooled_share_configs <- list(
+  list(
+    panel_label = "Panel A: Black Share",
+    lhs = "black_share",
+    rhs_pooled = "pooled_favor_white"
+  ),
+  list(
+    panel_label = "Panel B: Female Share",
+    lhs = "female_share",
+    rhs_pooled = "pooled_favor_male"
+  )
+)
+
 fmt3 <- function(x) {
   ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
 }
@@ -193,6 +206,54 @@ build_panel_df <- function(eiv_by_subdir, model_filter, lhs, rhs_contact,
     dplyr::select(-subdir)
 }
 
+build_full_sample_pooled_share_df <- function(eiv_full_sample,
+                                              configs = pooled_share_configs) {
+  dplyr::bind_rows(lapply(configs, function(cfg) {
+    make_cell <- function(model_filter, coef_num, statistic) {
+      value <- pull_eiv_value(
+        eiv_df = eiv_full_sample,
+        lhs_var = cfg$lhs,
+        rhs_var = cfg$rhs_pooled,
+        model_filter = model_filter,
+        coef_num = coef_num,
+        statistic = statistic
+      )
+
+      if (statistic == "estimate") {
+        fmt3(value)
+      } else if (is.na(value)) {
+        "NA"
+      } else {
+        paste0("(", fmt_se(value), ")")
+      }
+    }
+
+    tibble::tibble(
+      row_label = c(cfg$panel_label, "Beliefs", ""),
+      `(1) Pooled` = c(
+        "",
+        make_cell("OLS", 1L, "estimate"),
+        make_cell("OLS", 1L, "se")
+      ),
+      `(2) Pooled (Industry FE)` = c(
+        "",
+        make_cell("OLS", 2L, "estimate"),
+        make_cell("OLS", 2L, "se")
+      ),
+      `(3) Pooled` = c(
+        "",
+        make_cell("Borda", 1L, "estimate"),
+        make_cell("Borda", 1L, "se")
+      ),
+      `(4) Pooled (Industry FE)` = c(
+        "",
+        make_cell("Borda", 2L, "estimate"),
+        make_cell("Borda", 2L, "se")
+      )
+    )
+  }))
+}
+
 write_two_panel_table <- function(cfg, eiv_by_subdir) {
   sections <- list(
     "Panel A: Likert" = build_panel_df(
@@ -249,6 +310,55 @@ write_two_panel_table <- function(cfg, eiv_by_subdir) {
   invisible(out_tex)
 }
 
+write_full_sample_pooled_share_table <- function(eiv_by_subdir) {
+  table_df <- build_full_sample_pooled_share_df(eiv_by_subdir[["Full_Sample"]])
+
+  lines <- c(
+    "\\begin{tabular}{lcccc}",
+    "\\toprule",
+    " & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
+    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5}",
+    paste(latex_escape(c("", paste0("(", 1:4, ")"))), collapse = " & "),
+    "\\\\",
+    "\\midrule"
+  )
+
+  for (i in seq_len(nrow(table_df))) {
+    row_values <- unname(unlist(table_df[i, ], use.names = FALSE))
+
+    if (grepl("^Panel ", row_values[1])) {
+      if (i > 1L) lines <- c(lines, "\\addlinespace")
+      lines <- c(
+        lines,
+        paste0("\\multicolumn{5}{l}{\\textbf{", latex_escape(row_values[1]), "}} \\\\")
+      )
+    } else {
+      lines <- c(
+        lines,
+        paste(latex_escape(row_values), collapse = " & "),
+        "\\\\"
+      )
+    }
+  }
+
+  lines <- c(
+    lines,
+    "\\addlinespace",
+    "Industry FE &  & X &  & X",
+    "\\\\",
+    "\\bottomrule",
+    "\\end{tabular}"
+  )
+
+  out_tex <- file.path(
+    tables_out,
+    "EIV_revelio_full_sample_pooled_share_outcomes.tex"
+  )
+  write_lines_checked(lines, out_tex, label = "Full-sample Revelio pooled-share EIV table")
+  message("Saved: ", out_tex)
+  invisible(out_tex)
+}
+
 message("Reading Revelio EIV outputs from: ", intermediate)
 message("Writing Revelio outcome EIV tables to: ", tables_out)
 
@@ -257,6 +367,7 @@ eiv_by_subdir <- setNames(
   default_filemap$subdir
 )
 
+write_full_sample_pooled_share_table(eiv_by_subdir)
 invisible(lapply(table_configs, write_two_panel_table, eiv_by_subdir = eiv_by_subdir))
 
 message("Revelio outcome EIV tables complete.")

@@ -60,6 +60,15 @@ read_full_sample_sheet <- function(sheet) {
 }
 
 appendix_filemap <- default_filemap
+contact_conduct_filemap <- default_filemap[
+  default_filemap$Sample == "Full Sample",
+  ,
+  drop = FALSE
+]
+
+is_full_sample_filemap <- function(filemap) {
+  nrow(filemap) == 1L && identical(as.character(filemap$Sample), "Full Sample")
+}
 
 read_appendix_firm_for_subdir <- function(subdir) {
   read_parquet_sheet(file.path(intermediate, subdir), "EIV_firm")
@@ -243,6 +252,23 @@ pull_eiv_cell <- function(eiv_df, lhs_var, rhs_var, model_filter, coef_num,
   paste(fmt3(est), fmt_se(se))
 }
 
+pull_eiv_formatted_value <- function(eiv_df, lhs_var, rhs_var, model_filter,
+                                     coef_num, formula_filter = NULL,
+                                     statistic = c("estimate", "se")) {
+  statistic <- match.arg(statistic)
+  value <- pull_eiv_value(
+    eiv_df = eiv_df,
+    lhs_var = lhs_var,
+    rhs_var = rhs_var,
+    model_filter = model_filter,
+    coef_num = coef_num,
+    formula_filter = formula_filter,
+    statistic = statistic
+  )
+
+  if (statistic == "estimate") fmt3(value) else fmt_se(value)
+}
+
 appendix_specs <- tibble::tribble(
   ~col_name, ~model_filter, ~rhs_type, ~coef_num,
   "col1", "OLS", "contact", 1L,
@@ -285,23 +311,81 @@ build_subsample_appendix_panel <- function(eiv_by_subdir, lhs, rhs_contact,
     )
   }
 
+  if (is_full_sample_filemap(filemap)) {
+    out$Sample <- "Beliefs"
+  }
+
   out %>%
     dplyr::select(-subdir)
 }
 
-make_subsample_appendix_sections <- function(eiv_by_subdir) {
+build_full_sample_appendix_panel <- function(eiv_by_subdir, lhs, rhs_contact,
+                                             rhs_conduct,
+                                             filemap = contact_conduct_filemap) {
+  pull_appendix_col <- function(subdir, model_filter, rhs_type, coef_num,
+                                statistic) {
+    rhs <- if (rhs_type == "contact") rhs_contact else rhs_conduct
+    pull_eiv_formatted_value(
+      eiv_df = eiv_by_subdir[[subdir]],
+      lhs_var = lhs,
+      rhs_var = rhs,
+      model_filter = model_filter,
+      coef_num = coef_num,
+      formula_filter = rhs,
+      statistic = statistic
+    )
+  }
+
+  make_row <- function(label, statistic) {
+    out <- filemap %>%
+      dplyr::select(Sample, subdir) %>%
+      dplyr::mutate(Sample = label)
+
+    for (i in seq_len(nrow(appendix_specs))) {
+      spec <- appendix_specs[i, ]
+      out[[spec$col_name]] <- vapply(
+        out$subdir,
+        pull_appendix_col,
+        character(1),
+        model_filter = spec$model_filter,
+        rhs_type = spec$rhs_type,
+        coef_num = spec$coef_num,
+        statistic = statistic
+      )
+    }
+
+    out %>%
+      dplyr::select(-subdir)
+  }
+
+  dplyr::bind_rows(
+    make_row("Beliefs", "estimate"),
+    make_row("", "se")
+  )
+}
+
+make_subsample_appendix_sections <- function(eiv_by_subdir,
+                                             filemap = appendix_filemap) {
+  panel_builder <- if (is_full_sample_filemap(filemap)) {
+    build_full_sample_appendix_panel
+  } else {
+    build_subsample_appendix_panel
+  }
+
   list(
-    "Panel A: Race Discrimination/Beliefs" = build_subsample_appendix_panel(
+    "Panel A: Race" = panel_builder(
       eiv_by_subdir = eiv_by_subdir,
       lhs = "log_dif",
       rhs_contact = "FirmCont_favor_white",
-      rhs_conduct = "conduct_favor_white"
+      rhs_conduct = "conduct_favor_white",
+      filemap = filemap
     ),
-    "Panel B: Gender Discrimination/Beliefs" = build_subsample_appendix_panel(
+    "Panel B: Gender" = panel_builder(
       eiv_by_subdir = eiv_by_subdir,
       lhs = "log_dif_gender",
       rhs_contact = "FirmCont_favor_male",
-      rhs_conduct = "conduct_favor_male"
+      rhs_conduct = "conduct_favor_male",
+      filemap = filemap
     )
   )
 }
@@ -354,16 +438,18 @@ write_latex_grid <- function(table_df, out_file) {
 }
 
 write_latex_sections <- function(sections, out_file) {
-  subheaders <- rep(
-    c("Contact", "Contact (Industry FE)", "Conduct", "Conduct (Industry FE)"),
-    2
-  )
-  align <- paste0("l", paste(rep("c", length(subheaders)), collapse = ""))
+  align <- paste0("l", paste(rep("c", 8), collapse = ""))
   lines <- c(
     paste0("\\begin{tabular}{", align, "}"),
-    "\\toprule"
+    "\\toprule",
+    " & \\multicolumn{4}{c}{Likert} & \\multicolumn{4}{c}{Borda} \\\\",
+    "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}",
+    " & \\multicolumn{2}{c}{Contact} & \\multicolumn{2}{c}{Conduct} & \\multicolumn{2}{c}{Contact} & \\multicolumn{2}{c}{Conduct} \\\\",
+    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5} \\cmidrule(lr){6-7} \\cmidrule(lr){8-9}",
+    paste(latex_escape(c("", paste0("(", 1:8, ")"))), collapse = " & "),
+    "\\\\",
+    "\\midrule"
   )
-  lines <- write_grouped_header(lines, "Sample", subheaders)
 
   for (section_name in names(sections)) {
     section_df <- sections[[section_name]]
@@ -383,7 +469,13 @@ write_latex_sections <- function(sections, out_file) {
     lines <- c(lines, "\\addlinespace")
   }
 
-  lines <- c(lines, "\\bottomrule", "\\end{tabular}")
+  lines <- c(
+    lines,
+    "Industry FE &  & X &  & X &  & X &  & X",
+    "\\\\",
+    "\\bottomrule",
+    "\\end{tabular}"
+  )
 
   out_tex <- file.path(tables_out, out_file)
   write_lines_checked(lines, out_tex, label = "Revelio EIV appendix LaTeX table")
@@ -405,11 +497,14 @@ write_latex_grid(
 )
 
 eiv_by_subdir <- setNames(
-  lapply(appendix_filemap$subdir, read_appendix_firm_for_subdir),
-  appendix_filemap$subdir
+  lapply(contact_conduct_filemap$subdir, read_appendix_firm_for_subdir),
+  contact_conduct_filemap$subdir
 )
 
-appendix_sections <- make_subsample_appendix_sections(eiv_by_subdir)
+appendix_sections <- make_subsample_appendix_sections(
+  eiv_by_subdir,
+  filemap = contact_conduct_filemap
+)
 
 write_latex_sections(
   appendix_sections,
