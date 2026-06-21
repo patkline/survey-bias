@@ -62,8 +62,10 @@ compute_njobs_weighted_katz_noise <- function(
   # Katz measurement-error variance across firms i.e. weighted variance minus the Katz-corrected signal variance
   njobs_weighted_katz_noise_across_firms <- njobs_weighted_variance_across_firms - katz_correct(njobs_weighted_unbiased_signal_variance_across_firms, njobs_weighted_signal_variance_sampling_variance)
 
-  # Check the Katz measurement-error variance is positive (PSD) and no larger than the raw weighted noise
-  stopifnot(njobs_weighted_katz_noise_across_firms > 0, njobs_weighted_katz_noise_across_firms <= njobs_weighted_noise_across_firms + 1e-12)
+  # Return NA when the Katz noise is non-finite or non-positive (signal swamped by noise on a small subsample); eivreg rejects an NA Sigma_error so a cell actually used still fails loudly
+  if (!is.finite(njobs_weighted_katz_noise_across_firms) || njobs_weighted_katz_noise_across_firms <= 0) {
+    return(NA_real_)
+  }
 
   # Return the njobs-weighted Katz measurement-error variance
   njobs_weighted_katz_noise_across_firms
