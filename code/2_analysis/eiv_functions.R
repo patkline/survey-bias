@@ -14,7 +14,63 @@
 source("code/globals.R")
 
 # ----------------------------------------------------------------------------------------
-# build_noise_matrix() --- assemble the sampling-noise variance-covariance 
+# compute_njobs_weighted_katz_noise() --- njobs-weighted Katz measurement-error variance
+# for one error-prone regressor i.e. one diagonal entry of the EIV Sigma_error
+# ----------------------------------------------------------------------------------------
+compute_njobs_weighted_katz_noise <- function(
+  # Firm-level estimate of the error-prone regressor (belief, discretion, wage gap, etc.), one entry per firm
+  firm_regressor_vector,
+
+  # Firm-level number-of-jobs weight vector, same firm order as the regressor vector
+  firm_number_of_jobs_vector,
+
+  # Firm-level robust covariance matrix, rows/columns in the same firm order
+  firm_robust_covariance_matrix
+) {
+
+  # Check the regressor and weight vectors share the covariance matrix dimension, none missing
+  stopifnot(
+    length(firm_regressor_vector) == nrow(firm_robust_covariance_matrix),
+    length(firm_number_of_jobs_vector) == nrow(firm_robust_covariance_matrix),
+    nrow(firm_robust_covariance_matrix) == ncol(firm_robust_covariance_matrix),
+    !anyNA(firm_regressor_vector), !anyNA(firm_number_of_jobs_vector), !anyNA(firm_robust_covariance_matrix)
+  )
+
+  # Normalize the job weights to sum to one
+  firm_weight_vector <- firm_number_of_jobs_vector / sum(firm_number_of_jobs_vector)
+
+  # Center the regressor estimate at its weighted mean across firms
+  firm_regressor_centered_vector <- firm_regressor_vector - sum(firm_weight_vector * firm_regressor_vector)
+
+  # Weighted variance of the centered regressor estimate across firms
+  njobs_weighted_variance_across_firms <- sum(firm_weight_vector * firm_regressor_centered_vector^2)
+
+  # Weighted mean squared standard error across firms i.e. the raw weighted noise
+  njobs_weighted_noise_across_firms <- sum(firm_weight_vector * diag(firm_robust_covariance_matrix))
+
+  # Weighted unbiased signal variance estimate across firms i.e. weighted variance minus weighted noise
+  njobs_weighted_unbiased_signal_variance_across_firms <- njobs_weighted_variance_across_firms - njobs_weighted_noise_across_firms
+
+  # Job-weighted centered regressor estimate i.e. the weight times the centered estimate for each firm
+  firm_weighted_regressor_centered_vector <- firm_weight_vector * firm_regressor_centered_vector
+
+  # Sampling variance of the weighted unbiased signal variance estimate
+  njobs_weighted_signal_variance_sampling_variance <-
+    4 * sum(firm_weighted_regressor_centered_vector * (firm_robust_covariance_matrix %*% firm_weighted_regressor_centered_vector)) -
+    2 * sum((firm_weight_vector * firm_robust_covariance_matrix) * t(firm_weight_vector * firm_robust_covariance_matrix))
+
+  # Katz measurement-error variance across firms i.e. weighted variance minus the Katz-corrected signal variance
+  njobs_weighted_katz_noise_across_firms <- njobs_weighted_variance_across_firms - katz_correct(njobs_weighted_unbiased_signal_variance_across_firms, njobs_weighted_signal_variance_sampling_variance)
+
+  # Check the Katz measurement-error variance is positive (PSD) and no larger than the raw weighted noise
+  stopifnot(njobs_weighted_katz_noise_across_firms > 0, njobs_weighted_katz_noise_across_firms <= njobs_weighted_noise_across_firms + 1e-12)
+
+  # Return the njobs-weighted Katz measurement-error variance
+  njobs_weighted_katz_noise_across_firms
+}
+
+# ----------------------------------------------------------------------------------------
+# build_noise_matrix() --- assemble the sampling-noise variance-covariance
 # matrix for one model from the variance and covariance sheets
 #   - one row/column per belief measure with,
 #       i. noise variances on the diagonal 
@@ -53,8 +109,8 @@ build_noise_matrix <- function(
   # Check the variance and covariance sheet inputs are dataframes
   stopifnot(is.data.frame(variance_df), is.data.frame(covariance_df))
 
-  # Check the variance sheet has the subset, model, belief measure, and noise columns
-  stopifnot(all(c(subset_col, model_col, outcome_col, "noise") %in% names(variance_df)))
+  # Check the variance sheet has the subset, model, belief measure, and njobs-weighted Katz noise columns
+  stopifnot(all(c(subset_col, model_col, outcome_col, "noise_njobs_weighted_katz") %in% names(variance_df)))
 
   # Check the covariance sheet has the subset, model, belief-measure pair, and noise columns
   stopifnot(all(c(subset_col, model_col, lhs_col, rhs_col, "noise") %in% names(covariance_df)))
@@ -81,14 +137,14 @@ build_noise_matrix <- function(
   # Restrict the variance sheet to the given subset x model
   noise_variance_per_belief_measure <- variance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
 
-  # Keep just the belief measure and noise variance columns 
-  noise_variance_per_belief_measure <- noise_variance_per_belief_measure |> dplyr::select(dplyr::all_of(c(outcome_col, "noise")))
+  # Keep just the belief measure and njobs-weighted Katz noise variance columns
+  noise_variance_per_belief_measure <- noise_variance_per_belief_measure |> dplyr::select(dplyr::all_of(c(outcome_col, "noise_njobs_weighted_katz")))
 
   # Find each belief measure's row position in the filtered variance sheet; NA when the measure has no row
   belief_measure_row_positions <- match(outcomes, noise_variance_per_belief_measure[[outcome_col]])
 
-  # Fill the diagonal with the noise variances, reordered to the matrix row order; absent measures stay NA
-  diag(noise_variance_covariance_matrix) <- as.numeric(noise_variance_per_belief_measure$noise[belief_measure_row_positions])
+  # Fill the diagonal with the njobs-weighted Katz noise variances, reordered to the matrix row order; absent measures stay NA
+  diag(noise_variance_covariance_matrix) <- as.numeric(noise_variance_per_belief_measure$noise_njobs_weighted_katz[belief_measure_row_positions])
 
   # Restrict the covariance sheet to the given subset x model
   noise_covariance_per_belief_measure_pair <- covariance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
