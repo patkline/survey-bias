@@ -243,6 +243,7 @@ run_analysis_pipeline <- function(
     list(lhs = "log_dif_age",       rhs = c("discretion"))
   )
 
+  # Bivariate (joint Selectivity + Discretion) specs --- computed into EIV_firm but no results script consumes them; the bivariate result tables were removed
   regs_bi <- list(
     list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
     list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),

@@ -120,47 +120,6 @@ build_eiv_df <- function(cfg) {
   table_df
 }
 
-# ---------- BUILD DF FOR ONE BIVARIATE CONFIG ----------
-
-build_eiv_df_bivariate <- function(cfg) {
-  root           <- cfg$root
-  sheet_name     <- cfg$sheet_name     %||% "EIV_firm"
-  model_filter   <- cfg$model_filter
-  lhs            <- cfg$lhs
-  rhs1           <- cfg$rhs1
-  rhs2           <- cfg$rhs2
-  coef1          <- cfg$coef1
-  coef2          <- cfg$coef2
-  formula_filter <- cfg$formula_filter %||% paste(c(rhs1, rhs2), collapse = " + ")
-
-  scale_by_100 <- cfg$scale_by_100 %||% FALSE
-  filemap      <- cfg$filemap %||% default_filemap
-
-  col1_label <- cfg$col1_label %||% "(1) Selective"
-  col2_label <- cfg$col2_label %||% "(2) Selective (Industry FE)"
-  col3_label <- cfg$col3_label %||% "(3) Discretion"
-  col4_label <- cfg$col4_label %||% "(4) Discretion (Industry FE)"
-
-  table_df <- filemap %>%
-    rowwise() %>%
-    mutate(
-      `__col1` = pull_est(root, subdir, lhs, rhs1, coef1, sheet_name, model_filter, formula_filter, scale_by_100),
-      `__col2` = pull_est(root, subdir, lhs, rhs1, coef2, sheet_name, model_filter, formula_filter, scale_by_100),
-      `__col3` = pull_est(root, subdir, lhs, rhs2, coef1, sheet_name, model_filter, formula_filter, scale_by_100),
-      `__col4` = pull_est(root, subdir, lhs, rhs2, coef2, sheet_name, model_filter, formula_filter, scale_by_100)
-    ) %>%
-    ungroup() %>%
-    select(-subdir) %>%
-    rename(
-      !!col1_label := `__col1`,
-      !!col2_label := `__col2`,
-      !!col3_label := `__col3`,
-      !!col4_label := `__col4`
-    )
-
-  table_df
-}
-
 # ---------- FOUR-PANEL LATEX TABLE BUILDER ----------
 
 build_four_panel_eiv_table <- function(cfg_pl, cfg_borda, cfg_ols, cfg_olsc,
@@ -294,25 +253,6 @@ make_uni_cfg <- function(root, model, lhs, rhs_contact, rhs_conduct, rhs_extra,
   )
 }
 
-make_bi_cfg <- function(root, model, lhs, rhs1 = "FirmSelective", rhs2 = "discretion",
-                        coef1 = 1L, coef2 = 2L) {
-  list(
-    root           = root,
-    sheet_name     = "EIV_firm",
-    model_filter   = model,
-    lhs            = lhs,
-    rhs1           = rhs1,
-    rhs2           = rhs2,
-    formula_filter = paste(c(rhs1, rhs2), collapse = " + "),
-    col1_label     = "(1) Selective",
-    col2_label     = "(2) Selective (Industry FE)",
-    col3_label     = "(3) Discretion",
-    col4_label     = "(4) Discretion (Industry FE)",
-    coef1          = coef1,
-    coef2          = coef2
-  )
-}
-
 # ==========================================================================
 # UNIVARIATE FOUR-PANEL TABLES
 # ==========================================================================
@@ -416,42 +356,3 @@ build_two_panel_eiv_table(
   left_label = "Panel A: Likert",
   right_label = "Panel B: Borda"
 )
-
-# ==========================================================================
-# BIVARIATE FOUR-PANEL TABLES
-# ==========================================================================
-
-if (FALSE) {
-  # ---- Race (bivariate) ----
-  build_four_panel_eiv_table(
-    cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif"),
-    cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif"),
-    cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif"),
-    cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif"),
-    cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif"),
-    out_tex   = file.path(tables, "EIV_race_bivariate_four_panel.tex"),
-    build_fn  = build_eiv_df_bivariate
-  )
-
-  # ---- Gender (bivariate) ----
-  build_four_panel_eiv_table(
-    cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif_gender"),
-    cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif_gender"),
-    cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif_gender"),
-    cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif_gender"),
-    cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif_gender"),
-    out_tex   = file.path(tables, "EIV_gender_bivariate_four_panel.tex"),
-    build_fn  = build_eiv_df_bivariate
-  )
-
-  # ---- Age (bivariate) ----
-  build_four_panel_eiv_table(
-    cfg_pl    = make_bi_cfg(root_dir, "PL",    "log_dif_age"),
-    cfg_borda = make_bi_cfg(root_dir, "Borda", "log_dif_age"),
-    cfg_ols   = make_bi_cfg(root_dir, "OLS",   "log_dif_age"),
-    cfg_olsc  = make_bi_cfg(root_dir, "OLSC",  "log_dif_age"),
-    cfg_ol    = make_bi_cfg(root_dir, "OL",    "log_dif_age"),
-    out_tex   = file.path(tables, "EIV_age_bivariate_four_panel.tex"),
-    build_fn  = build_eiv_df_bivariate
-  )
-}
