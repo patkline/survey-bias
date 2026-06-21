@@ -31,14 +31,22 @@ compute_variance_noise_signal <- function(res) {
   # Katz-corrected signal via your helper
   vc <- var_component_with_var(theta_hat = beta, Sigma = Sigma)
   signal <- katz_correct(vc$sigma2_hat, vc$Vhat)
-  
+
+  # njobs-weighted Katz measurement-error variance, computed only when every firm has a positive job weight (i.e. the subset97 sample); NA on the full sample
+  noise_njobs_weighted_katz <- if (!is.null(res$firm_table$njobs) && !anyNA(res$firm_table$njobs) && all(res$firm_table$njobs > 0)) {
+    compute_njobs_weighted_katz_noise(as.numeric(res$firm_table$estimate), as.numeric(res$firm_table$njobs), Sigma)
+  } else {
+    NA_real_
+  }
+
   list(
     J = length(beta),
     variance = variance,
     noise = noise,
     sigma2_hat = vc$sigma2_hat,
     Vhat = vc$Vhat,
-    signal = signal
+    signal = signal,
+    noise_njobs_weighted_katz = noise_njobs_weighted_katz
   )
 }
 
@@ -83,6 +91,7 @@ write_variance_sheet <- function(results, output_dir, sheet_name = "variance") {
           sigma2_hat= out$sigma2_hat,
           Vhat      = out$Vhat,
           signal    = out$signal,
+          noise_njobs_weighted_katz = out$noise_njobs_weighted_katz,
           stringsAsFactors = FALSE
         )
         k <- k + 1L
