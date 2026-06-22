@@ -36,7 +36,6 @@ source(file.path(create_tables_figures, "eiv_table_within_between.R"))
 source(file.path(create_tables_figures, "industry_decomposition_line_charts.R"))
 source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
-source(file.path(create_tables_figures, "eiv_coefplot.R"))
 source(file.path(create_tables_figures, "eiv_by_subgroup_comparison.R"))
 
 

@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------------------------------------------------------
-# Purpose: Stacked two-row-per-firm EIV testing whether the subgroup-split coefplot
-#          slopes are statistically distinguishable
+# Purpose: Stacked two-row-per-firm EIV testing whether the subgroup-split coefplot slopes are 
+# statistically distinguishable
+#
 # Created: Nico Rotundo 2026-06-13
 # -----------------------------------------------------------------------------------------------------------------------------
 # Run globals
