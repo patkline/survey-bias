@@ -1,8 +1,9 @@
 # -----------------------------------------------------------------------------------------------------------------------------
-# Purpose: Stacked two-row-per-firm EIV testing whether the subgroup-split coefplot slopes are 
-# statistically distinguishable
+# Purpose: Coefplot of the subgroup-split EIV slopes --- one figure per pooled belief x aggregation method,
+# grouping the No-Controls and Industry-FE specs within each subgroup comparison and testing the slope difference
 #
 # Created: Nico Rotundo 2026-06-13
+# Edited: Nico Rotundo 2026-06-22
 # -----------------------------------------------------------------------------------------------------------------------------
 # Run globals
 source("code/globals.R")
@@ -345,98 +346,79 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Plot the EIV coefficients in a bar graph, one figure per RHS belief measure (embeds both the LHS gap and the aggregation method)
+# Plot the EIV coefficients as a coefplot, one figure per RHS belief measure (embeds both the LHS gap and the aggregation method)
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each RHS belief measure
 for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda", "pooled_favor_male_ols", "pooled_favor_male_borda")) {
 
     # Restrict to the current RHS belief measure and aggregation method
-    eiv_bar_graph_data <- eiv_regression_results |> dplyr::filter(rhs_variable == rhs_variable_value)
+    eiv_coefplot_data <- eiv_regression_results |> dplyr::filter(rhs_variable == rhs_variable_value)
 
-    # Should be 5 subgroup comparisons x 2 subgroups x 2 industry-FE specs = 20 bars
-    stopifnot(nrow(eiv_bar_graph_data) == 20)
+    # Should be 5 subgroup comparisons x 2 subgroups x 2 industry-FE specs = 20 points
+    stopifnot(nrow(eiv_coefplot_data) == 20)
 
-    # Position within the pair: the two subgroup bars touch (0 and 1)
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(within_pair_position = ifelse(subgroup == sub("_minus_.*", "", subgroup_comparison), 0, 1))
+    # Position of the subgroup within its comparison: first listed subgroup at 0, second at 1
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(within_comparison_position = ifelse(subgroup == sub("_minus_.*", "", subgroup_comparison), 0, 1))
 
-    # Order the subgroup comparisons along the x-axis
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(subgroup_comparison = factor(subgroup_comparison, levels = c("white_minus_black", "male_minus_female", "looking_minus_not_looking", "feared_discrimination_1_minus_feared_discrimination_0", "age_gte40_minus_age_lt40")))
+    # Order the comparisons top-to-bottom
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(subgroup_comparison = factor(subgroup_comparison, levels = c("white_minus_black", "male_minus_female", "looking_minus_not_looking", "feared_discrimination_1_minus_feared_discrimination_0", "age_gte40_minus_age_lt40")))
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(comparison_index = as.integer(subgroup_comparison) - 1)
 
-    # Label the industry-FE bars
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(fe_label = factor(industry_fe_indicator, levels = c("no", "yes"), labels = c("No Controls", "Industry FE")))
+    # Spec label, spec block index, and single-line subgroup label; the No-Controls block sits above the Industry-FE block within each comparison
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(fe_label = factor(industry_fe_indicator, levels = c("no", "yes"), labels = c("No Controls", "Industry FE")))
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(spec_block_index = ifelse(industry_fe_indicator == "no", 0, 1))
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(subgroup_label = dplyr::recode(subgroup, "white" = "White", "black" = "Black", "female" = "Female", "male" = "Male", "looking" = "Looking", "not_looking" = "Not Looking", "feared_discrimination_1" = "Feared", "feared_discrimination_0" = "No Fear", "age_gte40" = "Age ≥40", "age_lt40" = "Age <40"))
 
-    # Readable subsample label under each bar
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(subgroup_label = dplyr::recode(subgroup, "white" = "White", "black" = "Black", "female" = "Female", "male" = "Male", "looking" = "Looking", "not_looking" = "Not\nLooking", "feared_discrimination_1" = "Feared", "feared_discrimination_0" = "No\nFear", "age_gte40" = "Age\n≥40", "age_lt40" = "Age\n<40"))
+    # Row layout: within a comparison the two specs form stacked blocks of two subgroups each, separated by a small gap; comparisons separated by a larger gap
+    block_gap <- 0.8
+    comparison_gap <- 1.6
+    rows_in_block <- 2
+    comparison_span <- 2 * rows_in_block + block_gap
+    comparison_period <- comparison_span + comparison_gap
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(row_in_comparison = spec_block_index * (rows_in_block + block_gap) + within_comparison_position)
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(point_y = -(comparison_index * comparison_period + row_in_comparison))
 
-    # Estimate label vertical placement: above positive bars, below negative bars
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(label_vjust = ifelse(rhs_variable_coefficient >= 0, -0.4, 1.4))
+    # Subsample label per row
+    y_axis_data <- eiv_coefplot_data |> dplyr::distinct(point_y, subgroup_label)
 
-    # Store the top of the taller error bar in each pair, so the delta annotation clears both error bars
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::group_by(subgroup_comparison, fe_label) |> dplyr::mutate(pair_max_error_bar_top = max(rhs_variable_coefficient + 1.96 * rhs_variable_se)) |> dplyr::ungroup()
+    # Slope-difference annotation per spec block, placed just past that block's longest interval so the right margin stays free for the legend
+    block_interval_max <- eiv_coefplot_data |> dplyr::group_by(comparison_index, spec_block_index) |> dplyr::summarize(block_interval_max = max(rhs_variable_coefficient + 1.96 * rhs_variable_se), .groups = "drop")
+    delta_annotation_data <- eiv_coefplot_data |> dplyr::group_by(subgroup_comparison, comparison_index, fe_label, spec_block_index) |> dplyr::summarize(rhs_variable_coefficient_difference = dplyr::first(rhs_variable_coefficient_difference), rhs_variable_coefficient_difference_se = dplyr::first(rhs_variable_coefficient_difference_se), .groups = "drop")
+    delta_annotation_data <- delta_annotation_data |> dplyr::left_join(block_interval_max, by = c("comparison_index", "spec_block_index"))
+    delta_annotation_data <- delta_annotation_data |> dplyr::mutate(delta_y = -(comparison_index * comparison_period + spec_block_index * (rows_in_block + block_gap) + 0.5), delta_x = block_interval_max + 0.06)
 
-    # Bar width and the three edge-to-edge whitespaces controlling the layout
-    bar_width <- 1.2
-    within_pair_whitespace <- 0.6
-    inter_pair_whitespace <- 2.2
-    edge_whitespace <- 1.1
+    # Faint separators midway in the gap between comparisons
+    separator_y <- -((seq_len(4)) * comparison_period - comparison_gap / 2)
 
-    # Center-to-center spacings within a pair and between the two pairs
-    within_pair_gap <- bar_width + within_pair_whitespace
-    inter_pair_gap <- bar_width + inter_pair_whitespace
+    # Coefplot: each subgroup a point with its 95% interval, the two specs as stacked color-coded blocks within each comparison, the slope difference annotated per block
+    eiv_coefplot <- ggplot(eiv_coefplot_data, aes(x = rhs_variable_coefficient, y = point_y, color = fe_label)) +
 
-    # Distance between consecutive comparison block origins
-    comparison_period <- 2 * within_pair_gap + inter_pair_gap + bar_width + 2 * edge_whitespace
+        # Vertical reference line at zero
+        geom_vline(xintercept = 0, color = "grey55", linewidth = 0.3) +
 
-    # Indicator for the industry-FE pair (the second pair in each comparison)
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(fe_pair = ifelse(industry_fe_indicator == "yes", 1, 0))
+        # Long-dashed separators between subgroup comparisons
+        geom_hline(yintercept = separator_y, linetype = "longdash", color = "grey", linewidth = 0.4) +
 
-    # Origin of each comparison block along the x-axis
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(comparison_origin = (as.integer(subgroup_comparison) - 1) * comparison_period)
+        # 95% confidence intervals
+        geom_errorbar(aes(xmin = rhs_variable_coefficient - 1.96 * rhs_variable_se, xmax = rhs_variable_coefficient + 1.96 * rhs_variable_se), orientation = "y", width = 0, linewidth = 0.5) +
 
-    # Bar x position: block origin + within-pair offset + the no-FE-to-FE pair offset
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(bar_x_position = comparison_origin + within_pair_position * within_pair_gap + fe_pair * (within_pair_gap + inter_pair_gap))
+        # Point estimates
+        geom_point(size = 2.6) +
 
-    # Center of each pair, where the delta annotation sits
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(pair_center_x = comparison_origin + fe_pair * (within_pair_gap + inter_pair_gap) + within_pair_gap / 2)
+        # Slope difference per spec block, color-matched to the spec
+        geom_text(data = delta_annotation_data, aes(x = delta_x, y = delta_y, color = fe_label, label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), hjust = 0, size = 3.3, inherit.aes = FALSE, show.legend = FALSE) +
 
-    # Estimate label just right of each whisker, left-aligned
-    eiv_bar_graph_data <- eiv_bar_graph_data |> dplyr::mutate(label_x = bar_x_position + 0.2, label_hjust = 0)
+        # Colors for the no-controls and industry-FE specs
+        scale_color_manual(values = c("No Controls" = "steelblue", "Industry FE" = "darkorange")) +
 
-    # Dashed separators a symmetric edge whitespace from the last bar of one comparison and the first bar of the next
-    separator_positions <- (0:3) * comparison_period + (2 * within_pair_gap + inter_pair_gap) + bar_width / 2 + edge_whitespace
+        # Subsample label per row, with a little vertical headroom
+        scale_y_continuous(breaks = y_axis_data$point_y, labels = y_axis_data$subgroup_label, expand = expansion(mult = c(0.02, 0.03))) +
 
-    # Bar graph: two touching bars per subgroup comparison (no-FE pair then industry-FE pair), with the coefficient difference annotated above each pair
-    eiv_bar_graph <- ggplot(eiv_bar_graph_data, aes(x = bar_x_position, y = rhs_variable_coefficient, fill = fe_label)) +
+        # Right headroom for the delta annotations
+        scale_x_continuous(expand = expansion(mult = c(0.02, 0.22))) +
 
-        # Horizontal reference line at zero
-        geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-
-        # Bars
-        geom_col(width = bar_width) +
-
-        # Thin black 95% confidence interval error bars
-        geom_errorbar(aes(ymin = rhs_variable_coefficient - 1.96 * rhs_variable_se, ymax = rhs_variable_coefficient + 1.96 * rhs_variable_se), width = 0.2, linewidth = 0.3, color = "black") +
-
-        # Grey dashed separators between subgroup comparisons
-        geom_vline(xintercept = separator_positions, linetype = "dashed", color = "grey") +
-
-        # Each bar's coefficient only, without the standard error, just right of the whisker
-        geom_text(aes(x = label_x, y = rhs_variable_coefficient, hjust = label_hjust, vjust = label_vjust, label = round(rhs_variable_coefficient, 3)), size = 3.85, color = "black") +
-
-        # Coefficient difference above each pair
-        geom_text(aes(x = pair_center_x, y = pair_max_error_bar_top + 0.05 * max(pair_max_error_bar_top), label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), size = 3.85, color = "black") +
-
-        # Colors for without- and with-industry fe bars
-        scale_fill_manual(values = c("No Controls" = "steelblue", "Industry FE" = "darkorange"), breaks = c("No Controls", "Industry FE")) +
-
-        # Name each individual subsample under its bar, with symmetric edge margins matching the vline gaps
-        scale_x_continuous(breaks = eiv_bar_graph_data$bar_x_position, labels = eiv_bar_graph_data$subgroup_label, expand = expansion(add = edge_whitespace)) +
-
-        # Top headroom so the delta annotations clear the legend
-        scale_y_continuous(expand = expansion(mult = c(0.03, 0.1))) +
-
-        # No descriptive legend title
-        labs(x = "Subsample", y = paste0("EIV coefficient on ", unique(eiv_bar_graph_data$rhs_variable)), fill = NULL) +
+        # X-axis names the RHS belief; no y-axis or legend title
+        labs(x = paste0("EIV coefficient on ", unique(eiv_coefplot_data$rhs_variable)), y = NULL, color = NULL) +
 
         # Theme baseline (larger base font)
         theme_minimal(base_size = 14) +
@@ -450,21 +432,18 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
             panel.background = element_rect(fill = "white", color = NA),
             plot.background = element_rect(fill = "white", color = NA),
 
-            # Bottom and left axis spines
-            axis.line = element_line(color = "black"),
+            # Bottom axis spine, no ticks
+            axis.line.x = element_line(color = "black"),
+            axis.ticks = element_blank(),
 
-            # Y-axis tick marks
-            axis.ticks.y = element_line(color = "black"),
-
-            # Angle the per-bar subsample labels so the two within a pair do not overlap
-            axis.text.x = element_text(angle = 45, hjust = 1),
-
-            # Legend inside the plot
-            legend.position = c(0.9, 0.9),
+            # Legend inside the plot, top-right
+            legend.position = c(0.98, 0.98),
+            legend.justification = c(1, 1),
+            legend.direction = "vertical",
             legend.background = element_blank(),
             legend.key = element_blank()
         )
 
     # Export the figure, one file per RHS belief measure
-    ggsave(file.path(figures, paste0("eiv_by_subgroup_comparison_", rhs_variable_value, ".png")), plot = eiv_bar_graph, width = 24, height = 8, dpi = 300, bg = "white")
+    ggsave(file.path(figures, paste0("eiv_coefplot_by_subgroup_", rhs_variable_value, ".png")), plot = eiv_coefplot, width = 14, height = 10, dpi = 300, bg = "white")
 }
