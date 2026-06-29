@@ -81,7 +81,7 @@ stopifnot(!anyDuplicated(firm_audit_gaps$firm_id), !anyNA(firm_audit_gaps))
 aggregated_subgroup_beliefs <- data.frame()
 
 # Loop over subgroup 
-for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40")) {
+for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40", "College", "No_College")) {
     # Load in given subgroup's firm-level data 
     subgroup_beliefs <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", subgroup)), "Coefficients")
 
@@ -138,7 +138,7 @@ for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking",
 aggregated_subgroup_noise <- data.frame()
 
 # Loop through each subgroup
-for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40")) {
+for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40", "College", "No_College")) {
     # Load in given subgroup's variance sheet
     subgroup_noise <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", subgroup)), "variance")
 
@@ -212,8 +212,8 @@ firm_subgroup_data <- firm_subgroup_data |> dplyr::left_join(firm_industry_cross
 # assert(2 3) i.e., every master firm matched an industry (no _merge==1); the extra crosswalk firms (_merge==2) are expected
 stopifnot(all(firm_subgroup_data$firm_id %in% firm_industry_crosswalk$firm_id))
 
-# Should be 10 subsamples x 97 firms = 970 observations
-stopifnot(nrow(firm_subgroup_data) == 970)
+# Should be 12 subsamples x 97 firms = 1164 observations
+stopifnot(nrow(firm_subgroup_data) == 1164)
 
 # Order variables as subsample, firm id, name, industry category, number of jobs, everything else 
 firm_subgroup_data <- firm_subgroup_data |> dplyr::relocate(subsample, firm_id, firm_name, aer_naics2, number_of_jobs)
@@ -231,7 +231,7 @@ stopifnot(!any(is.na(firm_subgroup_data)))
 eiv_regression_results <- data.frame()
 
 # Loop over each subgroup comparison
-for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("looking", "not_looking"), c("feared_discrimination_1", "feared_discrimination_0"), c("age_gte40", "age_lt40"))) {
+for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("looking", "not_looking"), c("feared_discrimination_1", "feared_discrimination_0"), c("age_gte40", "age_lt40"), c("college", "no_college"))) {
     # Loop over aggregation method
     for (aggregation_method in c("ols", "borda")) {
         # Loop over each LHS variable
@@ -354,20 +354,20 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
     # Restrict to the current RHS belief measure and aggregation method
     eiv_coefplot_data <- eiv_regression_results |> dplyr::filter(rhs_variable == rhs_variable_value)
 
-    # Should be 5 subgroup comparisons x 2 subgroups x 2 industry-FE specs = 20 points
-    stopifnot(nrow(eiv_coefplot_data) == 20)
+    # Should be 6 subgroup comparisons x 2 subgroups x 2 industry-FE specs = 24 points
+    stopifnot(nrow(eiv_coefplot_data) == 24)
 
     # Position of the subgroup within its comparison: first listed subgroup at 0, second at 1
     eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(within_comparison_position = ifelse(subgroup == sub("_minus_.*", "", subgroup_comparison), 0, 1))
 
     # Order the comparisons top-to-bottom
-    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(subgroup_comparison = factor(subgroup_comparison, levels = c("white_minus_black", "male_minus_female", "looking_minus_not_looking", "feared_discrimination_1_minus_feared_discrimination_0", "age_gte40_minus_age_lt40")))
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(subgroup_comparison = factor(subgroup_comparison, levels = c("white_minus_black", "male_minus_female", "looking_minus_not_looking", "feared_discrimination_1_minus_feared_discrimination_0", "age_gte40_minus_age_lt40", "college_minus_no_college")))
     eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(comparison_index = as.integer(subgroup_comparison) - 1)
 
     # Spec label, spec block index, and single-line subgroup label; the No-Controls block sits above the Industry-FE block within each comparison
     eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(fe_label = factor(industry_fe_indicator, levels = c("no", "yes"), labels = c("No Controls", "Industry FE")))
     eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(spec_block_index = ifelse(industry_fe_indicator == "no", 0, 1))
-    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(subgroup_label = dplyr::recode(subgroup, "white" = "White", "black" = "Black", "female" = "Female", "male" = "Male", "looking" = "Looking", "not_looking" = "Not Looking", "feared_discrimination_1" = "Feared", "feared_discrimination_0" = "No Fear", "age_gte40" = "Age ≥40", "age_lt40" = "Age <40"))
+    eiv_coefplot_data <- eiv_coefplot_data |> dplyr::mutate(subgroup_label = dplyr::recode(subgroup, "white" = "White", "black" = "Black", "female" = "Female", "male" = "Male", "looking" = "Looking", "not_looking" = "Not Looking", "feared_discrimination_1" = "Feared", "feared_discrimination_0" = "No Fear", "age_gte40" = "Age ≥40", "age_lt40" = "Age <40", "college" = "Some College+", "no_college" = "HS or Less"))
 
     # Row layout: within a comparison the two specs form stacked blocks of two subgroups each, separated by a small gap; comparisons separated by a larger gap
     block_gap <- 0.8
@@ -388,7 +388,7 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
     delta_annotation_data <- delta_annotation_data |> dplyr::mutate(delta_y = -(comparison_index * comparison_period + spec_block_index * (rows_in_block + block_gap) + 0.5), delta_x = block_interval_max + 0.06)
 
     # Faint separators midway in the gap between comparisons
-    separator_y <- -((seq_len(4)) * comparison_period - comparison_gap / 2)
+    separator_y <- -((seq_len(5)) * comparison_period - comparison_gap / 2)
 
     # Coefplot: each subgroup a point with its 95% interval, the two specs as stacked color-coded blocks within each comparison, the slope difference annotated per block
     eiv_coefplot <- ggplot(eiv_coefplot_data, aes(x = rhs_variable_coefficient, y = point_y, color = fe_label)) +
