@@ -138,6 +138,9 @@ stopifnot(length(firm_id_vector) == 164)
 # Define dataframe to store all correlation results
 aggregated_correlation_results <- data.frame()
 
+# Define dataframe to store observed beliefs and minimum-distance estimates
+minimum_distance_observed_belief_data <- data.frame()
+
 # Loop over each split
 for (sample_pair in sample_pair_list) {
     # Loop over aggregation method
@@ -313,11 +316,51 @@ for (sample_pair in sample_pair_list) {
             # Compute p-value for the perfect-correlation test
             minimum_distance_p_value <- pchisq(minimum_distance_statistic, df = minimum_distance_degrees_of_freedom, lower.tail = FALSE)
 
-            # Append this cell's results
+            # Append this cell's cross sample correlation results
             aggregated_correlation_results <- rbind(aggregated_correlation_results, data.frame(
               row_label = sample_pair$row_label,
               aggregation_method = tolower(aggregation_method_value),
               belief_measure = belief_measure_value,
+              signal_correlation = signal_correlation,
+              wald_p_value = wald_p_value,
+              minimum_distance_p_value = minimum_distance_p_value
+            ))
+
+            #### Minimum distance scatterplot data
+            # Store the minimum distance intercept
+            minimum_distance_intercept <- minimum_distance_perfect_fit_intercept_and_slope$par[1]
+
+            # Store the minimum distance slope
+            minimum_distance_slope <- minimum_distance_perfect_fit_intercept_and_slope$par[2]
+
+            # Back out sample_2 beliefs implied by the final minimum distance intercept and slope
+            minimum_distance_implied_belief_sample_2 <- MASS::ginv(minimum_distance_slope^2 * minimum_distance_weight_matrix_sample_1 +
+            minimum_distance_weight_matrix_sample_2) %*% (
+              minimum_distance_slope * minimum_distance_weight_matrix_sample_1 %*%
+              (belief_vector_by_subsample[[sample_pair$sample_1]] - minimum_distance_intercept) +
+              minimum_distance_weight_matrix_sample_2 %*% belief_vector_by_subsample[[sample_pair$sample_2]]
+            )
+
+            # Convert one-column matrix to a vector
+            minimum_distance_implied_belief_sample_2 <- as.numeric(minimum_distance_implied_belief_sample_2)
+
+            # Back out sample_1 beliefs implied by the final minimum distance intercept and slope
+            minimum_distance_implied_belief_sample_1 <- minimum_distance_intercept + minimum_distance_slope * minimum_distance_implied_belief_sample_2
+
+            # Append this cell's observed beliefs and minimum-distance estimates
+            minimum_distance_observed_belief_data <- rbind(minimum_distance_observed_belief_data, data.frame(
+              row_label = sample_pair$row_label,
+              sample_1 = sample_pair$sample_1,
+              sample_2 = sample_pair$sample_2,
+              aggregation_method = tolower(aggregation_method_value),
+              belief_measure = belief_measure_value,
+              firm_id = firm_id_vector,
+              belief_sample_1 = belief_vector_by_subsample[[sample_pair$sample_1]],
+              belief_sample_2 = belief_vector_by_subsample[[sample_pair$sample_2]],
+              minimum_distance_implied_belief_sample_1 = minimum_distance_implied_belief_sample_1,
+              minimum_distance_implied_belief_sample_2 = minimum_distance_implied_belief_sample_2,
+              minimum_distance_intercept = minimum_distance_intercept,
+              minimum_distance_slope = minimum_distance_slope,
               signal_correlation = signal_correlation,
               wald_p_value = wald_p_value,
               minimum_distance_p_value = minimum_distance_p_value
@@ -331,6 +374,12 @@ stopifnot(!anyNA(aggregated_correlation_results$minimum_distance_p_value))
 
 # Minimum distance p-values should be between zero and one
 stopifnot(all(dplyr::between(aggregated_correlation_results$minimum_distance_p_value, 0, 1)))
+
+# Minimum distance observed belief data should have one row per firm in each split x aggregation-method x belief-measure cell
+stopifnot(nrow(minimum_distance_observed_belief_data) == length(sample_pair_list) * 2 * 2 * length(firm_id_vector))
+
+# Minimum distance observed belief data should have non-missing observed beliefs and minimum-distance estimates
+stopifnot(!anyNA(minimum_distance_observed_belief_data[c("belief_sample_1", "belief_sample_2", "minimum_distance_intercept", "minimum_distance_slope")]))
 
 # Number of firms in each sample x aggregation-method x belief-measure cell
 number_of_firms_by_sample_cell <- aggregated_sample_beliefs |> dplyr::count(sample, aggregation_method, belief_measure, name = "number_of_firms")
@@ -352,7 +401,7 @@ latex_lines <- c(
     "  \\centering",
     "  \\begin{tabular}{lcccccc}",
     "    \\toprule",
-    "    & \\multicolumn{3}{c}{Discrimination Black} & \\multicolumn{3}{c}{Discrimination Female} \\\\",
+    "    & \\multicolumn{3}{c}{Discrimination Black (Pooled)} & \\multicolumn{3}{c}{Discrimination Female (Pooled)} \\\\",
     "    \\cmidrule(lr){2-4} \\cmidrule(lr){5-7}",
     "    & Corr & Wald p-value & CMD p-value & Corr & Wald p-value & CMD p-value \\\\",
     "    & & $H_0: \\theta_1 = \\theta_2$ & $H_0: \\rho = 1$ & & $H_0: \\theta_1 = \\theta_2$ & $H_0: \\rho = 1$ \\\\",
@@ -401,3 +450,137 @@ writeLines(latex_lines, file.path(tables, "cross_sample_signal_corr_ols_borda.te
 
 # Announce the written table
 message("🎃 Generated cross_sample_signal_corr_ols_borda.tex")
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Build and write the minimum distance fitted scatterplots
+# -----------------------------------------------------------------------------------------------------------------------------
+# Loop over each subgroup comparison
+for (subgroup_comparison in list(c("Black", "White"))) {
+    # Loop over aggregation method
+    for (aggregation_method in c("ols")) {
+        # Loop over each belief measure
+        for (belief_measure in c("pooled_favor_white")) {
+
+            # Restrict observed belief data to the given subgroup comparison
+            minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_data |> dplyr::filter(sample_1 == subgroup_comparison[1], sample_2 == subgroup_comparison[2])
+
+            # Keep this aggregation method
+            minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_scatterplot_data |> dplyr::filter(aggregation_method == .env$aggregation_method)
+
+            # Keep this belief measure
+            minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_scatterplot_data |> dplyr::filter(belief_measure == .env$belief_measure)
+
+            # Should be one row per firm
+            stopifnot(nrow(minimum_distance_observed_belief_scatterplot_data) == length(firm_id_vector))
+
+            # Should be one minimum-distance intercept for this scatterplot
+            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept)) == 1)
+
+            # Should be one minimum-distance slope for this scatterplot
+            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope)) == 1)
+
+            # Should be one signal correlation for this scatterplot
+            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$signal_correlation)) == 1)
+
+            # Should be one Wald p-value for this scatterplot
+            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value)) == 1)
+
+            # Should be one minimum-distance p-value for this scatterplot
+            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value)) == 1)
+
+            # Define scatterplot of observed beliefs and minimum-distance fitted line
+            minimum_distance_observed_belief_scatterplot <- ggplot(minimum_distance_observed_belief_scatterplot_data, aes(x = belief_sample_2, y = belief_sample_1)) +
+
+                # Observed firm-level belief pairs
+                geom_point(color = "darkorange", size = 2.2, alpha = 0.7) +
+
+                # Minimum-distance fitted line
+                geom_abline(
+                    intercept = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept),
+                    slope = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope),
+                    color = "steelblue",
+                    linewidth = 0.7
+                ) +
+
+                # Minimum-distance implied firm-level belief pairs
+                geom_point(aes(x = minimum_distance_implied_belief_sample_2, y = minimum_distance_implied_belief_sample_1), color = "steelblue", size = 1.4, alpha = 0.9) +
+
+                # Minimum-distance intercept and slope annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = bquote("CMD (intercept, slope)" == group("(", list(.(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept), digits = 3, format = "f")), .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope), digits = 3, format = "f"))), ")")),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.975, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Minimum-distance p-value annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = bquote("CMD p-value"~(H[0]:~rho == 1) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value), digits = 3, format = "f"))),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.930, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Signal correlation annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = bquote("Signal corr." == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$signal_correlation), digits = 3, format = "f"))),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.885, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Wald p-value annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = bquote("Wald p-value"~(H[0]:~theta[1] == theta[2]) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value), digits = 3, format = "f"))),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.840, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Axis labels name the belief measure and subsample
+                labs(
+                    x = paste0(c(pooled_favor_white = "Discrimination Black (Pooled)", pooled_favor_male = "Discrimination Female (Pooled)")[[belief_measure]], " for ", subgroup_comparison[2]),
+                    y = paste0(c(pooled_favor_white = "Discrimination Black (Pooled)", pooled_favor_male = "Discrimination Female (Pooled)")[[belief_measure]], " for ", subgroup_comparison[1])
+                ) +
+
+                # Theme baseline
+                theme_minimal(base_size = 11) +
+
+                # Theme adjustments
+                theme(
+                    # No grid lines
+                    panel.grid = element_blank(),
+
+                    # White background
+                    panel.background = element_rect(fill = "white", color = NA),
+                    plot.background = element_rect(fill = "white", color = NA),
+
+                    # Bottom and left axis spines, no ticks
+                    axis.line = element_line(color = "black"),
+                    axis.ticks = element_blank()
+                )
+
+            # Display the scatterplot in the active graphics device
+            print(minimum_distance_observed_belief_scatterplot)
+
+            # Export the scatterplot, one file per subgroup comparison x aggregation method x belief measure
+            ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, ".png")), plot = minimum_distance_observed_belief_scatterplot, width = 10, height = 6, dpi = 300, bg = "white")
+        }
+    }
+}
