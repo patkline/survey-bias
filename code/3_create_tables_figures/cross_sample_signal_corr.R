@@ -1,596 +1,403 @@
-# ----------------------------------------------------------------------------------------------------
-# Purpose: Construct cross-sample signal correlation tables for different outcomes 
-# and models + Wald tests comparing subsamples
-# 
-# Created: Jordan Cammarota 
-# Edited: Nico Rotundo 2026-03-24
-# ----------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------------------------
+# Purpose: Cross-sample signal correlation table (Table 4) --- for each respondent split, the debiased
+# correlation between the two subgroups' firm-level belief estimates, alongside a Wald test of belief
+# equality
+#
+# Created: Jordan Cammarota
+# Cleaned: Nico Rotundo 2026-06-29
+# -----------------------------------------------------------------------------------------------------------------------------
 # Run globals
 source("code/globals.R")
 
-# ----------------------------------------------------------------------------------------------------
-# Helper: njobs-weighted signal variance (local to this script — does not modify
-# variance.parquet). Drops firms with NA / non-positive njobs, then computes the
-# weighted analog of var_component_with_var() and applies the Katz correction.
-#   sigma2_hat_w = sum(w * theta_c^2)/sum(w) - sum(w * diag(Sigma))/sum(w)
-#   Vhat_w      = (4 * theta_c' W Sigma W theta_c - 2 * tr((W Sigma)^2)) / sum(w)^2
-# ----------------------------------------------------------------------------------------------------
-compute_signal_var_weighted <- function(theta, Sigma, w) {
-  theta <- as.numeric(theta)
-  w     <- as.numeric(w)
-  ok    <- is.finite(theta) & is.finite(w) & w > 0
-  theta <- theta[ok]
-  w     <- w[ok]
-  Sigma <- as.matrix(Sigma)[ok, ok, drop = FALSE]
-  if (length(theta) < 2L) {
-    return(list(variance_w = NA_real_, noise_w = NA_real_,
-                sigma2_hat_w = NA_real_, Vhat_w = NA_real_,
-                signal_w = NA_real_, J_w = length(theta)))
-  }
-
-  W_sum   <- sum(w)
-  theta_c <- theta - sum(w * theta) / W_sum
-
-  variance_w   <- sum(w * theta_c^2)    / W_sum
-  noise_w      <- sum(w * diag(Sigma))  / W_sum
-  sigma2_hat_w <- variance_w - noise_w
-
-  WSigmaW  <- outer(w, w) * Sigma                       # (W Sigma W)[i,j] = w_i w_j Sigma_ij
-  quad_w   <- as.numeric(t(theta_c) %*% WSigmaW %*% theta_c)
-  WS       <- w * Sigma                                 # (W Sigma)[i,j] = w_i Sigma_ij
-  tr_WSig2 <- sum(WS * t(WS))                           # tr((W Sigma)(W Sigma))
-  Vhat_w   <- (4 * quad_w - 2 * tr_WSig2) / (W_sum^2)
-
-  se_w <- sqrt(pmax(Vhat_w, 0))
-  signal_w <- if (se_w == 0) max(sigma2_hat_w, 0) else {
-    z <- sigma2_hat_w / se_w
-    sigma2_hat_w + se_w * dnorm(z) / pnorm(z)
-  }
-
-  list(variance_w = variance_w, noise_w = noise_w,
-       sigma2_hat_w = sigma2_hat_w, Vhat_w = Vhat_w,
-       signal_w = signal_w, J_w = length(theta))
-}
-
-# ----------------------------------------------------------------------------------------------------
-# Build cached theta vectors and signal/total variance scalars for every
-# model-sample-outcome combination
-# ----------------------------------------------------------------------------------------------------
-# Initialize list to store cached `entity_id`-`theta` vectors
-theta_vectors <- list()
-
-# Initialize list to store cached signal and total variance scalars
-signal_total_variance_scalars <- list()
-
-# Initialize list to store cached J x J robust covariance matrices (per model x sample x outcome)
-rcov_matrices <- list()
-
-# Define local that defines the set of samples we are looping over here, where the name corresponds to the Plackett-Luce file suffixes
-sample_list <- c("Black", "White", "Female", "Male", "Looking", "Not_Looking", "Feared_Discrimination_1", "Feared_Discrimination_0", "Age_gte40", "Age_lt40", "College", "No_College", "Convenience", "Probability", "Conf_Gender_N", "Conf_Gender_Y", "Conf_Race_N", "Conf_Race_Y")
-# sample_list <- c("Black", "White")
-
-# Loop over sample excel sheets
-for (sample in sample_list) {
-
-  ## Import and assign theta estimates for current sample to a data frame
-  # Load `Coefficients` parquet from the intermediate directory for this sample
-  theta_vector_sample <- read_parquet_sheet(
-    file.path(intermediate, paste0("Subset_", sample)),
-    "Coefficients"
-  )
-
-  # Assert unique on entity_type x subset x model x outcome x entity_id
-  stopifnot(anyDuplicated(theta_vector_sample[, c("entity_type", "subset", "model", "outcome", "entity_id")]) == 0L)
-
-  # Keep observations where entity_type is firm and subset is all
-  theta_vector_sample <- theta_vector_sample %>%
-    dplyr::filter(.data$entity_type == "Firm", .data$subset == "all")
-
-  ## Import and assign variance estimates for current sample to a data frame
-  # Load `variance` parquet from the same intermediate directory
-  signal_total_variance_sample <- read_parquet_sheet(
-    file.path(intermediate, paste0("Subset_", sample)),
-    "variance"
-  )
-
-  # Assert unique on subset x model x outcome
-  stopifnot(anyDuplicated(signal_total_variance_sample[, c("subset", "model", "outcome")]) == 0L)
-
-  # Keep observations where subset is all
-  signal_total_variance_sample <- signal_total_variance_sample %>%
-    dplyr::filter(.data$subset == "all")
-
-  ## Import per-fit J x J robust covariance matrices for current sample
-  rcov_long_sample <- read_parquet_sheet(
-    file.path(intermediate, paste0("Subset_", sample)),
-    "rcov"
-  ) %>%
-    dplyr::filter(.data$subset == "all")
-
-  # Loop over models
-  for (model in c("OLS", "Borda")) {
-    # Loop over outcomes
-    for (outcome in c("pooled_favor_white", "pooled_favor_male")) {
-      # Print current sample, model, and outcome
-      print(paste("🎃 Processing theta and variance for sample:", sample, "| model:", model, "| outcome:", outcome))
-
-      ## Theta vector caching
-      # Keep necessary observations for current model x outcome (coefficients)
-      theta_vector_sample_model_outcome <- theta_vector_sample %>%
-        dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
-
-      # Keep entity_id, estimate, and njobs (njobs feeds the weighted variant);
-      # NA-njobs firms get dropped inside compute_signal_var_weighted, but the
-      # full vector is retained for the unweighted path and cross-sample merge.
-      theta_vector_sample_model_outcome <- theta_vector_sample_model_outcome %>%
-        dplyr::transmute(entity_id = .data$entity_id,
-                         theta     = .data$estimate,
-                         njobs     = suppressWarnings(as.numeric(.data$njobs)))
-
-      # Assert non-missing entity_id and theta (njobs may be NA for firms
-      # outside subset97 — handled downstream by the weighted helper).
-      stopifnot(!anyNA(theta_vector_sample_model_outcome$entity_id), !anyNA(theta_vector_sample_model_outcome$theta))
-
-      # Assert uniqueness on entity_id
-      stopifnot(anyDuplicated(theta_vector_sample_model_outcome$entity_id) == 0L)
-
-      # Assert 164 observations (one for each firm)
-      stopifnot(nrow(theta_vector_sample_model_outcome) == 164L)
-
-      # Define lookup key as `theta_model_sample_outcome`
-      theta_key <- paste("theta", model, sample, outcome, sep = "_")
-
-      # Store current model x outcome theta vector in cache with underscore-joined key
-      theta_vectors[[theta_key]] <- theta_vector_sample_model_outcome
-
-      ## Signal and total variance caching
-      # Keep necessary observations for current model x outcome (variance)
-      signal_total_variance_sample_model_outcome <- signal_total_variance_sample %>%
-        dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
-
-      # Assert non-missing total variance and signal
-      stopifnot(!anyNA(signal_total_variance_sample_model_outcome$variance), !anyNA(signal_total_variance_sample_model_outcome$signal))
-
-      # Assert one observation
-      stopifnot(nrow(signal_total_variance_sample_model_outcome) == 1L)
-
-      # Define lookup key as `signal_total_variance_model_sample_outcome`
-      signal_key <- paste("signal_total_variance", model, sample, outcome, sep = "_")
-
-      # Store total variance and signal as named numeric scalars
-      signal_total_variance_scalars[[signal_key]] <- list(
-        total_variance = as.numeric(signal_total_variance_sample_model_outcome$variance[1]),
-        signal         = as.numeric(signal_total_variance_sample_model_outcome$signal[1])
-      )
-
-      ## rcov matrix caching: pivot long (i, j, value) into a J x J matrix keyed by entity_id
-      rcov_long <- rcov_long_sample %>%
-        dplyr::filter(.data$model == .env$model, .data$outcome == .env$outcome)
-      stopifnot(!anyNA(rcov_long$rcov))
-      ids_rcov <- sort(unique(c(rcov_long$entity_id_i, rcov_long$entity_id_j)))
-      stopifnot(length(ids_rcov) == 164L)
-      stopifnot(nrow(rcov_long) == length(ids_rcov)^2L)
-      rcov_mat <- matrix(NA_real_, nrow = length(ids_rcov), ncol = length(ids_rcov),
-                         dimnames = list(as.character(ids_rcov), as.character(ids_rcov)))
-      idx_i <- match(rcov_long$entity_id_i, ids_rcov)
-      idx_j <- match(rcov_long$entity_id_j, ids_rcov)
-      rcov_mat[cbind(idx_i, idx_j)] <- rcov_long$rcov
-      stopifnot(!anyNA(rcov_mat))
-
-      rcov_key <- paste("rcov", model, sample, outcome, sep = "_")
-      rcov_matrices[[rcov_key]] <- rcov_mat
-
-      ## njobs-weighted signal variance (parallel to the unweighted scalar above)
-      # Align theta order to rcov dimnames, then drop NA-njobs firms inside the
-      # helper. signal_w can differ from `signal` both because of weighting and
-      # because the sample is restricted to firms with valid njobs.
-      theta_for_w <- theta_vector_sample_model_outcome[
-        match(ids_rcov, theta_vector_sample_model_outcome$entity_id), , drop = FALSE
-      ]
-      signal_w_out <- compute_signal_var_weighted(
-        theta = theta_for_w$theta,
-        Sigma = rcov_mat,
-        w     = theta_for_w$njobs
-      )
-      signal_w_key <- paste("signal_total_variance_w", model, sample, outcome, sep = "_")
-      signal_total_variance_scalars[[signal_w_key]] <- list(
-        total_variance_w = signal_w_out$variance_w,
-        signal_w         = signal_w_out$signal_w,
-        J_w              = signal_w_out$J_w
-      )
-    }
-  }
-}
-
-# Print cached theta list
-print(names(theta_vectors))
-
-# Print cached signal and total variance list
-print(names(signal_total_variance_scalars))
-
-# ----------------------------------------------------------------------------------------------------
-# Run cross-sample correlations, and save outputs in a model x sample pair x 
-# outcome data frame
-# ----------------------------------------------------------------------------------------------------
-# Define local pair list using file-suffix names and display labels
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define the respondent splits compared in the table, each with its two file-suffix sample names and its
+# display label, in table-row order
+# -----------------------------------------------------------------------------------------------------------------------------
 sample_pair_list <- list(
-  
-  # Black vs White
-  list(sample_1 = "Black", sample_2 = "White"),
-  
-  # Female vs Male
-  list(sample_1 = "Female", sample_2 = "Male"),
-  
-  # Looking for a job vs Not looking for a job
-  list(sample_1 = "Looking", sample_2 = "Not_Looking"),
-  
-  # Feared discrimination vs Did not fear discrimination
-  list(sample_1 = "Feared_Discrimination_1", sample_2 = "Feared_Discrimination_0"),
-  
-  # 40 years or older vs Less than 40 years old
-  list(sample_1 = "Age_gte40", sample_2 = "Age_lt40"),
-  
-  # At least some college vs HS diploma or less
-  list(sample_1 = "College", sample_2 = "No_College"),
-  
-  # Convenience vs Probability sample
-  list(sample_1 = "Convenience", sample_2 = "Probability"),
-  
-  # Not confident vs Confident Gender 
-  list(sample_1 = "Conf_Gender_N", sample_2 = "Conf_Gender_Y"),
-  
-  # Not confident vs Confident Race 
-  list(sample_1 = "Conf_Race_N", sample_2 = "Conf_Race_Y")
+    list(sample_1 = "Black",                   sample_2 = "White",                   row_label = "Black vs White"),
+    list(sample_1 = "Female",                  sample_2 = "Male",                    row_label = "Female vs Male"),
+    list(sample_1 = "Looking",                 sample_2 = "Not_Looking",             row_label = "Looking for a Job vs Not"),
+    list(sample_1 = "Feared_Discrimination_1", sample_2 = "Feared_Discrimination_0", row_label = "Feared Discrimination vs Not"),
+    list(sample_1 = "Age_gte40",               sample_2 = "Age_lt40",                row_label = "Age $>=$ 40 vs $<$ 40"),
+    list(sample_1 = "College",                 sample_2 = "No_College",              row_label = "At Least Some College vs HS Diploma or less"),
+    list(sample_1 = "Convenience",             sample_2 = "Probability",             row_label = "Convenience vs Probability"),
+    list(sample_1 = "Conf_Gender_Y",           sample_2 = "Conf_Gender_N",           row_label = "Confident vs Not (Gender)"),
+    list(sample_1 = "Conf_Race_Y",             sample_2 = "Conf_Race_N",             row_label = "Confident vs Not (Race)")
 )
 
-# Initialize list to store correlation rows
-correlation_rows <- list()
+# Define vector to store every sample name
+sample_vector <- character(0)
 
-# Initialize row counter for correlation row list
-correlation_row_id <- 1L
-
-# Loop over sample pairs
+# Loop over each sample pair, and append the two sample names to the vector
 for (sample_pair in sample_pair_list) {
-  # Loop over models
-  for (model in c("OLS", "Borda")) {
-    # Loop over outcomes
-    for (outcome in c("pooled_favor_white", "pooled_favor_male")) {
-      
-      # Print current sample pair, model, and outcome
-      print(paste("🎃 Processing correlation for pair:", sample_pair$sample_1, "vs", sample_pair$sample_2, "| model:", model, "| outcome:", outcome))
+    sample_vector <- c(sample_vector, sample_pair$sample_1, sample_pair$sample_2)
+}
 
-      # Assert all required vectors are available
-      stopifnot(
-        !is.null(theta_vectors[[paste("theta", model, sample_pair$sample_1, outcome, sep = "_")]]),
-        !is.null(theta_vectors[[paste("theta", model, sample_pair$sample_2, outcome, sep = "_")]]),
-        !is.null(signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]),
-        !is.null(signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]])
-      )
+# -----------------------------------------------------------------------------------------------------------------------------
+# Construct dataset of firm-level belief estimates by sample i.e., the vectors correlated across subgroups
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define dataframe to store every sample's firm-level beliefs
+aggregated_sample_beliefs <- data.frame()
 
-      # Merge theta vectors on common entity IDs (i.e., firms). Rename njobs on
-      # each side so we can assert they agree (njobs is firm-level, so the same
-      # firm_id must carry the same njobs across samples).
-      theta_vector_merged <- dplyr::inner_join(
-        dplyr::rename(theta_vectors[[paste("theta", model, sample_pair$sample_1, outcome, sep = "_")]],
-                      theta_sample_1 = theta, njobs_1 = njobs),
-        dplyr::rename(theta_vectors[[paste("theta", model, sample_pair$sample_2, outcome, sep = "_")]],
-                      theta_sample_2 = theta, njobs_2 = njobs),
-        by = "entity_id"
-      )
+# Loop over each sample
+for (sample_name in sample_vector) {
 
-      # Sort merged theta vector by entity_id
-      theta_vector_merged <- theta_vector_merged %>%
-         dplyr::arrange(.data$entity_id)
+    # Load the given sample's firm-level coefficient sheet
+    sample_beliefs <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", sample_name)), "Coefficients")
 
-      # Assert njobs agrees across samples for the same firm_id (firm-level
-      # invariant), then collapse to a single njobs column.
-      stopifnot(isTRUE(all.equal(theta_vector_merged$njobs_1,
-                                 theta_vector_merged$njobs_2)))
-      theta_vector_merged$njobs <- theta_vector_merged$njobs_1
+    # Uniquely identified by subset x aggregation model x belief measure x entity type x entity, none missing
+    stopifnot(!anyDuplicated(sample_beliefs[c("subset", "model", "outcome", "entity_type", "entity_id")]), !anyNA(sample_beliefs[c("subset", "model", "outcome", "entity_type", "entity_id")]))
 
-      # Assert at least two common IDs for covariance calculation
-      stopifnot(nrow(theta_vector_merged) >= 2L)
+    # Keep firm-level observations
+    sample_beliefs <- sample_beliefs |> dplyr::filter(entity_type == "Firm")
 
-      ## Compute Cov(x, y) = E[(x-\bar{x})(y-\bar{y})]
-      # Center first theta vector
-      theta_values_1_centered <- theta_vector_merged$theta_sample_1 - mean(theta_vector_merged$theta_sample_1, na.rm = TRUE)
+    # Keep the full-sample estimates
+    sample_beliefs <- sample_beliefs |> dplyr::filter(subset == "all")
 
-      # Center second theta vector
-      theta_values_2_centered <- theta_vector_merged$theta_sample_2 - mean(theta_vector_merged$theta_sample_2, na.rm = TRUE)
+    # Keep OLS and Borda observations
+    sample_beliefs <- sample_beliefs |> dplyr::filter(model %in% c("OLS", "Borda"))
 
-      # Compute covariance between centered theta vectors
-      theta_covariance <- mean(theta_values_1_centered * theta_values_2_centered, na.rm = TRUE)
-      
-      ## Compute signal correlation as Cov(x, y) / sqrt(SignalVar(x) * SignalVar(y)), where signal variance is pulled from the `variance` sheet in excel (and stored in cache above)
-      # Pull signal and total variance scalar caches for both samples
-      signal_total_variance_sample_1 <- signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_1, outcome, sep = "_")]]
-      signal_total_variance_sample_2 <- signal_total_variance_scalars[[paste("signal_total_variance", model, sample_pair$sample_2, outcome, sep = "_")]]
+    # Keep just the two pooled belief measures
+    sample_beliefs <- sample_beliefs |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male"))
 
-      # Pull first sample total and signal variances
-      total_variance_1  <- signal_total_variance_sample_1$total_variance
-      signal_variance_1 <- signal_total_variance_sample_1$signal
+    # Should be 164 firms x 2 aggregation methods x 2 belief measures = 656 observations remaining
+    stopifnot(nrow(sample_beliefs) == 164 * 2 * 2)
 
-      # Pull second sample total and signal variances
-      total_variance_2  <- signal_total_variance_sample_2$total_variance
-      signal_variance_2 <- signal_total_variance_sample_2$signal
+    # Keep necessary variables
+    sample_beliefs <- sample_beliefs |> dplyr::select(entity_id, model, outcome, estimate)
 
-      # Compute denominator for signal correlation
-      signal_correlation_denominator <- sqrt(signal_variance_1 * signal_variance_2)
+    # Rename variables to be more descriptive
+    sample_beliefs <- sample_beliefs |> dplyr::rename(firm_id = entity_id, aggregation_method = model, belief_measure = outcome, belief_estimate = estimate)
 
-      # Compute signal correlation
-      signal_correlation <- theta_covariance / signal_correlation_denominator
+    # Define a variable to indicate the sample
+    sample_beliefs <- sample_beliefs |> dplyr::mutate(sample = sample_name)
 
-      # Compute temporary signal correlation using built-in correlation as a check
-      signal_correlation_temp <- stats::cor(theta_vector_merged$theta_sample_1, theta_vector_merged$theta_sample_2) * stats::sd(theta_vector_merged$theta_sample_1) * stats::sd(theta_vector_merged$theta_sample_2) * ((nrow(theta_vector_merged) - 1) / nrow(theta_vector_merged)) / sqrt(signal_variance_1 * signal_variance_2)
+    # Place the sample variable at the beginning of the dataset
+    sample_beliefs <- sample_beliefs |> dplyr::select(sample, dplyr::everything())
 
-      # Assert temporary and manual signal correlations are equal
-      stopifnot(isTRUE(all.equal(signal_correlation, signal_correlation_temp, tolerance = 1e-12)))
+    # Append the sample beliefs to the aggregated dataframe
+    aggregated_sample_beliefs <- rbind(aggregated_sample_beliefs, sample_beliefs)
+}
 
-      ## njobs-weighted signal correlation (parallel to the unweighted block above).
-      # Drop firms with NA / non-positive njobs from the merged pair, compute a
-      # weighted covariance, and divide by the weighted signal-variance product
-      # cached above. Wald test below stays unweighted.
-      ok_w <- is.finite(theta_vector_merged$njobs) & theta_vector_merged$njobs > 0
-      t1_w <- theta_vector_merged$theta_sample_1[ok_w]
-      t2_w <- theta_vector_merged$theta_sample_2[ok_w]
-      w    <- theta_vector_merged$njobs[ok_w]
-      if (length(w) >= 2L && sum(w) > 0) {
-        W_sum <- sum(w)
-        t1_c_w <- t1_w - sum(w * t1_w) / W_sum
-        t2_c_w <- t2_w - sum(w * t2_w) / W_sum
-        theta_covariance_w <- sum(w * t1_c_w * t2_c_w) / W_sum
-      } else {
-        theta_covariance_w <- NA_real_
-      }
-      J_w <- as.integer(length(w))
+# -----------------------------------------------------------------------------------------------------------------------------
+# Construct dataset of the Katz-corrected signal variance by sample i.e., the signal correlation denominator
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define dataframe to store every sample's signal variance
+aggregated_sample_signal_variance <- data.frame()
 
-      sig_w_1_cache <- signal_total_variance_scalars[[paste("signal_total_variance_w", model, sample_pair$sample_1, outcome, sep = "_")]]
-      sig_w_2_cache <- signal_total_variance_scalars[[paste("signal_total_variance_w", model, sample_pair$sample_2, outcome, sep = "_")]]
-      stopifnot(!is.null(sig_w_1_cache), !is.null(sig_w_2_cache))
-      signal_w_1   <- sig_w_1_cache$signal_w
-      signal_w_2   <- sig_w_2_cache$signal_w
-      total_variance_w_1 <- sig_w_1_cache$total_variance_w
-      total_variance_w_2 <- sig_w_2_cache$total_variance_w
-      signal_correlation_w <- theta_covariance_w / sqrt(signal_w_1 * signal_w_2)
+# Loop over each sample
+for (sample_name in sample_vector) {
 
-      ## Wald test for H0: theta_1 = theta_2 with full per-fit covariance
-      # Compute Δ̂ = θ̂₁ - θ̂₂ on the common entity_id set
-      delta_hat <- theta_vector_merged$theta_sample_1 - theta_vector_merged$theta_sample_2
-      common_ids <- as.character(theta_vector_merged$entity_id)
-      J <- length(common_ids)
+    # Load in given sample's signal variance sheet
+    sample_signal_variance <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", sample_name)), "variance")
 
-      # Pull the cached J x J robust covariance matrices for both samples and
-      # restrict to the common entity ordering
-      V1 <- rcov_matrices[[paste("rcov", model, sample_pair$sample_1, outcome, sep = "_")]][common_ids, common_ids, drop = FALSE]
-      V2 <- rcov_matrices[[paste("rcov", model, sample_pair$sample_2, outcome, sep = "_")]][common_ids, common_ids, drop = FALSE]
-      stopifnot(nrow(V1) == J, nrow(V2) == J)
+    # Uniquely identified by subset x aggregation model x outcome, none missing
+    stopifnot(!anyDuplicated(sample_signal_variance[c("subset", "model", "outcome")]), !anyNA(sample_signal_variance[c("subset", "model", "outcome")]))
 
-      # V̂ = V̂₁ + V̂₂  (independent samples ⇒ no cross term)
-      V_hat <- V1 + V2
+    # Keep OLS and Borda observations
+    sample_signal_variance <- sample_signal_variance |> dplyr::filter(model %in% c("OLS", "Borda"))
 
-      # W = Δ̂' V̂⁺ Δ̂ ~ χ²(J − 1); the extra rank deficiency comes from
-      # sum-to-zero centering, which kills one direction of V̂ and constrains Δ̂
-      # to the (J − 1)-dim subspace orthogonal to 1_J
-      V_pinv <- MASS::ginv(V_hat)
-      Wald_stat <- as.numeric(t(delta_hat) %*% V_pinv %*% delta_hat)
-      Wald_df   <- J - 1L
-      Wald_pval <- pchisq(Wald_stat, df = Wald_df, lower.tail = FALSE)
+    # Keep just the two pooled belief measures
+    sample_signal_variance <- sample_signal_variance |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male"))
 
-      # Store current correlation row (unweighted + weighted side-by-side)
-      correlation_rows[[correlation_row_id]] <- tibble::tibble(
-        model      = tolower(model),
-        outcome    = outcome,
-        sample_1    = sample_pair$sample_1,
-        sample_2    = sample_pair$sample_2,
-        J_entities = J,
-        theta_covariance = theta_covariance,
-        total_variance_sample_1   = total_variance_1,
-        total_variance_sample_2   = total_variance_2,
-        signal_variance_sample_1    = signal_variance_1,
-        signal_variance_sample_2    = signal_variance_2,
-        signal_correlation     = signal_correlation,
-        J_entities_w = J_w,
-        theta_covariance_w = theta_covariance_w,
-        total_variance_w_sample_1 = total_variance_w_1,
-        total_variance_w_sample_2 = total_variance_w_2,
-        signal_variance_w_sample_1 = signal_w_1,
-        signal_variance_w_sample_2 = signal_w_2,
-        signal_correlation_w = signal_correlation_w,
-        Wald_stat  = Wald_stat,
-        Wald_df    = Wald_df,
-        Wald_pval  = Wald_pval
-      )
+    # Keep the full firm sample
+    sample_signal_variance <- sample_signal_variance |> dplyr::filter(subset == "all")
 
-      # Increment row counter
-      correlation_row_id <- correlation_row_id + 1L
+    # Should be 2 aggregation methods x 2 belief measures = 4 observations remaining
+    stopifnot(nrow(sample_signal_variance) == 4)
+
+    # Keep necessary variables
+    sample_signal_variance <- sample_signal_variance |> dplyr::select(model, outcome, signal)
+
+    # Rename variables to be more descriptive
+    sample_signal_variance <- sample_signal_variance |> dplyr::rename(aggregation_method = model, belief_measure = outcome, katz_corrected_signal_variance_across_firms = signal)
+
+    # Define a variable to indicate the sample
+    sample_signal_variance <- sample_signal_variance |> dplyr::mutate(sample = sample_name)
+
+    # Place the sample variable at the beginning of the dataset
+    sample_signal_variance <- sample_signal_variance |> dplyr::select(sample, dplyr::everything())
+
+    # Append the sample signal variance to the aggregated dataframe
+    aggregated_sample_signal_variance <- rbind(aggregated_sample_signal_variance, sample_signal_variance)
+}
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Compute the firm-level constants shared across all splits
+# -----------------------------------------------------------------------------------------------------------------------------
+# Firm ids sorted ascending, the order every belief vector and covariance matrix is aligned to
+firm_id_vector <- sort(unique(aggregated_sample_beliefs$firm_id))
+
+# Should be the 164 firms
+stopifnot(length(firm_id_vector) == 164)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# For each split, aggregation method, and belief measure, compute the debiased signal correlation and the
+# Wald test of belief equality across the two subsamples
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define dataframe to store all correlation results
+aggregated_correlation_results <- data.frame()
+
+# Loop over each split
+for (sample_pair in sample_pair_list) {
+    # Loop over aggregation method
+    for (aggregation_method_value in c("OLS", "Borda")) {
+        # Loop over each belief measure
+        for (belief_measure_value in c("pooled_favor_white", "pooled_favor_male")) {
+
+            #### Collect each subsample's inputs
+            # Store each subsample's belief vector, signal variance, and robust covariance matrix
+            belief_vector_by_subsample <- list()
+            signal_variance_by_subsample <- list()
+            robust_covariance_matrix_by_subsample <- list()
+
+            # Loop over the two subsamples of the split
+            for (subsample in c(sample_pair$sample_1, sample_pair$sample_2)) {
+
+                # Keep this subsample's firm-level beliefs
+                subsample_beliefs <- aggregated_sample_beliefs |> dplyr::filter(sample == subsample)
+
+                # Keep this aggregation method
+                subsample_beliefs <- subsample_beliefs |> dplyr::filter(aggregation_method == aggregation_method_value)
+
+                # Keep this belief measure
+                subsample_beliefs <- subsample_beliefs |> dplyr::filter(belief_measure == belief_measure_value)
+
+                # Sort by firm_id to align with firm_id_vector
+                subsample_beliefs <- subsample_beliefs |> dplyr::arrange(firm_id)
+
+                # Check the belief firm_id order equals firm_id_vector
+                stopifnot(all(subsample_beliefs$firm_id == firm_id_vector))
+
+                # Store this subsample's belief vector
+                belief_vector_by_subsample[[subsample]] <- subsample_beliefs$belief_estimate
+
+                # Keep this subsample's signal variance
+                subsample_signal_variance <- aggregated_sample_signal_variance |> dplyr::filter(sample == subsample)
+
+                # Keep this aggregation method
+                subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(aggregation_method == aggregation_method_value)
+
+                # Keep this belief measure
+                subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(belief_measure == belief_measure_value)
+
+                # Should be a single row
+                stopifnot(nrow(subsample_signal_variance) == 1)
+
+                # Store this subsample's Katz-corrected signal variance
+                signal_variance_by_subsample[[subsample]] <- subsample_signal_variance$katz_corrected_signal_variance_across_firms
+
+                # Load this subsample's robust covariance sheet
+                subsample_robust_covariance <- arrow::open_dataset(parquet_sheet_path(file.path(intermediate, paste0("Subset_", subsample)), "rcov"))
+
+                # Keep the full firm sample
+                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::filter(subset == "all")
+
+                # Keep this aggregation method
+                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::filter(model == aggregation_method_value)
+
+                # Keep this belief measure
+                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::filter(outcome == belief_measure_value)
+
+                # Keep necessary variables
+                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::select(entity_id_i, entity_id_j, rcov)
+
+                # Collect the filtered robust covariance rows
+                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::collect()
+
+                # Should be 164 firms x 164 firms = 26896 firm pairs
+                stopifnot(nrow(subsample_robust_covariance) == 164 * 164)
+
+                # Firm-pair identifiers should uniquely identify the filtered robust covariance rows
+                stopifnot(!anyDuplicated(subsample_robust_covariance[c("entity_id_i", "entity_id_j")]))
+
+                # Firm-pair identifiers should be non-missing
+                stopifnot(!anyNA(subsample_robust_covariance[c("entity_id_i", "entity_id_j")]))
+
+                # Rename variables to be more descriptive
+                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::rename(firm_id_i = entity_id_i, firm_id_j = entity_id_j, robust_covariance = rcov)
+
+                # Define a matrix of 0s to hold this subsample's robust covariance, rows and columns ordered by firm_id_vector
+                firm_robust_covariance_matrix <- matrix(0, nrow = length(firm_id_vector), ncol = length(firm_id_vector), dimnames = list(as.character(firm_id_vector), as.character(firm_id_vector)))
+
+                # Populate the robust covariance matrix from the firm-pair rows
+                firm_robust_covariance_matrix[cbind(as.character(subsample_robust_covariance$firm_id_i), as.character(subsample_robust_covariance$firm_id_j))] <- subsample_robust_covariance$robust_covariance
+
+                # Store this subsample's robust covariance matrix
+                robust_covariance_matrix_by_subsample[[subsample]] <- firm_robust_covariance_matrix
+
+            }
+
+            #### Unweighted signal correlation
+            # Center each subsample's beliefs at their unweighted mean
+            belief_sample_1_centered <- belief_vector_by_subsample[[sample_pair$sample_1]] - mean(belief_vector_by_subsample[[sample_pair$sample_1]])
+            belief_sample_2_centered <- belief_vector_by_subsample[[sample_pair$sample_2]] - mean(belief_vector_by_subsample[[sample_pair$sample_2]])
+
+            # Population covariance between the two subsamples' beliefs
+            belief_covariance <- mean(belief_sample_1_centered * belief_sample_2_centered)
+
+            # Unweighted signal correlation
+            signal_correlation <- belief_covariance / sqrt(signal_variance_by_subsample[[sample_pair$sample_1]] * signal_variance_by_subsample[[sample_pair$sample_2]])
+
+            #### Wald test of belief equality
+            # Belief difference across the two subsamples
+            belief_difference <- belief_vector_by_subsample[[sample_pair$sample_1]] - belief_vector_by_subsample[[sample_pair$sample_2]]
+
+            # Summed robust covariance under independence of the two samples
+            summed_robust_covariance_matrix <- robust_covariance_matrix_by_subsample[[sample_pair$sample_1]] + robust_covariance_matrix_by_subsample[[sample_pair$sample_2]]
+
+            # Wald statistic, chi-square with J - 1 degrees of freedom (sum-to-zero centering removes one direction)
+            wald_statistic <- as.numeric(t(belief_difference) %*% MASS::ginv(summed_robust_covariance_matrix) %*% belief_difference)
+            wald_degrees_of_freedom <- length(firm_id_vector) - 1
+            wald_p_value <- pchisq(wald_statistic, df = wald_degrees_of_freedom, lower.tail = FALSE)
+
+            #### Classical minimum distance test of perfect correlation
+            # Compute minimum distance weight matrix for each subsample --- Moore-Penrose inverse of the robust covariance
+            minimum_distance_weight_matrix_sample_1 <- MASS::ginv(robust_covariance_matrix_by_subsample[[sample_pair$sample_1]])
+            minimum_distance_weight_matrix_sample_2 <- MASS::ginv(robust_covariance_matrix_by_subsample[[sample_pair$sample_2]])
+
+            # Run and store OLS intercept and slope to initialize the minimum distance search
+            minimum_distance_starting_intercept_and_slope <- coef(lm(belief_vector_by_subsample[[sample_pair$sample_1]] ~ belief_vector_by_subsample[[sample_pair$sample_2]]))
+
+            # Remove names from the starting intercept and slope
+            minimum_distance_starting_intercept_and_slope <- unname(minimum_distance_starting_intercept_and_slope)
+            
+            # Define a function that computes distance between observed beliefs and perfect-fit beliefs for a trial intercept and slope
+            compute_observed_to_perfect_fit_belief_distance <- function(intercept_and_slope) {
+              # Assign the intercept 
+              perfect_fit_intercept <- intercept_and_slope[1]
+              
+              # Assign the slope
+              perfect_fit_slope <- intercept_and_slope[2]
+
+              # Estimate latent sample_2 beliefs conditional on the trial intercept and slope
+              perfect_fit_belief_sample_2 <- MASS::ginv(perfect_fit_slope^2 * minimum_distance_weight_matrix_sample_1 +
+              minimum_distance_weight_matrix_sample_2) %*% (
+                perfect_fit_slope * minimum_distance_weight_matrix_sample_1 %*%
+                (belief_vector_by_subsample[[sample_pair$sample_1]] - perfect_fit_intercept) +
+                minimum_distance_weight_matrix_sample_2 %*% belief_vector_by_subsample[[sample_pair$sample_2]]
+              )
+
+              # Convert one-column matrix to a vector
+              perfect_fit_belief_sample_2 <- as.numeric(perfect_fit_belief_sample_2)
+
+              # Estimate latent sample_1 beliefs implied by the trial intercept and slope
+              perfect_fit_belief_sample_1 <- perfect_fit_intercept + perfect_fit_slope * perfect_fit_belief_sample_2
+
+              # Compute the difference between observed and estimated sample_1 beliefs
+              diff_observed_perfect_fit_belief_sample_1 <- belief_vector_by_subsample[[sample_pair$sample_1]] - perfect_fit_belief_sample_1
+
+              # Compute the difference between observed and estimated sample_2 beliefs
+              diff_observed_perfect_fit_belief_sample_2 <- belief_vector_by_subsample[[sample_pair$sample_2]] - perfect_fit_belief_sample_2
+
+              # Store the minimum distance criterion value for the trial intercept and slope
+              as.numeric(
+                t(diff_observed_perfect_fit_belief_sample_1) %*% minimum_distance_weight_matrix_sample_1 %*% diff_observed_perfect_fit_belief_sample_1 +
+                t(diff_observed_perfect_fit_belief_sample_2) %*% minimum_distance_weight_matrix_sample_2 %*% diff_observed_perfect_fit_belief_sample_2
+              )
+            }
+
+            # Estimate the perfect-fit line by minimizing observed-to-perfect-fit belief distance
+            minimum_distance_perfect_fit_intercept_and_slope <- optim(
+              par = minimum_distance_starting_intercept_and_slope,
+              fn = compute_observed_to_perfect_fit_belief_distance,
+              method = "BFGS"
+            )
+
+            # Store the minimum observed-to-perfect-fit belief distance
+            minimum_distance_statistic <- minimum_distance_perfect_fit_intercept_and_slope$value
+
+            # Store degrees of freedom for the perfect-correlation test
+            minimum_distance_degrees_of_freedom <- length(firm_id_vector) - 2
+
+            # Compute p-value for the perfect-correlation test
+            minimum_distance_p_value <- pchisq(minimum_distance_statistic, df = minimum_distance_degrees_of_freedom, lower.tail = FALSE)
+
+            # Append this cell's results
+            aggregated_correlation_results <- rbind(aggregated_correlation_results, data.frame(
+              row_label = sample_pair$row_label,
+              aggregation_method = tolower(aggregation_method_value),
+              belief_measure = belief_measure_value,
+              signal_correlation = signal_correlation,
+              wald_p_value = wald_p_value,
+              minimum_distance_p_value = minimum_distance_p_value
+            ))
+        }
     }
-  }
 }
 
-# Bind correlation rows into one data frame
-correlation_rows_data_frame <- dplyr::bind_rows(correlation_rows)
+# Minimum distance p-values should be non-missing
+stopifnot(!anyNA(aggregated_correlation_results$minimum_distance_p_value))
 
-# Assert unique on model x outcome x sample pair
-stopifnot(anyDuplicated(correlation_rows_data_frame[, c("model", "outcome", "sample_1", "sample_2")]) == 0L)
+# Minimum distance p-values should be between zero and one
+stopifnot(all(dplyr::between(aggregated_correlation_results$minimum_distance_p_value, 0, 1)))
 
-# ----------------------------------------------------------------------------------------------------
-# XXWald tests 
-# ----------------------------------------------------------------------------------------------------
+# Number of firms in each sample x aggregation-method x belief-measure cell
+number_of_firms_by_sample_cell <- aggregated_sample_beliefs |> dplyr::count(sample, aggregation_method, belief_measure, name = "number_of_firms")
 
-# ----------------------------------------------------------------------------------------------------
-# Reshape correlation_rows_data_frame to wide format by model and outcome, 
-# keep necessary variables for table construction, and set row labels and ordering  
-# ----------------------------------------------------------------------------------------------------
-# Reshape correlation_rows_data_frame to wide by outcome
-correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  tidyr::pivot_wider(
-    id_cols = c("model", "sample_1", "sample_2"),
-    names_from = "outcome",
-    values_from = c("J_entities", "theta_covariance",
-                    "total_variance_sample_1", "total_variance_sample_2",
-                    "signal_variance_sample_1", "signal_variance_sample_2",
-                    "signal_correlation",
-                    "J_entities_w", "theta_covariance_w",
-                    "total_variance_w_sample_1", "total_variance_w_sample_2",
-                    "signal_variance_w_sample_1", "signal_variance_w_sample_2",
-                    "signal_correlation_w",
-                    "Wald_stat", "Wald_df", "Wald_pval")
-  )
+# Each sample cell should contain 164 firms
+stopifnot(all(number_of_firms_by_sample_cell$number_of_firms == 164))
 
-# Assert unique on model x sample pair
-stopifnot(anyDuplicated(correlation_rows_data_frame[, c("model", "sample_1", "sample_2")]) == 0L)
+# Number of firms reported in the table
+number_of_firms_in_table <- unique(number_of_firms_by_sample_cell$number_of_firms)
 
-# Add row label variable to dataframe depending on sample pair
-correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  dplyr::mutate(
-    row_label = dplyr::case_when(
-      .data$sample_1 == "Black" & .data$sample_2 == "White" ~ "Black vs White",
-      .data$sample_1 == "Female" & .data$sample_2 == "Male" ~ "Female vs Male",
-      .data$sample_1 == "Looking" & .data$sample_2 == "Not_Looking" ~ "Looking for a Job vs Not",
-      .data$sample_1 == "Feared_Discrimination_1" & .data$sample_2 == "Feared_Discrimination_0" ~ "Feared Discrimination vs Not",
-      .data$sample_1 == "Age_gte40" & .data$sample_2 == "Age_lt40" ~ "Age $>=$ 40 vs $<$ 40",
-      .data$sample_1 == "College" & .data$sample_2 == "No_College" ~ "At Least Some College vs HS Diploma or less",
-      .data$sample_1 == "Convenience" & .data$sample_2 == "Probability" ~ "Convenience vs Probability",
-      .data$sample_1 == "Conf_Gender_N" & .data$sample_2 == "Conf_Gender_Y" ~ "Confident vs Not (Gender)",
-      .data$sample_1 == "Conf_Race_N" & .data$sample_2 == "Conf_Race_Y" ~ "Confident vs Not (Race)",
-      TRUE ~ NA_character_
-    )
-  )
+# There should be a single number of firms across all table cells
+stopifnot(length(number_of_firms_in_table) == 1)
 
-# Define an order variable corresponding to the order of the rows in the final table
-correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  dplyr::mutate(
-    order = dplyr::case_when(
-      .data$row_label == "Black vs White" ~ 1L,
-      .data$row_label == "Female vs Male" ~ 2L,
-      .data$row_label == "Looking for a Job vs Not" ~ 3L,
-      .data$row_label == "Feared Discrimination vs Not" ~ 4L,
-      .data$row_label == "Age $>=$ 40 vs $<$ 40" ~ 5L,
-      .data$row_label == "At Least Some College vs HS Diploma or less" ~ 6L,
-      .data$row_label == "Convenience vs Probability" ~ 7L,
-      .data$row_label == "Confident vs Not (Gender)" ~ 8L,
-      .data$row_label == "Confident vs Not (Race)" ~ 9L
-    )
-  )
-
-# Sort the data frame by the order variable within model 
-correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  dplyr::arrange(.data$model, .data$order)
-
-# Keep necessary variables for final tables (unweighted + weighted variants of
-# the signal correlation, plus the shared Wald p-values)
-correlation_rows_data_frame <- correlation_rows_data_frame %>%
-  dplyr::select(model, order, row_label,
-                signal_correlation_pooled_favor_white,
-                signal_correlation_pooled_favor_male,
-                signal_correlation_w_pooled_favor_white,
-                signal_correlation_w_pooled_favor_male,
-                Wald_pval_pooled_favor_white,
-                Wald_pval_pooled_favor_male)
-
-#View(correlation_rows_data_frame)
-
-# ----------------------------------------------------------------------------------------------------
-# Construct model-specific panels from correlation_rows_data_frame
-# ----------------------------------------------------------------------------------------------------
-
-# Assign ols panel to data frame
-panel_ols   <- dplyr::filter(correlation_rows_data_frame, model == "ols")
-
-# Assign borda panel to data frame
-panel_borda <- dplyr::filter(correlation_rows_data_frame, model == "borda")
-
-# Assert row counts are equal across panels
-stopifnot(nrow(panel_ols) == nrow(panel_borda))
-
-# View Panel A and Panel B table inputs
-#View(panel_ols)
-#View(panel_borda)
-
-# ----------------------------------------------------------------------------------------------------
-# Input panels into latex table, and export. Two variants are written:
-#   1) Unweighted (full firm sample) — original behavior.
-#   2) njobs-weighted (firms with valid njobs only) — local to this script.
-# ----------------------------------------------------------------------------------------------------
-build_panel_rows <- function(panel_df, white_col, male_col) {
-  rows <- character(0)
-  for (row_index in seq_len(nrow(panel_df))) {
-    rows <- c(rows, paste0(
-      "    ",
-      panel_df$row_label[row_index], " & ",
-      formatC(panel_df[[white_col]][row_index],                       digits = 3, format = "f"), " & ",
-      formatC(panel_df$Wald_pval_pooled_favor_white[row_index],       digits = 3, format = "f"), " & ",
-      formatC(panel_df[[male_col]][row_index],                        digits = 3, format = "f"), " & ",
-      formatC(panel_df$Wald_pval_pooled_favor_male[row_index],        digits = 3, format = "f"), " \\\\"
-    ))
-  }
-  rows
-}
-
-write_latex_lines_checked <- function(latex_lines, out_tex) {
-  if (length(latex_lines) == 0L) {
-    stop("Refusing to write empty LaTeX output: ", out_tex)
-  }
-
-  tmp_tex <- tempfile(pattern = paste0(tools::file_path_sans_ext(basename(out_tex)), "_"),
-                      fileext = ".tex")
-  on.exit(unlink(tmp_tex), add = TRUE)
-
-  writeLines(latex_lines, tmp_tex, useBytes = TRUE)
-  tmp_size <- file.info(tmp_tex)$size
-  if (is.na(tmp_size) || tmp_size == 0L) {
-    stop("Temporary LaTeX output is empty before copy: ", tmp_tex)
-  }
-
-  if (file.exists(out_tex)) {
-    unlink_status <- unlink(out_tex)
-    if (unlink_status != 0L && file.exists(out_tex)) {
-      stop("Could not remove existing LaTeX output before overwrite: ", out_tex)
-    }
-  }
-
-  if (!file.copy(tmp_tex, out_tex, overwrite = TRUE)) {
-    stop("Could not copy LaTeX output into place: ", out_tex)
-  }
-
-  out_size <- file.info(out_tex)$size
-  if (is.na(out_size) || out_size == 0L) {
-    stop("LaTeX output is empty after write: ", out_tex)
-  }
-
-  invisible(out_tex)
-}
-
-write_cross_sample_table <- function(white_col, male_col, out_tex) {
-  latex_lines <- c(
+# -----------------------------------------------------------------------------------------------------------------------------
+# Build and write the cross-sample correlation table, with an OLS/Likert panel and a Borda panel
+# -----------------------------------------------------------------------------------------------------------------------------
+# Open the table
+latex_lines <- c(
     "  \\centering",
-    "  \\begin{tabular}{lcccc}",
+    "  \\begin{tabular}{lcccccc}",
     "    \\toprule",
-    "    & \\multicolumn{2}{c}{Discrimination Black} & \\multicolumn{2}{c}{Discrimination Female} \\\\",
-    "    & Corr & Wald p-value & Corr & Wald p-value \\\\",
-    "    \\midrule",
-    "    \\multicolumn{5}{l}{\\textbf{Panel A: Likert}}\\\\",
-    build_panel_rows(panel_ols,   white_col, male_col),
-    "    \\addlinespace",
-    "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
-    build_panel_rows(panel_borda, white_col, male_col),
-    "    \\bottomrule",
-    "  \\end{tabular}"
-  )
-  write_latex_lines_checked(latex_lines, out_tex)
-  message("🎃 Generated ", basename(out_tex))
+    "    & \\multicolumn{3}{c}{Discrimination Black} & \\multicolumn{3}{c}{Discrimination Female} \\\\",
+    "    \\cmidrule(lr){2-4} \\cmidrule(lr){5-7}",
+    "    & Corr & Wald p-value & CMD p-value & Corr & Wald p-value & CMD p-value \\\\",
+    "    & & $H_0: \\theta_1 = \\theta_2$ & $H_0: \\rho = 1$ & & $H_0: \\theta_1 = \\theta_2$ & $H_0: \\rho = 1$ \\\\",
+    "    \\midrule"
+)
+
+# Loop over the two aggregation-method panels
+for (panel in list(list(aggregation_method = "ols", panel_label = "Panel A: Likert"), list(aggregation_method = "borda", panel_label = "Panel B: Borda"))) {
+
+    # Separate the Borda panel from the Likert panel
+    if (panel$aggregation_method == "borda") {
+        latex_lines <- c(latex_lines, "    \\addlinespace")
+    }
+
+    # Panel header
+    latex_lines <- c(latex_lines, paste0("    \\multicolumn{7}{l}{\\textbf{", panel$panel_label, "}}\\\\"))
+
+    # Loop over the splits in table-row order
+    for (sample_pair in sample_pair_list) {
+
+        # This split's Discrimination Black (white-favoritism belief) results for this panel
+        race_results <- aggregated_correlation_results |> dplyr::filter(row_label == sample_pair$row_label)
+        race_results <- race_results |> dplyr::filter(aggregation_method == panel$aggregation_method)
+        race_results <- race_results |> dplyr::filter(belief_measure == "pooled_favor_white")
+        stopifnot(nrow(race_results) == 1)
+
+        # This split's Discrimination Female (male-favoritism belief) results for this panel
+        gender_results <- aggregated_correlation_results |> dplyr::filter(row_label == sample_pair$row_label)
+        gender_results <- gender_results |> dplyr::filter(aggregation_method == panel$aggregation_method)
+        gender_results <- gender_results |> dplyr::filter(belief_measure == "pooled_favor_male")
+        stopifnot(nrow(gender_results) == 1)
+
+        # Table row: split label, race correlation and p-values, gender correlation and p-values
+        latex_lines <- c(latex_lines, paste0("    ", sample_pair$row_label, " & ", formatC(race_results$signal_correlation, digits = 3, format = "f"), " & ", formatC(race_results$wald_p_value, digits = 3, format = "f"), " & ", formatC(race_results$minimum_distance_p_value, digits = 3, format = "f"), " & ", formatC(gender_results$signal_correlation, digits = 3, format = "f"), " & ", formatC(gender_results$wald_p_value, digits = 3, format = "f"), " & ", formatC(gender_results$minimum_distance_p_value, digits = 3, format = "f"), " \\\\"))
+    }
 }
 
-# 1) Unweighted (existing)
-write_cross_sample_table(
-  white_col = "signal_correlation_pooled_favor_white",
-  male_col  = "signal_correlation_pooled_favor_male",
-  out_tex   = file.path(tables, "cross_sample_signal_corr_ols_borda.tex")
-)
+# Add number of firms row
+latex_lines <- c(latex_lines, "    \\midrule", paste0("    N & ", number_of_firms_in_table, " &  &  & ", number_of_firms_in_table, " &  &  \\\\"))
 
-# 2) njobs-weighted
-write_cross_sample_table(
-  white_col = "signal_correlation_w_pooled_favor_white",
-  male_col  = "signal_correlation_w_pooled_favor_male",
-  out_tex   = file.path(tables, "cross_sample_signal_corr_ols_borda_njobs_weighted.tex")
-)
+# Close the table
+latex_lines <- c(latex_lines, "    \\bottomrule", "  \\end{tabular}")
+
+# Write the table
+writeLines(latex_lines, file.path(tables, "cross_sample_signal_corr_ols_borda.tex"), useBytes = TRUE)
+
+# Announce the written table
+message("🎃 Generated cross_sample_signal_corr_ols_borda.tex")
