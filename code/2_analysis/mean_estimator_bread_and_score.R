@@ -196,13 +196,13 @@ mean_estimator_bread_and_score <- function(
   # One row per firm with the recentered estimate and its naive and robust standard errors
   firm_level_rating_estimates_centered <- data.frame(
     # Firm identifier
-    firm_id     = firm_ids,
+    firm_id          = firm_ids,
     # Recentered firm mean rating
-    firm_mean_rating  = firm_mean_rating_centered,
+    firm_mean_rating = firm_mean_rating_centered,
     # Naive standard error of the recentered firm mean rating
-    se          = naive_se_centered,
+    naive_se         = naive_se_centered,
     # Robust standard error of the recentered firm mean rating
-    rse         = robust_se_centered,
+    robust_se        = robust_se_centered,
     # Keep character columns as strings rather than factors
     stringsAsFactors = FALSE
   )
@@ -210,34 +210,34 @@ mean_estimator_bread_and_score <- function(
   # One row per firm with the non-recentered estimate and its naive and robust standard errors
   firm_level_rating_estimates_raw <- data.frame(
     # Firm identifier
-    firm_id     = firm_ids,
+    firm_id          = firm_ids,
     # Non-recentered firm mean rating
-    firm_mean_rating  = collapsed_firm_ratings$firm_mean_rating,
+    firm_mean_rating = collapsed_firm_ratings$firm_mean_rating,
     # Naive standard error of the non-recentered firm mean rating
-    se          = naive_se_raw,
+    naive_se         = naive_se_raw,
     # Robust standard error of the non-recentered firm mean rating
-    rse         = robust_se_raw,
+    robust_se        = robust_se_raw,
     # Keep character columns as strings rather than factors
     stringsAsFactors = FALSE
   )
 
-  # Return the recentered and non-recentered firm scores, influence functions, and covariances
+  # Return the recentered and non-recentered firm estimates, influence functions, and covariances
   list(
     # Recentered firm-level estimates and standard errors, one row per firm
-    firm_scores = firm_level_rating_estimates_centered,
-    # Recentered influence function matrix (named score for the estimating-equation score it carries)
-    score = influence_function_matrix_centered,
-    # Recentered naive covariance
-    cov   = naive_covariance_matrix_centered,
-    # Recentered robust covariance
-    rcov  = robust_covariance_matrix_centered,
+    firm_level_rating_estimates_centered = firm_level_rating_estimates_centered,
+    # Recentered influence function matrix
+    influence_function_matrix_centered = influence_function_matrix_centered,
+    # Recentered naive covariance matrix
+    naive_covariance_matrix_centered = naive_covariance_matrix_centered,
+    # Recentered robust covariance matrix
+    robust_covariance_matrix_centered = robust_covariance_matrix_centered,
     # Non-recentered firm-level estimates and standard errors, one row per firm
-    firm_scores_raw = firm_level_rating_estimates_raw,
+    firm_level_rating_estimates_raw = firm_level_rating_estimates_raw,
     # Non-recentered influence function matrix
-    score_raw = influence_function_matrix_raw,
-    # Non-recentered naive covariance
-    cov_raw   = naive_covariance_matrix_raw,
-    # Non-recentered robust covariance
-    rcov_raw  = robust_covariance_matrix_raw
+    influence_function_matrix_raw = influence_function_matrix_raw,
+    # Non-recentered naive covariance matrix
+    naive_covariance_matrix_raw = naive_covariance_matrix_raw,
+    # Non-recentered robust covariance matrix
+    robust_covariance_matrix_raw = robust_covariance_matrix_raw
   )
 }
