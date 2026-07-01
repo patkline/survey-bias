@@ -32,10 +32,10 @@ run_model_ols <- function(
     data_long,
     respondent_id_variable_name = "resp_id",
     firm_id_variable_name = "firm_id",
-    score_variable_name = "rating"
+    rating_variable_name = "rating"
   )
   
-  firm_scores <- out$firm_scores  # firm_id, item_worth, se, rse
+  firm_scores <- out$firm_scores  # firm_id, firm_mean_rating, se, rse
   Psi <- out$score  # actually influence functions now
   cov_mat <- out$cov
   rcov_mat <- out$rcov
@@ -68,9 +68,9 @@ run_model_ols <- function(
   # EB step (uses robust SE)
   eb_hat <- rep(NA_real_, nrow(firm_scores))
   if (isTRUE(do_eb) && exists("eb_two_step", mode = "function")) {
-    ok <- is.finite(firm_scores$item_worth) & is.finite(firm_scores$rse) & firm_scores$rse > 0
+    ok <- is.finite(firm_scores$firm_mean_rating) & is.finite(firm_scores$rse) & firm_scores$rse > 0
     if (sum(ok) >= 2) {
-      eb_fit <- eb_two_step(theta_hat = firm_scores$item_worth[ok], s = pmax(firm_scores$rse[ok], 1e-8))
+      eb_fit <- eb_two_step(theta_hat = firm_scores$firm_mean_rating[ok], s = pmax(firm_scores$rse[ok], 1e-8))
       eb_hat[ok] <- eb_fit$theta_eb
     }
   }
@@ -82,7 +82,7 @@ run_model_ols <- function(
       entity_id   = as.integer(firm_id),
       entity      = firm,
       njobs       = njobs,
-      estimate    = as.numeric(item_worth),
+      estimate    = as.numeric(firm_mean_rating),
       se          = as.numeric(se),
       rse         = as.numeric(rse),
       eb          = as.numeric(eb_hat)

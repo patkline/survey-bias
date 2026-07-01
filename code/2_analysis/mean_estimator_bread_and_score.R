@@ -19,47 +19,42 @@ mean_estimator_bread_and_score <- function(
   firm_id_variable_name = "firm_id",
 
   # Name of the score variable in respondent_firm_scores
-  score_variable_name = "B"
+  rating_variable_name = "B"
 ) {
   ## Validate inputs and fix the respondent and firm ordering
   # Require the identifier and score variables to be present
-  stopifnot(all(c(respondent_id_variable_name, firm_id_variable_name, score_variable_name) %in% names(respondent_firm_scores)))
+  stopifnot(all(c(respondent_id_variable_name, firm_id_variable_name, rating_variable_name) %in% names(respondent_firm_scores)))
 
   # Distinct respondent and firm ids, sorted ascending, fixing the row and column order of every matrix built below
   respondent_ids <- sort(unique(respondent_firm_scores[[respondent_id_variable_name]]))
   firm_ids <- sort(unique(respondent_firm_scores[[firm_id_variable_name]]))
   
-  # ---- 1) firm-level mean + naive SE of the mean ----
-  firm_base <- respondent_firm_scores |>
-    dplyr::group_by(.data[[firm_id_variable_name]]) |>
-    dplyr::summarise(
-      number_of_respondents = dplyr::n(),
-      item_worth = sum(.data[[score_variable_name]], na.rm = TRUE) / number_of_respondents,
-      .groups = "drop"
-    ) |>
-    dplyr::rename(firm_id = !!firm_id_variable_name) |>
-    dplyr::arrange(firm_id)
-  
-  firm_means <- respondent_firm_scores |>
-    dplyr::rename(firm_id = !!firm_id_variable_name) |>
-    dplyr::left_join(firm_base[, c("firm_id", "item_worth", "number_of_respondents")], by = "firm_id") |>
+  ## Compute each firm's mean score and the naive standard error of that mean
+  # Rename the firm identifier to firm_id
+  collapsed_firm_ratings <- respondent_firm_scores |> dplyr::rename(firm_id = !!firm_id_variable_name)
+
+  # Collapse to one row per firm: respondent count, mean score, and the ingredients of its naive standard error
+  collapsed_firm_ratings <- collapsed_firm_ratings |>
     dplyr::group_by(firm_id) |>
     dplyr::summarise(
-      number_of_respondents = dplyr::first(number_of_respondents),
-      item_worth = dplyr::first(item_worth),
-      residual_sum_of_squares = sum((.data[[score_variable_name]] - item_worth)^2, na.rm = TRUE),
-      sigma2_hat = dplyr::if_else(number_of_respondents > 1, residual_sum_of_squares / (number_of_respondents - 1), NA_real_),
-      se = dplyr::if_else(
-        number_of_respondents > 0,
-        sqrt(sigma2_hat / number_of_respondents),
-        NA_real_
-      ),
+      # Number of respondents who scored the firm
+      number_of_respondents = dplyr::n(),
+      # Firm's mean score across respondents
+      firm_mean_rating = sum(.data[[rating_variable_name]], na.rm = TRUE) / number_of_respondents,
+      # Sum of squared deviations of scores from the firm mean
+      residual_sum_of_squares = sum((.data[[rating_variable_name]] - firm_mean_rating)^2, na.rm = TRUE),
+      # Unbiased variance of scores around the firm mean; NA when a firm has a single respondent
+      unbiased_score_variance = dplyr::if_else(number_of_respondents > 1, residual_sum_of_squares / (number_of_respondents - 1), NA_real_),
+      # Naive standard error of the firm mean
+      se = dplyr::if_else(number_of_respondents > 0, sqrt(unbiased_score_variance / number_of_respondents), NA_real_),
       .groups = "drop"
-    ) |>
-    dplyr::arrange(firm_id)
+    )
+
+  # Sort firms ascending by id
+  collapsed_firm_ratings <- collapsed_firm_ratings |> dplyr::arrange(firm_id)
   
-  mu_hat <- firm_means$item_worth
-  names(mu_hat) <- firm_means$firm_id
+  mu_hat <- collapsed_firm_ratings$firm_mean_rating
+  names(mu_hat) <- collapsed_firm_ratings$firm_id
   
   # indices for matrix filling
   i_idx <- match(respondent_firm_scores[[respondent_id_variable_name]], respondent_ids)
@@ -81,7 +76,7 @@ mean_estimator_bread_and_score <- function(
   # ---- 4) Score matrix Psi (raw) ----
   Psi_raw <- matrix(0, nrow = n, ncol = J, dimnames = list(respondent_ids, firm_cols))
   mu_vec <- mu_hat[as.character(firm_ids)]              # align to firm_ids
-  resid  <- respondent_firm_scores[[score_variable_name]] - mu_vec[j_idx]
+  resid  <- respondent_firm_scores[[rating_variable_name]] - mu_vec[j_idx]
   Psi_raw[cbind(i_idx, j_idx)] <- resid
   
   
@@ -97,7 +92,7 @@ mean_estimator_bread_and_score <- function(
   colnames(IF_raw) <- firm_cols
   
   # Naive covariance
-  cov_raw <- diag(firm_means$se^2)
+  cov_raw <- diag(collapsed_firm_ratings$se^2)
   
   # ==========================================================
   # 5) RECENTER INSIDE: apply C = I - 11'/J to everything
@@ -133,7 +128,7 @@ mean_estimator_bread_and_score <- function(
   
   firm_scores_df <- data.frame(
     firm_id     = firm_ids,
-    item_worth  = beta_c,
+    firm_mean_rating  = beta_c,
     se          = se_vec_c,
     rse         = rse_vec_c,
     stringsAsFactors = FALSE
