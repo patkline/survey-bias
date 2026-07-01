@@ -22,16 +22,12 @@ run_model_borda <- function(
     ref_firm_ids     = ref_firm_ids
   )
   
-  # Ensure weights exist (default 1)
-  if (!("w" %in% names(B_indiv))) B_indiv$w <- 1
-  
   # 2) Mean-estimator machinery (centers internally)
   out <- mean_estimator_bread_and_score(
     B_indiv,
-    id_var   = "resp_id",
-    firm_var = "firm_id",
-    b_var    = "B",
-    w_var    = "w"
+    respondent_id_variable_name = "resp_id",
+    firm_id_variable_name = "firm_id",
+    score_variable_name = "B"
   )
   
   firm_scores <- out$firm_scores  # firm_id, item_worth, se, rse (centered)

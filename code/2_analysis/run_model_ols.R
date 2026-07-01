@@ -11,9 +11,6 @@ run_model_ols <- function(
   stopifnot("resp_id" %in% names(data_long))
   stopifnot("firm_id" %in% names(data_long))
   
-  # Ensure weights exist (default 1)
-  if (!("w" %in% names(data_long))) data_long$w <- 1
-  
   # Ensure rating column exists
   if (!(outcome %in% names(data_long)) && !("rating" %in% names(data_long))) {
     stop("run_model_ols(): no column named outcome='", outcome, "' or 'rating' found in data_long.")
@@ -33,10 +30,9 @@ run_model_ols <- function(
   # Mean-estimator machinery (centers internally)
   out <- mean_estimator_bread_and_score(
     data_long,
-    id_var   = "resp_id",
-    firm_var = "firm_id",
-    b_var    = "rating",
-    w_var    = "w"
+    respondent_id_variable_name = "resp_id",
+    firm_id_variable_name = "firm_id",
+    score_variable_name = "rating"
   )
   
   firm_scores <- out$firm_scores  # firm_id, item_worth, se, rse
