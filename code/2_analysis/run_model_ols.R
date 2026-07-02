@@ -16,9 +16,7 @@ run_model <- function(
   # Wide data frame of respondent rankings, used when the method is "Borda"
   respondent_firm_rankings_wide,
   # Firm-level table carrying each firm's name and job count, keyed by firm_id
-  firm_names_and_job_counts,
-  # Name of the rating variable to aggregate
-  outcome_variable_name
+  firm_names_and_job_counts
 ) {
   # Require the method to be one we implement
   stopifnot(aggregation_method %in% c("OLS", "Borda"))
@@ -27,11 +25,11 @@ run_model <- function(
   # Build the respondent x firm scores fed to the mean estimator
   # -------------------------------------------------------------------------------------
   if (aggregation_method == "OLS") {
-    # Require the rating variable in the long data
-    stopifnot(outcome_variable_name %in% names(respondent_firm_ratings_long))
+    # Require the rating column in the long data
+    stopifnot("rating" %in% names(respondent_firm_ratings_long))
     
     # Flip the 1-5 rating so a higher value means a more preferred firm
-    respondent_firm_ratings_long$rating <- 6 - respondent_firm_ratings_long[[outcome_variable_name]]
+    respondent_firm_ratings_long$rating <- 6 - respondent_firm_ratings_long$rating
     
     # Use the flipped long ratings as the estimator input
     respondent_firm_scores <- respondent_firm_ratings_long

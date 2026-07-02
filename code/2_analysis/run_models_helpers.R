@@ -263,8 +263,7 @@ run_models <- function(
         aggregation_method            = model,
         respondent_firm_ratings_long  = d_long,
         respondent_firm_rankings_wide = d_wide,
-        firm_names_and_job_counts     = id_map,
-        outcome_variable_name         = outcome
+        firm_names_and_job_counts     = id_map
       )
 
       # Store each returned model's estimates under its model name

@@ -54,8 +54,8 @@ mean_estimator_bread_and_score <- function(
       firm_mean_rating = sum(.data[[rating_variable_name]], na.rm = TRUE) / firm_number_of_respondents,
       # Sum of squared deviations of ratings from the firm mean
       residual_sum_of_squares_firm_mean_rating = sum((.data[[rating_variable_name]] - firm_mean_rating)^2, na.rm = TRUE),
-      # Unbiased variance of ratings around the firm mean
-      unbiased_firm_rating_variance = residual_sum_of_squares_firm_mean_rating / (firm_number_of_respondents - 1),
+      # Unbiased variance of ratings around the firm mean; missing for firms with a single respondent, which occur in subset builds
+      unbiased_firm_rating_variance = dplyr::if_else(firm_number_of_respondents > 1, residual_sum_of_squares_firm_mean_rating / (firm_number_of_respondents - 1), NA_real_),
       # Naive standard error of the firm mean
       firm_mean_rating_se = sqrt(unbiased_firm_rating_variance / firm_number_of_respondents),
       # Ungroup to a one-row-per-firm data frame
@@ -68,8 +68,6 @@ mean_estimator_bread_and_score <- function(
   # Confirm collapsed_firm_ratings is one row per firm in ascending id order by checking it matches the firm_ids vector
   stopifnot(length(collapsed_firm_ratings$firm_id) == length(firm_ids), all(collapsed_firm_ratings$firm_id == firm_ids))
 
-  # Require every firm to have at least two respondents so its rating variance is defined
-  stopifnot(all(collapsed_firm_ratings$firm_number_of_respondents > 1))
   
   # -------------------------------------------------------------------------------------
   # Set up the row and column indices and dimensions for the 
@@ -136,6 +134,9 @@ mean_estimator_bread_and_score <- function(
 
   # Compute the naive covariance of the firm mean ratings, with squared naive standard errors on the diagonal
   naive_covariance_matrix_raw <- diag(collapsed_firm_ratings$firm_mean_rating_se^2)
+
+  # Label the naive covariance matrix rows and columns by firm
+  dimnames(naive_covariance_matrix_raw) <- list(firm_column_names, firm_column_names)
   
   # -------------------------------------------------------------------------------------
   # Recenter the firm-level objects to sum to zero across firms
