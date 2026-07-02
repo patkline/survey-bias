@@ -4,97 +4,11 @@
 # Updated: entity_type/entity_id/entity schema
 # ------------------------------------------------------------------------------
 
-should_run_model <- function(model, run_ol, run_pl, run_borda, run_ols, run_ols_centered) {
+should_run_model <- function(model, run_borda, run_ols) {
   switch(model,
-         "OL"    = isTRUE(run_ol),
-         "PL"    = isTRUE(run_pl),
          "Borda" = isTRUE(run_borda),
          "OLS"   = isTRUE(run_ols),
-         "OLSC"  = isTRUE(run_ols_centered),
          FALSE)
-}
-
-model_prefix <- function(model) {
-  switch(model,
-         "OL"    = "ol",
-         "PL"    = "pl",
-         "Borda" = "b",
-         "OLS"   = "ols",
-         "OLSC"  = "olsc",
-         stop("Unknown model: ", model))
-}
-
-# ------------------------------------------------------------------------------
-# Dispatch: call the correct model runner
-# NOTE: You should update each model runner to return firm_table with:
-#   entity_type, entity_id, entity, estimate, se, rse, eb
-# These helpers are backward-compatible if old runners still return firm_id/firm.
-# ------------------------------------------------------------------------------
-run_model_dispatch <- function(model,
-                               d_long,
-                               d_wide,
-                               id_map,
-                               outcome,
-                               respondent_col,
-                               firms97 = NULL,
-                               seed = 123,
-                               borda_args = list(
-                                 higher_is_better = FALSE,
-                                 normalize = TRUE,
-                                 ref_firm_ids = c(38, 76, 90),
-                                 do_eb = TRUE
-                               )) {
-  
-  if (model == "OL") {
-    return(run_model_ol(dat_long = d_long,
-                        outcome = outcome,
-                        respondent_col = respondent_col,
-                        id_map = id_map))
-  }
-  
-  if (model == "PL") {
-    return(run_model_pl(data_wide = d_wide,
-                        id_map = id_map,
-                        outcome = outcome,
-                        firms97 = firms97))
-  }
-  
-  if (model == "Borda") {
-    return(run_model_borda(
-      data_wide        = d_wide,
-      id_map           = id_map,
-      outcome          = outcome,
-      higher_is_better = borda_args$higher_is_better,
-      normalize        = borda_args$normalize,
-      ref_firm_ids     = borda_args$ref_firm_ids,
-      do_eb            = borda_args$do_eb,
-      seed             = seed
-    ))
-  }
-  
-  if (model == "OLS") {
-    return(run_model_ols(
-      d_long,
-      id_map,
-      outcome,
-      scale_and_center = FALSE,
-      do_eb = TRUE,
-      seed = seed
-    ))
-  }
-  
-  if (model == "OLSC") {
-    return(run_model_ols(
-      d_long,
-      id_map,
-      outcome,
-      scale_and_center = TRUE,
-      do_eb = TRUE,
-      seed = seed
-    ))
-  }
-  
-  stop("Unknown model: ", model)
 }
 
 # ------------------------------------------------------------------------------
@@ -311,22 +225,12 @@ run_models <- function(
     experimental_vars = NULL,
     data_for_experimental = NULL,
     
-    run_ol = TRUE,
-    run_pl = TRUE,
     run_borda = TRUE,
     run_ols = TRUE,
-    run_ols_centered = TRUE,
-    
+
     firms97 = NULL,
     seed = 123,
-    
-    borda_args = list(
-      higher_is_better = FALSE,
-      normalize = TRUE,
-      ref_firm_ids = c(38, 76, 90),
-      do_eb = TRUE
-    ),
-    
+
     build_subset97 = TRUE,
     
     combine_valences = FALSE,
@@ -334,11 +238,11 @@ run_models <- function(
 ) {
   set.seed(seed)
   
-  models <- c("OL", "PL", "Borda", "OLS", "OLSC")
-  
+  models <- c("Borda", "OLS")
+
   results <- list(
-    all      = list(OL = list(), PL = list(), Borda = list(), OLS = list(), OLSC = list()),
-    subset97 = list(OL = list(), PL = list(), Borda = list(), OLS = list(), OLSC = list())
+    all      = list(Borda = list(), OLS = list()),
+    subset97 = list(Borda = list(), OLS = list())
   )
   
   # ---- Step 1: Run base outcomes ----
@@ -350,26 +254,23 @@ run_models <- function(
     d_long <- data_long_list[[outcome]]
     
     for (model in models) {
-      if (!should_run_model(model, run_ol, run_pl, run_borda, run_ols, run_ols_centered)) next
-      
+      if (!should_run_model(model, run_borda, run_ols)) next
+
       message("Running ", model, " (all): ", outcome)
-      
-      res <- run_model_dispatch(
-        model          = model,
-        d_long         = d_long,
-        d_wide         = d_wide,
-        id_map         = id_map,
-        outcome        = outcome,
-        respondent_col = respondent_col,
-        firms97        = firms97,
-        seed           = seed,
-        borda_args     = borda_args
+
+      # Aggregate to firm level, returning the recentered and non-recentered model estimates
+      model_estimates <- run_model(
+        aggregation_method            = model,
+        respondent_firm_ratings_long  = d_long,
+        respondent_firm_rankings_wide = d_wide,
+        firm_names_and_job_counts     = id_map,
+        outcome_variable_name         = outcome
       )
-      
-      # coerce firm_table to entity schema (for internal consistency)
-      if (!is.null(res$firm_table)) res$firm_table <- .coerce_entity_table(res$firm_table)
-      
-      results$all[[model]][[outcome]] <- res
+
+      # Store each returned model's estimates under its model name
+      for (model_name in names(model_estimates)) {
+        results$all[[model_name]][[outcome]] <- model_estimates[[model_name]]
+      }
     }
   }
   
@@ -388,8 +289,8 @@ run_models <- function(
         combined_outcomes <- c(combined_outcomes, out)
         
         for (model in models) {
-          if (!should_run_model(model, run_ol, run_pl, run_borda, run_ols, run_ols_centered)) next
-          
+          if (!should_run_model(model, run_borda, run_ols)) next
+
           res1 <- results$all[[model]][[v1]]
           res2 <- results$all[[model]][[v2]]
           
@@ -421,7 +322,7 @@ run_models <- function(
       firms97_vec       = firms97,
       data              = data_for_experimental,
       experimental_vars = experimental_vars,
-      prefix_map        = list(OL = "ol", PL = "pl", Borda = "b", OLS = "ols", OLSC = "olsc")
+      prefix_map        = list(Borda = "b", OLS = "ols")
     )
   }
   
@@ -860,7 +761,7 @@ write_rcov_long_sheet <- function(
     output_dir,
     sheet_name = "rcov",
     include_sets = c("all", "subset97"),
-    include_models = c("OL", "OLS", "OLSC", "Borda")
+    include_models = c("Borda", "OLS", "Borda_not_recentered", "OLS_not_recentered")
 ) {
   stopifnot(is.list(results), all(c("all", "subset97") %in% names(results)))
 

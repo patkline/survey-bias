@@ -67,11 +67,8 @@ run_analysis_pipeline <- function(
     id_map_list    = id_map_list,
     experimental_vars = experimental_vars,
     data_for_experimental = data,   # only if your subset97 writer needs it
-    run_ol = run_ol,
-    run_pl = run_pl,
     run_borda = run_borda,
     run_ols = run_ols,
-    run_ols_centered = run_ols_centered,
     firms97 = firms97,
     seed = seed,
     build_subset97 = TRUE,
