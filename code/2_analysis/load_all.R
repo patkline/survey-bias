@@ -1,7 +1,7 @@
 # New for cleaner pipeline
 source(file.path(analysis, "analysis_pipeline.R"))
 source(file.path(helper_functions, "sheet_functions.R"))
-source(file.path(analysis, "run_model_ols.R"))
+source(file.path(analysis, "construct_firm_level_estimates.R"))
 source(file.path(analysis, "run_models_helpers.R"))
 source(file.path(analysis, "prep_outcomes.R"))
 source(file.path(analysis, "create_wide_rankings.R"))
@@ -16,5 +16,5 @@ source(file.path(analysis, "EB_procedure.R")) # EB Procedure
 source(file.path(analysis, "eivreg.R")) # EIV
 source(file.path(analysis, "eiv_functions.R")) # EIV
 source(file.path(analysis, "revelio_eiv.R")) # Revelio EIV
-source(file.path(analysis, "mean_estimator_bread_and_score.R")) 
+source(file.path(analysis, "compute_firm_mean_ratings.R")) 
 source(file.path(analysis, "make_industry_means.R")) # EIV

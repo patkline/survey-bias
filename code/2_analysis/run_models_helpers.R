@@ -259,7 +259,7 @@ run_models <- function(
       message("Running ", model, " (all): ", outcome)
 
       # Aggregate to firm level, returning the recentered and non-recentered model estimates
-      model_estimates <- run_model(
+      model_estimates <- construct_firm_level_estimates(
         aggregation_method            = model,
         respondent_firm_ratings_long  = d_long,
         respondent_firm_rankings_wide = d_wide,

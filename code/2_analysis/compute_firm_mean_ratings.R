@@ -8,7 +8,7 @@
 # Created: Jordan Cammarota 2026-03-06
 # Edited: Nico Rotundo 2026-06-30
 # ----------------------------------------------------------------------------------------
-mean_estimator_bread_and_score <- function(
+compute_firm_mean_ratings <- function(
   # Long data frame, one row per respondent x firm scored
   respondent_firm_scores,
   # Name of the respondent identifier variable in respondent_firm_scores

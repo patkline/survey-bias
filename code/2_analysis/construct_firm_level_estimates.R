@@ -8,7 +8,7 @@
 # Created: Jordan Cammarota 2026-03-06
 # Edited: Nico Rotundo 2026-07-01
 # ----------------------------------------------------------------------------------------
-run_model <- function(
+construct_firm_level_estimates <- function(
   # Aggregation method, either "OLS" or "Borda"
   aggregation_method,
   # Long data frame of respondent x firm ratings, used when the method is "OLS"
@@ -50,7 +50,7 @@ run_model <- function(
   }
 
   # Aggregate the respondent x firm scores to recentered and non-recentered firm-level estimates
-  estimator_output <- mean_estimator_bread_and_score(
+  estimator_output <- compute_firm_mean_ratings(
     respondent_firm_scores,
     respondent_id_variable_name = "resp_id",
     firm_id_variable_name       = "firm_id",
