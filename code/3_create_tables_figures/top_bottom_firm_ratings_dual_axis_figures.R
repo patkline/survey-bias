@@ -98,6 +98,9 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
   # Compute each firm's upper vertical connector bound i.e., the larger of its Likert and rescaled Borda ratings
   top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::mutate(rating_segment_upper = pmax(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
 
+  # Compute the y-axis tick positions from the plotted ratings, shared by both axes so the tick marks align
+  likert_axis_break_positions <- pretty(range(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), na.rm = TRUE))
+
   # Define the top/bottom figure
   top_bottom_figure <- ggplot2::ggplot(top_bottom_plot_working_data, ggplot2::aes(x = firm)) +
 
@@ -122,10 +125,17 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     # Vertical line closing the spacer gap before the 25 top firms
     ggplot2::geom_vline(xintercept = 28.5, linetype = "dashed", linewidth = 0.6, color = "grey55") +
 
-    # Primary axis for the Likert ratings and secondary axis unwinding the rescaled Borda ratings
+    # Primary axis for the Likert ratings and secondary axis unwinding the rescaled Borda ratings, with the
+    # secondary tick marks placed at the primary tick positions and relabeled in Borda units
     ggplot2::scale_y_continuous(
       name = "Likert Score (EB)",
-      sec.axis = ggplot2::sec_axis(~ (. - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean, name = "Borda Score (EB)")
+      breaks = likert_axis_break_positions,
+      sec.axis = ggplot2::sec_axis(
+        ~ (. - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        name = "Borda Score (EB)",
+        breaks = (likert_axis_break_positions - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        labels = function(borda_axis_value) formatC(borda_axis_value, digits = 2, format = "f")
+      )
     ) +
 
     # Assign each aggregation method's color, keeping the legend in Likert-then-Borda order
@@ -155,6 +165,11 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
       # Angled firm names on the x axis
       axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
 
+      # Thin tick marks on the two y axes only
+      axis.ticks        = ggplot2::element_line(color = "black", linewidth = 0.3),
+      axis.ticks.x      = ggplot2::element_blank(),
+      axis.ticks.length = grid::unit(7, "pt"),
+
       # Legend anchored inside the bottom-right corner
       legend.position      = c(0.985, 0.03),
       legend.justification = c(1, 0),
@@ -170,9 +185,14 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
       panel.grid.major = ggplot2::element_blank(),
       panel.grid.minor = ggplot2::element_blank(),
 
-      # White backgrounds with a black panel border
-      panel.background = ggplot2::element_rect(fill = "white", color = "black"),
+      # White backgrounds with no panel border
+      panel.background = ggplot2::element_rect(fill = "white", color = NA),
       plot.background  = ggplot2::element_rect(fill = "white", color = NA),
+
+      # Bottom, left, and right axis spines, leaving the top open
+      axis.line.x.bottom = ggplot2::element_line(color = "black"),
+      axis.line.y.left   = ggplot2::element_line(color = "black"),
+      axis.line.y.right  = ggplot2::element_line(color = "black"),
 
       # Margins leaving room for the angled firm names and the axis titles
       plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
