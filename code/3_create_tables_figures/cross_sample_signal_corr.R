@@ -54,14 +54,17 @@ for (sample_name in sample_vector) {
     # Keep the full-sample estimates
     sample_beliefs <- sample_beliefs |> dplyr::filter(subset == "all")
 
-    # Keep OLS and Borda observations
-    sample_beliefs <- sample_beliefs |> dplyr::filter(model %in% c("OLS", "Borda"))
+    # Keep the non-recentered OLS and Borda observations i.e., the raw firm-level beliefs
+    sample_beliefs <- sample_beliefs |> dplyr::filter(model %in% c("OLS_not_recentered", "Borda_not_recentered"))
 
     # Keep just the two pooled belief measures
     sample_beliefs <- sample_beliefs |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male"))
 
     # Should be 164 firms x 2 aggregation methods x 2 belief measures = 656 observations remaining
     stopifnot(nrow(sample_beliefs) == 164 * 2 * 2)
+
+    # Belief estimates should be non-missing
+    stopifnot(!anyNA(sample_beliefs$estimate))
 
     # Keep necessary variables
     sample_beliefs <- sample_beliefs |> dplyr::select(entity_id, model, outcome, estimate)
@@ -143,8 +146,8 @@ minimum_distance_observed_belief_data <- data.frame()
 
 # Loop over each split
 for (sample_pair in sample_pair_list) {
-    # Loop over aggregation method
-    for (aggregation_method_value in c("OLS", "Borda")) {
+    # Loop over aggregation method, using the non-recentered i.e., raw belief estimates
+    for (aggregation_method_value in c("OLS_not_recentered", "Borda_not_recentered")) {
         # Loop over each belief measure
         for (belief_measure_value in c("pooled_favor_white", "pooled_favor_male")) {
 
@@ -169,6 +172,9 @@ for (sample_pair in sample_pair_list) {
                 # Sort by firm_id to align with firm_id_vector
                 subsample_beliefs <- subsample_beliefs |> dplyr::arrange(firm_id)
 
+                # Check one belief row per firm
+                stopifnot(nrow(subsample_beliefs) == length(firm_id_vector))
+
                 # Check the belief firm_id order equals firm_id_vector
                 stopifnot(all(subsample_beliefs$firm_id == firm_id_vector))
 
@@ -178,8 +184,8 @@ for (sample_pair in sample_pair_list) {
                 # Keep this subsample's signal variance
                 subsample_signal_variance <- aggregated_sample_signal_variance |> dplyr::filter(sample == subsample)
 
-                # Keep this aggregation method
-                subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(aggregation_method == aggregation_method_value)
+                # Keep this aggregation method, dropping the suffix since the signal variance is identical across the recentered and non-recentered estimates
+                subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(aggregation_method == sub("_not_recentered$", "", aggregation_method_value))
 
                 # Keep this belief measure
                 subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(belief_measure == belief_measure_value)
@@ -249,15 +255,22 @@ for (sample_pair in sample_pair_list) {
             # Summed robust covariance under independence of the two samples
             summed_robust_covariance_matrix <- robust_covariance_matrix_by_subsample[[sample_pair$sample_1]] + robust_covariance_matrix_by_subsample[[sample_pair$sample_2]]
 
-            # Wald statistic, chi-square with J - 1 degrees of freedom (sum-to-zero centering removes one direction)
-            wald_statistic <- as.numeric(t(belief_difference) %*% MASS::ginv(summed_robust_covariance_matrix) %*% belief_difference)
-            wald_degrees_of_freedom <- length(firm_id_vector) - 1
+            # Require the summed covariance to be full rank so the Wald statistic has J degrees of freedom
+            stopifnot(qr(summed_robust_covariance_matrix)$rank == length(firm_id_vector))
+
+            # Wald statistic, chi-square with J degrees of freedom
+            wald_statistic <- as.numeric(t(belief_difference) %*% solve(summed_robust_covariance_matrix) %*% belief_difference)
+            wald_degrees_of_freedom <- length(firm_id_vector)
             wald_p_value <- pchisq(wald_statistic, df = wald_degrees_of_freedom, lower.tail = FALSE)
 
             #### Classical minimum distance test of perfect correlation
-            # Compute minimum distance weight matrix for each subsample --- Moore-Penrose inverse of the robust covariance
-            minimum_distance_weight_matrix_sample_1 <- MASS::ginv(robust_covariance_matrix_by_subsample[[sample_pair$sample_1]])
-            minimum_distance_weight_matrix_sample_2 <- MASS::ginv(robust_covariance_matrix_by_subsample[[sample_pair$sample_2]])
+            # Require each subsample's robust covariance to be full rank so its inverse is a valid minimum distance weight matrix
+            stopifnot(qr(robust_covariance_matrix_by_subsample[[sample_pair$sample_1]])$rank == length(firm_id_vector))
+            stopifnot(qr(robust_covariance_matrix_by_subsample[[sample_pair$sample_2]])$rank == length(firm_id_vector))
+
+            # Compute minimum distance weight matrix for each subsample --- inverse of the robust covariance
+            minimum_distance_weight_matrix_sample_1 <- solve(robust_covariance_matrix_by_subsample[[sample_pair$sample_1]])
+            minimum_distance_weight_matrix_sample_2 <- solve(robust_covariance_matrix_by_subsample[[sample_pair$sample_2]])
 
             # Run and store OLS intercept and slope to initialize the minimum distance search
             minimum_distance_starting_intercept_and_slope <- coef(lm(belief_vector_by_subsample[[sample_pair$sample_1]] ~ belief_vector_by_subsample[[sample_pair$sample_2]]))
@@ -274,7 +287,7 @@ for (sample_pair in sample_pair_list) {
               perfect_fit_slope <- intercept_and_slope[2]
 
               # Estimate latent sample_2 beliefs conditional on the trial intercept and slope
-              perfect_fit_belief_sample_2 <- MASS::ginv(perfect_fit_slope^2 * minimum_distance_weight_matrix_sample_1 +
+              perfect_fit_belief_sample_2 <- solve(perfect_fit_slope^2 * minimum_distance_weight_matrix_sample_1 +
               minimum_distance_weight_matrix_sample_2) %*% (
                 perfect_fit_slope * minimum_distance_weight_matrix_sample_1 %*%
                 (belief_vector_by_subsample[[sample_pair$sample_1]] - perfect_fit_intercept) +
@@ -307,6 +320,12 @@ for (sample_pair in sample_pair_list) {
               method = "BFGS"
             )
 
+            # Require the minimization to have converged
+            stopifnot(minimum_distance_perfect_fit_intercept_and_slope$convergence == 0)
+
+            # Require a positive fitted slope, so the perfect-fit line tests rho = +1 rather than rho = -1
+            stopifnot(minimum_distance_perfect_fit_intercept_and_slope$par[2] > 0)
+
             # Store the minimum observed-to-perfect-fit belief distance
             minimum_distance_statistic <- minimum_distance_perfect_fit_intercept_and_slope$value
 
@@ -334,7 +353,7 @@ for (sample_pair in sample_pair_list) {
             minimum_distance_slope <- minimum_distance_perfect_fit_intercept_and_slope$par[2]
 
             # Back out sample_2 beliefs implied by the final minimum distance intercept and slope
-            minimum_distance_implied_belief_sample_2 <- MASS::ginv(minimum_distance_slope^2 * minimum_distance_weight_matrix_sample_1 +
+            minimum_distance_implied_belief_sample_2 <- solve(minimum_distance_slope^2 * minimum_distance_weight_matrix_sample_1 +
             minimum_distance_weight_matrix_sample_2) %*% (
               minimum_distance_slope * minimum_distance_weight_matrix_sample_1 %*%
               (belief_vector_by_subsample[[sample_pair$sample_1]] - minimum_distance_intercept) +
@@ -369,6 +388,15 @@ for (sample_pair in sample_pair_list) {
     }
 }
 
+# Signal correlations should be non-missing
+stopifnot(!anyNA(aggregated_correlation_results$signal_correlation))
+
+# Wald p-values should be non-missing
+stopifnot(!anyNA(aggregated_correlation_results$wald_p_value))
+
+# Wald p-values should be between zero and one
+stopifnot(all(dplyr::between(aggregated_correlation_results$wald_p_value, 0, 1)))
+
 # Minimum distance p-values should be non-missing
 stopifnot(!anyNA(aggregated_correlation_results$minimum_distance_p_value))
 
@@ -396,6 +424,11 @@ stopifnot(length(number_of_firms_in_table) == 1)
 # -----------------------------------------------------------------------------------------------------------------------------
 # Build and write the cross-sample correlation table, with an OLS/Likert panel and a Borda panel
 # -----------------------------------------------------------------------------------------------------------------------------
+# Format a p-value to three decimals, printing values below 0.001 as $<$0.001
+format_p_value <- function(p_value) {
+  if (p_value < 0.001) "$<$0.001" else formatC(p_value, digits = 3, format = "f")
+}
+
 # Open the table
 latex_lines <- c(
     "  \\centering",
@@ -409,10 +442,10 @@ latex_lines <- c(
 )
 
 # Loop over the two aggregation-method panels
-for (panel in list(list(aggregation_method = "ols", panel_label = "Panel A: Likert"), list(aggregation_method = "borda", panel_label = "Panel B: Borda"))) {
+for (panel in list(list(aggregation_method = "ols_not_recentered", panel_label = "Panel A: Likert"), list(aggregation_method = "borda_not_recentered", panel_label = "Panel B: Borda"))) {
 
     # Separate the Borda panel from the Likert panel
-    if (panel$aggregation_method == "borda") {
+    if (panel$aggregation_method == "borda_not_recentered") {
         latex_lines <- c(latex_lines, "    \\addlinespace")
     }
 
@@ -435,7 +468,7 @@ for (panel in list(list(aggregation_method = "ols", panel_label = "Panel A: Like
         stopifnot(nrow(gender_results) == 1)
 
         # Table row: split label, race correlation and p-values, gender correlation and p-values
-        latex_lines <- c(latex_lines, paste0("    ", sample_pair$row_label, " & ", formatC(race_results$signal_correlation, digits = 3, format = "f"), " & ", formatC(race_results$wald_p_value, digits = 3, format = "f"), " & ", formatC(race_results$minimum_distance_p_value, digits = 3, format = "f"), " & ", formatC(gender_results$signal_correlation, digits = 3, format = "f"), " & ", formatC(gender_results$wald_p_value, digits = 3, format = "f"), " & ", formatC(gender_results$minimum_distance_p_value, digits = 3, format = "f"), " \\\\"))
+        latex_lines <- c(latex_lines, paste0("    ", sample_pair$row_label, " & ", formatC(race_results$signal_correlation, digits = 3, format = "f"), " & ", format_p_value(race_results$wald_p_value), " & ", format_p_value(race_results$minimum_distance_p_value), " & ", formatC(gender_results$signal_correlation, digits = 3, format = "f"), " & ", format_p_value(gender_results$wald_p_value), " & ", format_p_value(gender_results$minimum_distance_p_value), " \\\\"))
     }
 }
 
@@ -446,10 +479,10 @@ latex_lines <- c(latex_lines, "    \\midrule", paste0("    N & ", number_of_firm
 latex_lines <- c(latex_lines, "    \\bottomrule", "  \\end{tabular}")
 
 # Write the table
-writeLines(latex_lines, file.path(tables, "cross_sample_signal_corr_ols_borda.tex"), useBytes = TRUE)
+writeLines(latex_lines, file.path(tables, "cross_sample_signal_corr_ols_borda_not_recentered.tex"), useBytes = TRUE)
 
 # Announce the written table
-message("🎃 Generated cross_sample_signal_corr_ols_borda.tex")
+message("🎃 Generated cross_sample_signal_corr_ols_borda_not_recentered.tex")
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Build and write the minimum distance fitted scatterplots
@@ -457,7 +490,7 @@ message("🎃 Generated cross_sample_signal_corr_ols_borda.tex")
 # Loop over each subgroup comparison
 for (subgroup_comparison in list(c("Black", "White"))) {
     # Loop over aggregation method
-    for (aggregation_method in c("ols")) {
+    for (aggregation_method in c("ols_not_recentered")) {
         # Loop over each belief measure
         for (belief_measure in c("pooled_favor_white")) {
 
