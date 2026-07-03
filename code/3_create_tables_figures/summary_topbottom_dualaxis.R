@@ -1,218 +1,186 @@
-# -------------------------------------------------------------------
-# Top/Bottom N firms by Borda EB, with one model's EB on the primary
-# axis and Borda EB on the secondary axis (rescaled to share scale).
-# Model-agnostic: pass model = "OLS" today, model = "PL" if/when PL
-# coefficients are available again in the EB Coefficients sheet.
-# Output: topbottom_by_bordaEB_dualaxis_<outcome>_<model>_borda.png
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------------------------
+# Purpose: Top/bottom firm rating figures --- for each survey measure, plot the 25 highest and 25 lowest
+# firms ranked by the Borda empirical Bayes rating, with the Likert empirical Bayes rating on the primary
+# axis and the Borda empirical Bayes rating on the secondary axis, rescaled to share the primary scale
+#
+# Created: Monica Essig Aberg 2026-05-14
+# Edited: Nico Rotundo 2026-07-03
+# -----------------------------------------------------------------------------------------------------------------------------
+# Run globals
 source("code/globals.R")
-source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 
-MODEL_AXIS_LABELS <- c(
-  PL    = "Plackett--Luce Item Worth (EB)",
-  OLS   = "Likert Score (EB)",
-  OLSC  = "Likert Centered Score (EB)",
-  OL    = "Ordered Logit (EB)",
-  Borda = "Borda Score (EB)"
-)
-MODEL_LEGEND_LABELS <- c(
-  PL    = "Plackett-Luce",
-  OLS   = "Likert Score",
-  OLSC  = "Likert Centered",
-  OL    = "Ordered Logit",
-  Borda = "Borda Score"
-)
+# -----------------------------------------------------------------------------------------------------------------------------
+# Clean firm-level rating estimates for plotting
+# -----------------------------------------------------------------------------------------------------------------------------
+# Load the full-sample firm-level coefficient sheet
+firm_level_rating_estimates <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "Coefficients")
 
-write_topbottom_dualaxis <- function(dir_path,
-                                     outcomes,
-                                     plots_dir,
-                                     model = "OLS",
-                                     n_keep_overlay = 25,
-                                     gap_width = 3,
-                                     borda_mult = 1) {
-  df_coef_raw <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
-                          error = function(e) NULL)
-  if (is.null(df_coef_raw)) {
-    message("⚠️  Coefficients sheet not found at ", dir_path,
-            " — skipping Top/Bottom dual-axis plots.")
-    return(invisible(NULL))
-  }
+# Uniquely identified by subset x aggregation model x survey measure x entity type x entity, none missing
+stopifnot(!anyDuplicated(firm_level_rating_estimates[c("subset", "model", "outcome", "entity_type", "entity_id")]), !anyNA(firm_level_rating_estimates[c("subset", "model", "outcome", "entity_type", "entity_id")]))
 
-  df_eb_model <- to_wide_coef(df_coef_raw, model,   value_col = "eb")
-  df_eb_borda <- to_wide_coef(df_coef_raw, "Borda", value_col = "eb")
+# Keep firm-level observations
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(entity_type == "Firm")
 
-  if (is.null(df_eb_model)) {
-    message("⚠️  Model '", model,
-            "' EB coefficients absent — skipping Top/Bottom dual-axis plots.")
-    return(invisible(NULL))
-  }
-  if (is.null(df_eb_borda)) {
-    message("⚠️  Borda EB coefficients absent — skipping Top/Bottom dual-axis plots.")
-    return(invisible(NULL))
-  }
+# Keep the full-sample estimates
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(subset == "all")
 
-  primary_axis_name <- if (model %in% names(MODEL_AXIS_LABELS))
-                         MODEL_AXIS_LABELS[[model]] else paste0(model, " (EB)")
-  primary_legend    <- if (model %in% names(MODEL_LEGEND_LABELS))
-                         MODEL_LEGEND_LABELS[[model]] else model
-  borda_legend      <- MODEL_LEGEND_LABELS[["Borda"]]
-  primary_color_key <- paste0(primary_legend, " (EB)")
-  borda_color_key   <- "Borda (EB)"
+# Keep the OLS and Borda observations
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(model %in% c("OLS", "Borda"))
 
-  hide_gap_labels <- function(x) ifelse(grepl("^__gap\\d+__$", x), "", x)
+# Keep the survey measures plotted
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger", "FirmSelective", "discretion"))
 
-  for (new_outcome in outcomes) {
-    cols_needed <- c("firm", "firm_id", new_outcome)
-    if (!all(cols_needed %in% names(df_eb_model))) {
-      message("⚠️  Outcome '", new_outcome, "' missing for model '", model,
-              "' EB — skipping.")
-      next
-    }
-    if (!all(cols_needed %in% names(df_eb_borda))) {
-      message("⚠️  Outcome '", new_outcome, "' missing for Borda EB — skipping.")
-      next
-    }
+# Should be 164 firms x 2 aggregation methods x 5 survey measures = 1640 observations remaining
+stopifnot(nrow(firm_level_rating_estimates) == 164 * 2 * 5)
 
-    eb_model <- df_eb_model[, cols_needed]
-    names(eb_model) <- c("firm", "firm_id", "EB_model")
+# Empirical Bayes ratings should be non-missing
+stopifnot(!anyNA(firm_level_rating_estimates$eb))
 
-    eb_borda <- df_eb_borda[, cols_needed]
-    names(eb_borda) <- c("firm", "firm_id", "Borda_EB")
-    eb_borda$Borda_EB <- as.numeric(eb_borda$Borda_EB) * borda_mult
+# Keep necessary variables
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::select(entity_id, entity, model, outcome, eb)
 
-    eb_dual <- eb_model %>%
-      dplyr::left_join(eb_borda, by = c("firm", "firm_id"))
+# Rename variables to be more descriptive
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::rename(firm_id = entity_id, firm = entity, aggregation_method = model, survey_measure = outcome, empirical_bayes_rating = eb)
 
-    if (all(is.na(eb_dual$EB_model)) || all(is.na(eb_dual$Borda_EB))) {
-      message("⚠️  Missing ", model, " EB or Borda EB for ", new_outcome,
-              " — skipping.")
-      next
-    }
+# Reshape to one row per firm, one column per survey measure x aggregation method empirical Bayes rating
+firm_level_rating_estimates <- firm_level_rating_estimates |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes_rating, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes")
 
-    ranked <- eb_dual %>% dplyr::mutate(.rank_key = Borda_EB)
-    topN <- ranked %>% dplyr::slice_max(order_by = .rank_key,
-                                        n = n_keep_overlay, with_ties = FALSE)
-    botN <- ranked %>% dplyr::slice_min(order_by = .rank_key,
-                                        n = n_keep_overlay, with_ties = FALSE)
-    botN <- botN %>% dplyr::arrange(Borda_EB, firm)
-    topN <- topN %>% dplyr::arrange(Borda_EB, firm)
+# Should be one row per firm 
+stopifnot(nrow(firm_level_rating_estimates) == 164)
 
-    spacer <- tibble::tibble(
-      firm               = paste0("__gap", seq_len(gap_width), "__"),
-      firm_id            = NA_integer_,
-      EB_model           = NA_real_,
-      Borda_EB           = NA_real_,
-      Borda_scaled       = NA_real_
-    )
-    subset_dual <- dplyr::bind_rows(botN, spacer, topN)
+# Every firm should have a rating for every survey measure x aggregation method column
+stopifnot(!anyNA(firm_level_rating_estimates))
 
-    s_pri <- stats::sd(subset_dual$EB_model, na.rm = TRUE)
-    if (!is.finite(s_pri) || s_pri == 0) s_pri <- 1
-    s_bd <- stats::sd(subset_dual$Borda_EB, na.rm = TRUE)
-    if (!is.finite(s_bd) || s_bd == 0) s_bd <- 1
-    a <- s_pri / s_bd
+# Ratings should be distinct within every survey measure x aggregation method column, so rank-based cuts are unambiguous
+stopifnot(all(sapply(firm_level_rating_estimates |> dplyr::select(-firm_id, -firm), function(rating_column) !anyDuplicated(rating_column))))
 
-    subset_dual <- subset_dual %>%
-      dplyr::mutate(
-        firm = factor(firm, levels = firm, ordered = TRUE),
-        Borda_scaled = a * Borda_EB
+# -----------------------------------------------------------------------------------------------------------------------------
+# Plot figure for each survey measure 
+# -----------------------------------------------------------------------------------------------------------------------------
+# Loop over each survey measure, drawing one figure per measure
+for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger", "FirmSelective", "discretion")) {
+  # Keep the firm identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
+  top_bottom_plot_working_data <- firm_level_rating_estimates |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_empirical_bayes")))
+
+  # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 139)
+
+  # Should be 50 firms remaining
+  stopifnot(nrow(top_bottom_plot_working_data) == 50)
+
+  # Order the firms ascending by Borda rating
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::arrange(borda_empirical_bayes_rating)
+
+  # Insert three unplotted spacer rows between the bottom and top firms, hidden from the axis labels
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> tibble::add_row(firm = paste0("__gap", 1:3, "__"), .after = 25)
+
+  # Fix the x-axis firm order to the row order i.e., bottom firms, spacer, top firms
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::mutate(firm = factor(firm, levels = firm, ordered = TRUE))
+
+  # Compute the factor rescaling the Borda ratings onto the Likert axis i.e., the ratio of the two plotted standard deviations
+  borda_to_likert_scale_factor <- sd(top_bottom_plot_working_data$likert_empirical_bayes_rating, na.rm = TRUE) / sd(top_bottom_plot_working_data$borda_empirical_bayes_rating, na.rm = TRUE)
+
+  # Scale factor should be finite and positive
+  stopifnot(is.finite(borda_to_likert_scale_factor), borda_to_likert_scale_factor > 0)
+
+  # Rescale the Borda ratings onto the Likert axis
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::mutate(borda_empirical_bayes_rating_rescaled = borda_to_likert_scale_factor * borda_empirical_bayes_rating)
+
+  # Compute each firm's lower vertical connector bound i.e., the smaller of its Likert and rescaled Borda ratings
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::mutate(rating_segment_lower = pmin(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
+
+  # Compute each firm's upper vertical connector bound i.e., the larger of its Likert and rescaled Borda ratings
+  top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::mutate(rating_segment_upper = pmax(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
+
+  # Define the top/bottom figure
+  top_bottom_figure <- ggplot2::ggplot(top_bottom_plot_working_data, ggplot2::aes(x = firm)) +
+
+    # Vertical connector segment between each firm's Likert and rescaled Borda ratings
+    ggplot2::geom_segment(ggplot2::aes(xend = firm, y = rating_segment_lower, yend = rating_segment_upper), linewidth = 0.3, alpha = 0.35) +
+
+    # Likert rating points
+    ggplot2::geom_point(ggplot2::aes(y = likert_empirical_bayes_rating, color = "Likert Score"), size = 2.6, alpha = 0.9) +
+
+    # Likert rating line across firms
+    ggplot2::geom_line(ggplot2::aes(y = likert_empirical_bayes_rating, color = "Likert Score", group = 1), linewidth = 0.7, alpha = 0.9) +
+
+    # Rescaled Borda rating points
+    ggplot2::geom_point(ggplot2::aes(y = borda_empirical_bayes_rating_rescaled, color = "Borda Score"), size = 2.6, alpha = 0.9, shape = 17) +
+
+    # Rescaled Borda rating line across firms
+    ggplot2::geom_line(ggplot2::aes(y = borda_empirical_bayes_rating_rescaled, color = "Borda Score", group = 1), linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
+
+    # Horizontal reference line at a rating of zero
+    ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+
+    # Vertical line opening the spacer gap after the 25 bottom firms
+    ggplot2::geom_vline(xintercept = 25.5, linetype = "dashed", linewidth = 0.6, color = "grey55") +
+
+    # Vertical line closing the spacer gap before the 25 top firms
+    ggplot2::geom_vline(xintercept = 28.5, linetype = "dashed", linewidth = 0.6, color = "grey55") +
+
+    # Primary axis for the Likert ratings and secondary axis unwinding the rescaled Borda ratings
+    ggplot2::scale_y_continuous(
+      name = "Likert Score (EB)",
+      sec.axis = ggplot2::sec_axis(~ . / borda_to_likert_scale_factor, name = "Borda Score (EB)")
+    ) +
+
+    # Assign each aggregation method's color, keeping the legend in Likert-then-Borda order
+    ggplot2::scale_color_manual(
+      values = c("Likert Score" = "steelblue", "Borda Score" = "darkorange"),
+      breaks = c("Likert Score", "Borda Score")
+    ) +
+
+    # Match the legend key glyphs to each series' point shape and line type
+    ggplot2::guides(color = ggplot2::guide_legend(
+      override.aes = list(
+        shape     = c(16, 17),
+        linetype  = c("solid", "dashed"),
+        linewidth = c(0.7, 0.7),
+        alpha     = c(0.9, 0.9)
       )
-    inv_to_borda <- function(y) (y) / a
+    )) +
 
-    guides_dual <- subset_dual %>%
-      dplyr::group_by(firm) %>%
-      dplyr::summarise(
-        ymin = suppressWarnings(pmin(EB_model, Borda_scaled, na.rm = TRUE)),
-        ymax = suppressWarnings(pmax(EB_model, Borda_scaled, na.rm = TRUE)),
-        .groups = "drop"
-      )
+    # Axis titles, with no figure title or legend title
+    ggplot2::labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
 
-    n_bottom <- nrow(botN)
-    gap_start <- n_bottom + 0.5
-    gap_end   <- n_bottom + gap_width + 0.5
+    # Theme baseline
+    ggplot2::theme_minimal(base_size = 14) +
 
-    color_values <- setNames(c("steelblue", "darkorange"),
-                             c(primary_color_key, borda_color_key))
-    color_labels <- setNames(c(primary_legend, borda_legend),
-                             c(primary_color_key, borda_color_key))
+    # Theme adjustments
+    ggplot2::theme(
+      # Angled firm names on the x axis
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
 
-    p <- ggplot2::ggplot(subset_dual, ggplot2::aes(x = firm)) +
-      ggplot2::geom_segment(data = guides_dual,
-                            ggplot2::aes(x = firm, xend = firm,
-                                         y = ymin, yend = ymax),
-                            inherit.aes = FALSE,
-                            linewidth = 0.3, alpha = 0.35) +
-      ggplot2::geom_point(ggplot2::aes(y = EB_model,
-                                       color = primary_color_key),
-                          size = 2.6, alpha = 0.9) +
-      ggplot2::geom_line(ggplot2::aes(y = EB_model,
-                                      color = primary_color_key, group = 1),
-                         linewidth = 0.7, alpha = 0.9) +
-      ggplot2::geom_point(ggplot2::aes(y = Borda_scaled,
-                                       color = borda_color_key),
-                          size = 2.6, alpha = 0.9, shape = 17) +
-      ggplot2::geom_line(ggplot2::aes(y = Borda_scaled,
-                                      color = borda_color_key, group = 1),
-                         linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
-      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
-      ggplot2::geom_vline(xintercept = gap_start, linetype = "dashed",
-                          linewidth = 0.6, color = "grey55") +
-      ggplot2::geom_vline(xintercept = gap_end, linetype = "dashed",
-                          linewidth = 0.6, color = "grey55") +
-      ggplot2::scale_y_continuous(
-        name = primary_axis_name,
-        sec.axis = ggplot2::sec_axis(~ inv_to_borda(.), name = "Borda Score (EB)")
-      ) +
-      ggplot2::scale_color_manual(
-        values = color_values,
-        breaks = c(primary_color_key, borda_color_key),
-        labels = color_labels
-      ) +
-      ggplot2::guides(color = ggplot2::guide_legend(
-        override.aes = list(
-          shape     = c(16, 17),
-          linetype  = c("solid", "dashed"),
-          linewidth = c(0.7, 0.7),
-          alpha     = c(0.9, 0.9)
-        )
-      )) +
-      ggplot2::labs(title = "", x = "Firm (sorted by Borda EB)", color = "") +
-      ggplot2::theme_minimal(base_size = 14) +
-      ggplot2::theme(
-        axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
-        legend.position      = c(0.985, 0.03),
-        legend.justification = c(1, 0),
-        legend.title         = ggplot2::element_blank(),
-        legend.text          = ggplot2::element_text(size = 8, color = "black"),
-        legend.key           = ggplot2::element_blank(),
-        legend.key.height    = grid::unit(10, "pt"),
-        legend.background    = ggplot2::element_rect(
-          fill = scales::alpha("white", 0.85), color = NA),
-        panel.grid.major = ggplot2::element_blank(),
-        panel.grid.minor = ggplot2::element_blank(),
-        panel.background = ggplot2::element_rect(fill = "white", color = "black"),
-        plot.background  = ggplot2::element_rect(fill = "white", color = NA),
-        plot.margin      = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
-      ) +
-      ggplot2::scale_x_discrete(labels = hide_gap_labels,
-                                expand = ggplot2::expansion(add = 0.8)) +
-      ggplot2::coord_cartesian(clip = "off")
+      # Legend anchored inside the bottom-right corner
+      legend.position      = c(0.985, 0.03),
+      legend.justification = c(1, 0),
 
-    out_file <- file.path(plots_dir,
-      paste0("topbottom_by_bordaEB_dualaxis_",
-             new_outcome, "_", tolower(model), "_borda.png"))
-    ggplot2::ggsave(out_file, p, width = 16, height = 8, dpi = 300)
-    cat("✅ Saved:", basename(out_file), "\n")
-  }
-}
+      # Legend styling: no title, small black text, translucent white background
+      legend.title      = ggplot2::element_blank(),
+      legend.text       = ggplot2::element_text(size = 8, color = "black"),
+      legend.key        = ggplot2::element_blank(),
+      legend.key.height = grid::unit(10, "pt"),
+      legend.background = ggplot2::element_rect(fill = scales::alpha("white", 0.85), color = NA),
 
-# Loop over every non-Borda model in the config (Borda is always the
-# secondary-axis comparator).
-for (m in setdiff(models, "Borda")) {
-  write_topbottom_dualaxis(
-    dir_path  = dir_path,
-    outcomes  = ols_borda_dualaxis_outcomes,
-    plots_dir = figures,
-    model     = m
-  )
+      # No grid lines
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+
+      # White backgrounds with a black panel border
+      panel.background = ggplot2::element_rect(fill = "white", color = "black"),
+      plot.background  = ggplot2::element_rect(fill = "white", color = NA),
+
+      # Margins leaving room for the angled firm names and the axis titles
+      plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
+    ) +
+
+    # Blank the spacer rows' x-axis labels and pad the axis ends
+    ggplot2::scale_x_discrete(labels = function(firm_name) ifelse(grepl("^__gap\\d+__$", firm_name), "", firm_name), expand = ggplot2::expansion(add = 0.8)) +
+
+    # Allow the angled firm names to render outside the panel
+    ggplot2::coord_cartesian(clip = "off")
+
+  # Export the figure
+  ggplot2::ggsave(file.path(figures, paste0("topbottom_by_bordaEB_dualaxis_", survey_measure, "_ols_borda.png")), top_bottom_figure, width = 16, height = 8, dpi = 300)
 }
