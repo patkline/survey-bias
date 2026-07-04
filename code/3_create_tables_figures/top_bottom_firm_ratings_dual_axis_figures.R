@@ -1,7 +1,6 @@
 # -----------------------------------------------------------------------------------------------------------------------------
-# Purpose: Top/bottom firm rating figures --- for each survey measure, plot the 25 highest and 25 lowest
-# firms ranked by the Borda empirical Bayes rating, with the Likert empirical Bayes rating on the primary
-# axis and the Borda empirical Bayes rating on the secondary axis, rescaled to share the primary scale
+# Purpose: For each survey measure, plot the Likert and Borda ratings for the 25 highest and 25 lowest 
+# firms ranked by the Borda empirical Bayes rating
 #
 # Created: Monica Essig Aberg 2026-05-14
 # Edited: Nico Rotundo 2026-07-03
@@ -55,7 +54,40 @@ stopifnot(!anyNA(firm_level_rating_estimates))
 stopifnot(all(sapply(firm_level_rating_estimates |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes")), function(rating_column) !anyDuplicated(rating_column))))
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Plot figure for each survey measure 
+# Compute the common y axis shared by the discrimination figures
+# -----------------------------------------------------------------------------------------------------------------------------
+# Discrimination survey measures i.e., the figures drawn on one common y axis
+discrimination_survey_measure_vector <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")
+
+# Define vector to store every discrimination figure's plotted ratings
+discrimination_plotted_ratings <- c()
+
+# Loop over each discrimination survey measure, collecting the ratings its figure plots
+for (survey_measure in discrimination_survey_measure_vector) {
+  # Keep this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
+  discrimination_working_data <- firm_level_rating_estimates |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes")))
+
+  # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
+  discrimination_working_data <- discrimination_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 139)
+
+  # Rescale the Borda ratings onto the Likert axis, matching the two series' plotted means and standard deviations
+  discrimination_working_data <- discrimination_working_data |> dplyr::mutate(borda_empirical_bayes_rating_rescaled = mean(likert_empirical_bayes_rating) + sd(likert_empirical_bayes_rating) / sd(borda_empirical_bayes_rating) * (borda_empirical_bayes_rating - mean(borda_empirical_bayes_rating)))
+
+  # Append the plotted Likert ratings and rescaled Borda ratings
+  discrimination_plotted_ratings <- c(discrimination_plotted_ratings, discrimination_working_data$likert_empirical_bayes_rating, discrimination_working_data$borda_empirical_bayes_rating_rescaled)
+}
+
+# Compute the common y-axis tick positions from every discrimination figure's plotted ratings
+discrimination_axis_break_positions <- pretty(range(discrimination_plotted_ratings))
+
+# Define the common y-axis limits
+discrimination_axis_limits <- c(1.9, 4.1)
+
+# Every plotted rating should sit inside the common y-axis limits
+stopifnot(all(dplyr::between(discrimination_plotted_ratings, discrimination_axis_limits[1], discrimination_axis_limits[2])))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Plot figure for each survey measure
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each survey measure, drawing one figure per measure
 for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger", "FirmSelective", "discretion")) {
@@ -98,8 +130,11 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
   # Compute each firm's upper vertical connector bound i.e., the larger of its Likert and rescaled Borda ratings
   top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::mutate(rating_segment_upper = pmax(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
 
-  # Compute the y-axis tick positions from the plotted ratings, shared by both axes so the tick marks align
-  likert_axis_break_positions <- pretty(range(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), na.rm = TRUE))
+  # Discrimination figures' plotted ratings should sit inside the shared y-axis limits, since the panel draws without clipping
+  if (survey_measure %in% discrimination_survey_measure_vector) stopifnot(all(dplyr::between(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), discrimination_axis_limits[1], discrimination_axis_limits[2]), na.rm = TRUE))
+
+  # Compute the y-axis tick positions, shared by both axes so the tick marks align; discrimination figures share the common positions
+  likert_axis_break_positions <- if (survey_measure %in% discrimination_survey_measure_vector) discrimination_axis_break_positions else pretty(range(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), na.rm = TRUE))
 
   # Define the top/bottom figure
   top_bottom_figure <- ggplot2::ggplot(top_bottom_plot_working_data, ggplot2::aes(x = firm)) +
@@ -201,9 +236,24 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     # Blank the spacer rows' x-axis labels and pad the axis ends
     ggplot2::scale_x_discrete(labels = function(firm_name) ifelse(grepl("^__gap\\d+__$", firm_name), "", firm_name), expand = ggplot2::expansion(add = 0.8)) +
 
-    # Allow the angled firm names to render outside the panel
-    ggplot2::coord_cartesian(clip = "off")
+    # Allow the angled firm names to render outside the panel; discrimination figures share the common y-axis limits
+    ggplot2::coord_cartesian(ylim = if (survey_measure %in% discrimination_survey_measure_vector) discrimination_axis_limits else NULL, clip = "off")
 
-  # Export the figure
-  ggplot2::ggsave(file.path(figures, paste0("top_bottom_firm_ratings_dual_axis_figures_", survey_measure, ".png")), top_bottom_figure, width = 16, height = 8, dpi = 300)
+  # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
+  top_bottom_figure_layout <- ggplot2::ggplotGrob(top_bottom_figure)
+
+  # Pin the panel height, so the panel sits identically in every figure regardless of the firm name lengths below it
+  top_bottom_figure_layout$heights[top_bottom_figure_layout$layout$t[top_bottom_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+
+  # Anchor the layout to the top of the page, so the varying firm-name block below cannot shift the panel vertically
+  top_bottom_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(top_bottom_figure_layout))
+
+  # Open the exported figure file
+  png(file.path(figures, paste0("top_bottom_firm_ratings_dual_axis_figures_", survey_measure, ".png")), width = 16, height = 8, units = "in", res = 300, bg = "white")
+
+  # Draw the pinned layout into the file
+  grid::grid.draw(top_bottom_figure_layout)
+
+  # Close the exported figure file
+  dev.off()
 }
