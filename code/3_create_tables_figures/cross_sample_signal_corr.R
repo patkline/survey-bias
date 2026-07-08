@@ -488,11 +488,11 @@ message("🎃 Generated cross_sample_signal_corr_ols_borda_not_recentered.tex")
 # Build and write the minimum distance fitted scatterplots
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each subgroup comparison
-for (subgroup_comparison in list(c("Black", "White"))) {
+for (subgroup_comparison in list(c("Black", "White"), c("Female", "Male"))) {
     # Loop over aggregation method
     for (aggregation_method in c("ols_not_recentered")) {
-        # Loop over each belief measure
-        for (belief_measure in c("pooled_favor_white")) {
+        # Loop over the belief measure on the comparison's own demographic margin
+        for (belief_measure in c(Black = "pooled_favor_white", Female = "pooled_favor_male")[[subgroup_comparison[1]]]) {
 
             # Restrict observed belief data to the given subgroup comparison
             minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_data |> dplyr::filter(sample_1 == subgroup_comparison[1], sample_2 == subgroup_comparison[2])
@@ -521,70 +521,11 @@ for (subgroup_comparison in list(c("Black", "White"))) {
             # Should be one minimum-distance p-value for this scatterplot
             stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value)) == 1)
 
-            # Define scatterplot of observed beliefs and minimum-distance fitted line
+            # Define scatterplot of observed beliefs i.e., the first animation stage
             minimum_distance_observed_belief_scatterplot <- ggplot(minimum_distance_observed_belief_scatterplot_data, aes(x = belief_sample_2, y = belief_sample_1)) +
 
                 # Observed firm-level belief pairs
                 geom_point(color = "darkorange", size = 2.2, alpha = 0.7) +
-
-                # Minimum-distance fitted line
-                geom_abline(
-                    intercept = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept),
-                    slope = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope),
-                    color = "steelblue",
-                    linewidth = 0.7
-                ) +
-
-                # Minimum-distance implied firm-level belief pairs
-                geom_point(aes(x = minimum_distance_implied_belief_sample_2, y = minimum_distance_implied_belief_sample_1), color = "steelblue", size = 1.4, alpha = 0.9) +
-
-                # Minimum-distance intercept and slope annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = bquote("CMD (intercept, slope)" == group("(", list(.(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept), digits = 3, format = "f")), .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope), digits = 3, format = "f"))), ")")),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.975, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
-
-                # Minimum-distance p-value annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = bquote("CMD p-value"~(H[0]:~rho == 1) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value), digits = 3, format = "f"))),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.930, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
-
-                # Signal correlation annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = bquote("Signal corr." == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$signal_correlation), digits = 3, format = "f"))),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.885, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
-
-                # Wald p-value annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = bquote("Wald p-value"~(H[0]:~theta[1] == theta[2]) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value), digits = 3, format = "f"))),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.840, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
 
                 # Axis labels name the belief measure and subsample
                 labs(
@@ -609,11 +550,89 @@ for (subgroup_comparison in list(c("Black", "White"))) {
                     axis.ticks = element_blank()
                 )
 
+            # Add the minimum-distance fit to the observed scatterplot i.e., the second animation stage
+            minimum_distance_fitted_belief_scatterplot <- minimum_distance_observed_belief_scatterplot +
+
+                # Minimum-distance fitted line
+                geom_abline(
+                    intercept = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept),
+                    slope = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope),
+                    color = "steelblue",
+                    linewidth = 0.7
+                ) +
+
+                # Minimum-distance implied firm-level belief pairs
+                geom_point(aes(x = minimum_distance_implied_belief_sample_2, y = minimum_distance_implied_belief_sample_1), color = "steelblue", size = 1.4, alpha = 0.9)
+
+            # Add the statistic annotations to the fitted scatterplot i.e., the full figure
+            minimum_distance_annotated_belief_scatterplot <- minimum_distance_fitted_belief_scatterplot +
+
+                # Minimum-distance intercept and slope annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = bquote("CMD (intercept, slope)" == group("(", list(.(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept), digits = 3, format = "f")), .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope), digits = 3, format = "f"))), ")")),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.975, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Minimum-distance p-value annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = if (unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value) < 0.001) bquote("CMD p-value"~(H[0]:~rho == 1) < 0.001) else bquote("CMD p-value"~(H[0]:~rho == 1) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value), digits = 3, format = "f"))),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.930, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Signal correlation annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = bquote("Signal corr." == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$signal_correlation), digits = 3, format = "f"))),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.885, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                ) +
+
+                # Wald p-value annotation
+                annotation_custom(
+                    grid::textGrob(
+                        label = if (unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value) < 0.001) bquote("Wald p-value"~(H[0]:~theta[1] == theta[2]) < 0.001) else bquote("Wald p-value"~(H[0]:~theta[1] == theta[2]) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value), digits = 3, format = "f"))),
+                        x = grid::unit(0.015, "npc"),
+                        y = grid::unit(0.840, "npc"),
+                        hjust = 0,
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 11)
+                    )
+                )
+
             # Display the scatterplot in the active graphics device
-            print(minimum_distance_observed_belief_scatterplot)
+            print(minimum_distance_annotated_belief_scatterplot)
 
             # Export the scatterplot, one file per subgroup comparison x aggregation method x belief measure
-            ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, ".png")), plot = minimum_distance_observed_belief_scatterplot, width = 10, height = 6, dpi = 300, bg = "white")
+            ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, ".png")), plot = minimum_distance_annotated_belief_scatterplot, width = 10, height = 6, dpi = 300, bg = "white")
+
+            # Export the animation stages for the race comparison, pinning both stages to the full figure's axis ranges
+            if (identical(subgroup_comparison, c("Black", "White"))) {
+
+                # Extract the full figure's panel ranges, fixing the axes across the animation stages
+                minimum_distance_scatterplot_panel_ranges <- ggplot_build(minimum_distance_annotated_belief_scatterplot)$layout$panel_params[[1]]
+
+                # Export the observed-scatter stage
+                ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, "_animation_1.png")), plot = minimum_distance_observed_belief_scatterplot + coord_cartesian(xlim = minimum_distance_scatterplot_panel_ranges$x.range, ylim = minimum_distance_scatterplot_panel_ranges$y.range, expand = FALSE), width = 10, height = 6, dpi = 300, bg = "white")
+
+                # Export the fitted-scatter stage
+                ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, "_animation_2.png")), plot = minimum_distance_fitted_belief_scatterplot + coord_cartesian(xlim = minimum_distance_scatterplot_panel_ranges$x.range, ylim = minimum_distance_scatterplot_panel_ranges$y.range, expand = FALSE), width = 10, height = 6, dpi = 300, bg = "white")
+            }
         }
     }
 }
