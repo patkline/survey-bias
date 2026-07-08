@@ -249,7 +249,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
   top_bottom_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(top_bottom_figure_layout))
 
   # Open the exported figure file
-  png(file.path(figures, paste0("top_bottom_firm_ratings_dual_axis_figures_", survey_measure, ".png")), width = 16, height = 8, units = "in", res = 300, bg = "white")
+  png(file.path(figures, paste0("top_bottom_firm_ratings_dual_axis_figures_", survey_measure, ".png")), width = 16, height = 6.5, units = "in", res = 300, bg = "white")
 
   # Draw the pinned layout into the file
   grid::grid.draw(top_bottom_figure_layout)
