@@ -136,6 +136,12 @@ weighted_aggregation_matrix <- solve(t(industry_indicator_matrix) %*% diag(firm_
 # Every industry's averaging weights should sum to one
 stopifnot(all(abs(rowSums(weighted_aggregation_matrix) - 1) < 1e-12))
 
+# Define the within-industry deviation matrix i.e., maps firm ratings to firm rating minus own-industry weighted mean
+within_industry_deviation_matrix <- diag(length(firm_id_vector)) - industry_indicator_matrix %*% weighted_aggregation_matrix
+
+# Deviations of a constant should be zero, so raw and recentered ratings give identical deviations
+stopifnot(all(abs(within_industry_deviation_matrix %*% rep(1, length(firm_id_vector))) < 1e-12))
+
 # -----------------------------------------------------------------------------------------------------------------------------
 # Aggregate the firm-level ratings to industry means and within-industry deviations
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -176,5 +182,424 @@ for (survey_measure_value in c("pooled_favor_white", "pooled_favor_male", "condu
 
         # Populate the robust covariance matrix from the firm-pair rows
         firm_robust_covariance_matrix[cbind(as.character(working_robust_covariances$firm_id_i), as.character(working_robust_covariances$firm_id_j))] <- working_robust_covariances$robust_covariance
+
+        # Compute the njobs-weighted industry mean ratings, one per industry
+        industry_mean_rating_vector <- weighted_aggregation_matrix %*% working_rating_estimates$rating_estimate
+
+        # Compute the industry mean ratings' robust covariance i.e., pre- and post-multiply the firm-level covariance by the aggregation matrix
+        industry_mean_robust_covariance_matrix <- weighted_aggregation_matrix %*% firm_robust_covariance_matrix %*% t(weighted_aggregation_matrix)
+
+        # Compute each firm's within-industry rating deviation i.e., rating minus own-industry weighted mean
+        within_industry_deviation_vector <- within_industry_deviation_matrix %*% working_rating_estimates$rating_estimate
+
+        # Compute the within-industry deviations' robust covariance i.e., pre- and post-multiply the firm-level covariance by the deviation matrix
+        within_industry_deviation_robust_covariance_matrix <- within_industry_deviation_matrix %*% firm_robust_covariance_matrix %*% t(within_industry_deviation_matrix)
+
+        # Shrink the industry mean ratings with two-step empirical Bayes, using each mean's robust standard error
+        industry_mean_empirical_bayes_vector <- eb_two_step(theta_hat = as.numeric(industry_mean_rating_vector), s = sqrt(diag(industry_mean_robust_covariance_matrix)))$theta_eb
+
+        # Shrink the within-industry deviations with two-step empirical Bayes, using each deviation's robust standard error
+        within_industry_deviation_empirical_bayes_vector <- eb_two_step(theta_hat = as.numeric(within_industry_deviation_vector), s = sqrt(diag(within_industry_deviation_robust_covariance_matrix)))$theta_eb
+
+        # Append this cell's industry mean ratings and their empirical Bayes estimates
+        industry_rating_estimates <- rbind(industry_rating_estimates, data.frame(survey_measure = survey_measure_value, aggregation_method = aggregation_method_value, aer_naics2 = industry_id_vector, aer_naics2_name = firm_industry_crosswalk$aer_naics2_name[match(industry_id_vector, firm_industry_crosswalk$aer_naics2)], rating_estimate = as.numeric(industry_mean_rating_vector), empirical_bayes = industry_mean_empirical_bayes_vector))
+
+        # Append this cell's within-industry rating deviations and their empirical Bayes estimates
+        within_industry_rating_deviations <- rbind(within_industry_rating_deviations, data.frame(survey_measure = survey_measure_value, aggregation_method = aggregation_method_value, firm_id = working_rating_estimates$firm_id, firm = working_rating_estimates$firm, aer_naics2 = working_rating_estimates$aer_naics2, rating_deviation = as.numeric(within_industry_deviation_vector), empirical_bayes = within_industry_deviation_empirical_bayes_vector))
     }
+}
+
+# Should be 19 industries x 2 aggregation methods x 3 survey measures = 114 industry means, none missing
+stopifnot(nrow(industry_rating_estimates) == 19 * 2 * 3, !anyNA(industry_rating_estimates))
+
+# Should be 97 firms x 2 aggregation methods x 3 survey measures = 582 deviations, none missing
+stopifnot(nrow(within_industry_rating_deviations) == 97 * 2 * 3, !anyNA(within_industry_rating_deviations))
+
+# Attach each survey measure x aggregation method's njobs-weighted grand mean rating across the 97 firms
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::left_join(firm_level_rating_estimates |> dplyr::group_by(survey_measure, aggregation_method) |> dplyr::summarise(weighted_grand_mean_rating = weighted.mean(rating_estimate, njobs), .groups = "drop"), by = c("survey_measure", "aggregation_method"))
+
+# Add the weighted grand mean back to the empirical Bayes deviations, putting the plotted values on the rating scale
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::mutate(empirical_bayes_plus_grand_mean = empirical_bayes + weighted_grand_mean_rating)
+
+# Keep necessary variables
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, aer_naics2, survey_measure, aggregation_method, empirical_bayes_plus_grand_mean)
+
+# Reshape to one row per firm, one column per survey measure x aggregation method plotted rating
+within_industry_rating_deviations <- within_industry_rating_deviations |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes_plus_grand_mean, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes_plus_grand_mean")
+
+# Should be one row per firm
+stopifnot(nrow(within_industry_rating_deviations) == 97)
+
+# Every firm should have a plotted rating for every survey measure x aggregation method column
+stopifnot(!anyNA(within_industry_rating_deviations))
+
+# Borda ratings should be distinct within every survey measure, so the rank-based top/bottom cuts are unambiguous
+stopifnot(all(sapply(within_industry_rating_deviations |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes_plus_grand_mean")), function(rating_column) !anyDuplicated(rating_column))))
+
+# Keep necessary variables
+industry_rating_estimates <- industry_rating_estimates |> dplyr::select(aer_naics2, aer_naics2_name, survey_measure, aggregation_method, empirical_bayes)
+
+# Reshape to one row per industry, one column per survey measure x aggregation method empirical Bayes rating
+industry_rating_estimates <- industry_rating_estimates |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes")
+
+# Should be one row per industry
+stopifnot(nrow(industry_rating_estimates) == 19)
+
+# Every industry should have a rating for every survey measure x aggregation method column
+stopifnot(!anyNA(industry_rating_estimates))
+
+# Borda ratings should be distinct within every survey measure, so the industry ordering is unambiguous
+stopifnot(all(sapply(industry_rating_estimates |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes")), function(rating_column) !anyDuplicated(rating_column))))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define the common y axis shared with the top/bottom discrimination figures
+# -----------------------------------------------------------------------------------------------------------------------------
+# Define the common y-axis tick positions, fixed to the top/bottom discrimination figures' ticks
+discrimination_axis_break_positions <- seq(2, 4, by = 0.5)
+
+# Define the common y-axis limits, fixed to the top/bottom discrimination figures' limits
+discrimination_axis_limits <- c(1.9, 4.1)
+
+# Define vector to store every within-industry figure's plotted ratings
+within_industry_plotted_ratings <- c()
+
+# Loop over each survey measure, collecting the ratings its figure plots
+for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+  # Keep this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
+  within_industry_working_data <- within_industry_rating_deviations |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_grand_mean")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_grand_mean")))
+
+  # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
+  within_industry_working_data <- within_industry_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 72)
+
+  # Rescale the Borda ratings onto the Likert axis, matching the two series' plotted means and standard deviations
+  within_industry_working_data <- within_industry_working_data |> dplyr::mutate(borda_empirical_bayes_rating_rescaled = mean(likert_empirical_bayes_rating) + sd(likert_empirical_bayes_rating) / sd(borda_empirical_bayes_rating) * (borda_empirical_bayes_rating - mean(borda_empirical_bayes_rating)))
+
+  # Append the plotted Likert ratings and rescaled Borda ratings
+  within_industry_plotted_ratings <- c(within_industry_plotted_ratings, within_industry_working_data$likert_empirical_bayes_rating, within_industry_working_data$borda_empirical_bayes_rating_rescaled)
+}
+
+# Every plotted rating should sit inside the common y-axis limits
+stopifnot(all(dplyr::between(within_industry_plotted_ratings, discrimination_axis_limits[1], discrimination_axis_limits[2])))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Plot within-industry figure for each survey measure
+# -----------------------------------------------------------------------------------------------------------------------------
+# Loop over each survey measure, drawing one within-industry figure per measure
+for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+  # Keep the firm identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
+  within_industry_plot_working_data <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_grand_mean")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_grand_mean")))
+
+  # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 72)
+
+  # Should be 50 firms remaining
+  stopifnot(nrow(within_industry_plot_working_data) == 50)
+
+  # Order the firms ascending by Borda rating
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::arrange(borda_empirical_bayes_rating)
+
+  # Insert three unplotted spacer rows between the bottom and top firms, hidden from the axis labels
+  within_industry_plot_working_data <- within_industry_plot_working_data |> tibble::add_row(firm = paste0("__gap", 1:3, "__"), .after = 25)
+
+  # Fix the x-axis firm order to the row order i.e., bottom firms, spacer, top firms
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::mutate(firm = factor(firm, levels = firm, ordered = TRUE))
+
+  # Compute the factor rescaling the Borda ratings onto the Likert axis i.e., the ratio of the two plotted standard deviations
+  borda_to_likert_scale_factor <- sd(within_industry_plot_working_data$likert_empirical_bayes_rating, na.rm = TRUE) / sd(within_industry_plot_working_data$borda_empirical_bayes_rating, na.rm = TRUE)
+
+  # Scale factor should be finite and positive
+  stopifnot(is.finite(borda_to_likert_scale_factor), borda_to_likert_scale_factor > 0)
+
+  # Compute the mean of the plotted Likert ratings, centering the rescaled Borda ratings
+  plotted_likert_rating_mean <- mean(within_industry_plot_working_data$likert_empirical_bayes_rating, na.rm = TRUE)
+
+  # Compute the mean of the plotted Borda ratings, centering the rescaled Borda ratings
+  plotted_borda_rating_mean <- mean(within_industry_plot_working_data$borda_empirical_bayes_rating, na.rm = TRUE)
+
+  # Rescale the Borda ratings onto the Likert axis, matching the two series' plotted means and standard deviations
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::mutate(borda_empirical_bayes_rating_rescaled = plotted_likert_rating_mean + borda_to_likert_scale_factor * (borda_empirical_bayes_rating - plotted_borda_rating_mean))
+
+  # Compute each firm's lower vertical connector bound i.e., the smaller of its Likert and rescaled Borda ratings
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::mutate(rating_segment_lower = pmin(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
+
+  # Compute each firm's upper vertical connector bound i.e., the larger of its Likert and rescaled Borda ratings
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::mutate(rating_segment_upper = pmax(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
+
+  # Plotted ratings should sit inside the shared y-axis limits, since the panel draws without clipping
+  stopifnot(all(dplyr::between(c(within_industry_plot_working_data$likert_empirical_bayes_rating, within_industry_plot_working_data$borda_empirical_bayes_rating_rescaled), discrimination_axis_limits[1], discrimination_axis_limits[2]), na.rm = TRUE))
+
+  # Define the within-industry figure
+  within_industry_figure <- ggplot2::ggplot(within_industry_plot_working_data, ggplot2::aes(x = firm)) +
+
+    # Vertical connector segment between each firm's Likert and rescaled Borda ratings
+    ggplot2::geom_segment(ggplot2::aes(xend = firm, y = rating_segment_lower, yend = rating_segment_upper), linewidth = 0.3, alpha = 0.35) +
+
+    # Likert rating points
+    ggplot2::geom_point(ggplot2::aes(y = likert_empirical_bayes_rating, color = "Likert Score"), size = 2.6, alpha = 0.9) +
+
+    # Likert rating line across firms
+    ggplot2::geom_line(ggplot2::aes(y = likert_empirical_bayes_rating, color = "Likert Score", group = 1), linewidth = 0.7, alpha = 0.9) +
+
+    # Rescaled Borda rating points
+    ggplot2::geom_point(ggplot2::aes(y = borda_empirical_bayes_rating_rescaled, color = "Borda Score"), size = 2.6, alpha = 0.9, shape = 17) +
+
+    # Rescaled Borda rating line across firms
+    ggplot2::geom_line(ggplot2::aes(y = borda_empirical_bayes_rating_rescaled, color = "Borda Score", group = 1), linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
+
+    # Vertical line opening the spacer gap after the 25 bottom firms
+    ggplot2::geom_vline(xintercept = 25.5, linetype = "dashed", linewidth = 0.6, color = "grey55") +
+
+    # Vertical line closing the spacer gap before the 25 top firms
+    ggplot2::geom_vline(xintercept = 28.5, linetype = "dashed", linewidth = 0.6, color = "grey55") +
+
+    # Primary axis for the Likert ratings and secondary axis unwinding the rescaled Borda ratings, with the
+    # secondary tick marks placed at the primary tick positions and relabeled in Borda units
+    ggplot2::scale_y_continuous(
+      name = "Likert Score (EB)",
+      breaks = discrimination_axis_break_positions,
+      sec.axis = ggplot2::sec_axis(
+        ~ (. - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        name = "Borda Score (EB)",
+        breaks = (discrimination_axis_break_positions - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        labels = function(borda_axis_value) formatC(borda_axis_value, digits = 2, format = "f")
+      )
+    ) +
+
+    # Assign each aggregation method's color, keeping the legend in Likert-then-Borda order
+    ggplot2::scale_color_manual(
+      values = c("Likert Score" = "steelblue", "Borda Score" = "darkorange"),
+      breaks = c("Likert Score", "Borda Score")
+    ) +
+
+    # Match the legend key glyphs to each series' point shape and line type
+    ggplot2::guides(color = ggplot2::guide_legend(
+      override.aes = list(
+        shape     = c(16, 17),
+        linetype  = c("solid", "dashed"),
+        linewidth = c(0.7, 0.7),
+        alpha     = c(0.9, 0.9)
+      )
+    )) +
+
+    # Axis titles, with no figure title or legend title
+    ggplot2::labs(title = "", x = "Firm (sorted by Borda EB within-industry deviation)", color = "") +
+
+    # Theme baseline
+    ggplot2::theme_minimal(base_size = 14) +
+
+    # Theme adjustments
+    ggplot2::theme(
+      # Angled firm names on the x axis
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+
+      # Thin tick marks on the two y axes only
+      axis.ticks        = ggplot2::element_line(color = "black", linewidth = 0.3),
+      axis.ticks.x      = ggplot2::element_blank(),
+      axis.ticks.length = grid::unit(7, "pt"),
+
+      # Legend anchored inside the bottom-right corner
+      legend.position      = c(0.985, 0.03),
+      legend.justification = c(1, 0),
+
+      # Legend styling: no title, small black text, translucent white background
+      legend.title      = ggplot2::element_blank(),
+      legend.text       = ggplot2::element_text(size = 8, color = "black"),
+      legend.key        = ggplot2::element_blank(),
+      legend.key.height = grid::unit(10, "pt"),
+      legend.background = ggplot2::element_rect(fill = scales::alpha("white", 0.85), color = NA),
+
+      # No grid lines
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+
+      # White backgrounds with no panel border
+      panel.background = ggplot2::element_rect(fill = "white", color = NA),
+      plot.background  = ggplot2::element_rect(fill = "white", color = NA),
+
+      # Bottom, left, and right axis spines, leaving the top open
+      axis.line.x.bottom = ggplot2::element_line(color = "black"),
+      axis.line.y.left   = ggplot2::element_line(color = "black"),
+      axis.line.y.right  = ggplot2::element_line(color = "black"),
+
+      # Margins leaving room for the angled firm names and the axis titles
+      plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
+    ) +
+
+    # Blank the spacer rows' x-axis labels and pad the axis ends
+    ggplot2::scale_x_discrete(labels = function(firm_name) ifelse(grepl("^__gap\\d+__$", firm_name), "", firm_name), expand = ggplot2::expansion(add = 0.8)) +
+
+    # Allow the angled firm names to render outside the panel, on the shared y-axis limits
+    ggplot2::coord_cartesian(ylim = discrimination_axis_limits, clip = "off")
+
+  # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
+  within_industry_figure_layout <- ggplot2::ggplotGrob(within_industry_figure)
+
+  # Pin the panel height, so the panel sits identically in every figure regardless of the firm name lengths below it
+  within_industry_figure_layout$heights[within_industry_figure_layout$layout$t[within_industry_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+
+  # Anchor the layout to the top of the page, so the varying firm-name block below cannot shift the panel vertically
+  within_industry_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(within_industry_figure_layout))
+
+  # Open the exported figure file
+  png(file.path(figures, paste0("industry_ratings_dual_axis_figures_within_", survey_measure, ".png")), width = 16, height = 6.5, units = "in", res = 300, bg = "white")
+
+  # Draw the pinned layout into the file
+  grid::grid.draw(within_industry_figure_layout)
+
+  # Close the exported figure file
+  dev.off()
+}
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Plot between-industry figure for each survey measure
+# -----------------------------------------------------------------------------------------------------------------------------
+# Loop over each survey measure, drawing one between-industry figure per measure
+for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+  # Keep the industry identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
+  between_industry_plot_working_data <- industry_rating_estimates |> dplyr::select(aer_naics2, aer_naics2_name, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes")))
+
+  # Order the industries ascending by Borda rating
+  between_industry_plot_working_data <- between_industry_plot_working_data |> dplyr::arrange(borda_empirical_bayes_rating)
+
+  # Fix the x-axis industry order to the row order
+  between_industry_plot_working_data <- between_industry_plot_working_data |> dplyr::mutate(aer_naics2_name = factor(aer_naics2_name, levels = aer_naics2_name, ordered = TRUE))
+
+  # Compute the factor rescaling the Borda ratings onto the Likert axis i.e., the ratio of the two plotted standard deviations
+  borda_to_likert_scale_factor <- sd(between_industry_plot_working_data$likert_empirical_bayes_rating) / sd(between_industry_plot_working_data$borda_empirical_bayes_rating)
+
+  # Scale factor should be finite and positive
+  stopifnot(is.finite(borda_to_likert_scale_factor), borda_to_likert_scale_factor > 0)
+
+  # Compute the mean of the plotted Likert ratings, centering the rescaled Borda ratings
+  plotted_likert_rating_mean <- mean(between_industry_plot_working_data$likert_empirical_bayes_rating)
+
+  # Compute the mean of the plotted Borda ratings, centering the rescaled Borda ratings
+  plotted_borda_rating_mean <- mean(between_industry_plot_working_data$borda_empirical_bayes_rating)
+
+  # Rescale the Borda ratings onto the Likert axis, matching the two series' plotted means and standard deviations
+  between_industry_plot_working_data <- between_industry_plot_working_data |> dplyr::mutate(borda_empirical_bayes_rating_rescaled = plotted_likert_rating_mean + borda_to_likert_scale_factor * (borda_empirical_bayes_rating - plotted_borda_rating_mean))
+
+  # Compute each industry's lower vertical connector bound i.e., the smaller of its Likert and rescaled Borda ratings
+  between_industry_plot_working_data <- between_industry_plot_working_data |> dplyr::mutate(rating_segment_lower = pmin(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
+
+  # Compute each industry's upper vertical connector bound i.e., the larger of its Likert and rescaled Borda ratings
+  between_industry_plot_working_data <- between_industry_plot_working_data |> dplyr::mutate(rating_segment_upper = pmax(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
+
+  # Plotted ratings should sit inside the shared y-axis limits, since the panel draws without clipping
+  stopifnot(all(dplyr::between(c(between_industry_plot_working_data$likert_empirical_bayes_rating, between_industry_plot_working_data$borda_empirical_bayes_rating_rescaled), discrimination_axis_limits[1], discrimination_axis_limits[2])))
+
+  # Define the between-industry figure
+  between_industry_figure <- ggplot2::ggplot(between_industry_plot_working_data, ggplot2::aes(x = aer_naics2_name)) +
+
+    # Vertical connector segment between each industry's Likert and rescaled Borda ratings
+    ggplot2::geom_segment(ggplot2::aes(xend = aer_naics2_name, y = rating_segment_lower, yend = rating_segment_upper), linewidth = 0.3, alpha = 0.35) +
+
+    # Likert rating points
+    ggplot2::geom_point(ggplot2::aes(y = likert_empirical_bayes_rating, color = "Likert Score"), size = 2.6, alpha = 0.9) +
+
+    # Likert rating line across industries
+    ggplot2::geom_line(ggplot2::aes(y = likert_empirical_bayes_rating, color = "Likert Score", group = 1), linewidth = 0.7, alpha = 0.9) +
+
+    # Rescaled Borda rating points
+    ggplot2::geom_point(ggplot2::aes(y = borda_empirical_bayes_rating_rescaled, color = "Borda Score"), size = 2.6, alpha = 0.9, shape = 17) +
+
+    # Rescaled Borda rating line across industries
+    ggplot2::geom_line(ggplot2::aes(y = borda_empirical_bayes_rating_rescaled, color = "Borda Score", group = 1), linewidth = 0.7, alpha = 0.9, linetype = "dashed") +
+
+    # Primary axis for the Likert ratings and secondary axis unwinding the rescaled Borda ratings, with the
+    # secondary tick marks placed at the primary tick positions and relabeled in Borda units
+    ggplot2::scale_y_continuous(
+      name = "Likert Score (EB)",
+      breaks = discrimination_axis_break_positions,
+      sec.axis = ggplot2::sec_axis(
+        ~ (. - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        name = "Borda Score (EB)",
+        breaks = (discrimination_axis_break_positions - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        labels = function(borda_axis_value) formatC(borda_axis_value, digits = 2, format = "f")
+      )
+    ) +
+
+    # Assign each aggregation method's color, keeping the legend in Likert-then-Borda order
+    ggplot2::scale_color_manual(
+      values = c("Likert Score" = "steelblue", "Borda Score" = "darkorange"),
+      breaks = c("Likert Score", "Borda Score")
+    ) +
+
+    # Match the legend key glyphs to each series' point shape and line type
+    ggplot2::guides(color = ggplot2::guide_legend(
+      override.aes = list(
+        shape     = c(16, 17),
+        linetype  = c("solid", "dashed"),
+        linewidth = c(0.7, 0.7),
+        alpha     = c(0.9, 0.9)
+      )
+    )) +
+
+    # Axis titles, with no figure title or legend title
+    ggplot2::labs(title = "", x = "Industry (sorted by Borda EB)", color = "") +
+
+    # Theme baseline
+    ggplot2::theme_minimal(base_size = 14) +
+
+    # Theme adjustments
+    ggplot2::theme(
+      # Angled industry names on the x axis
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+
+      # Thin tick marks on the two y axes only
+      axis.ticks        = ggplot2::element_line(color = "black", linewidth = 0.3),
+      axis.ticks.x      = ggplot2::element_blank(),
+      axis.ticks.length = grid::unit(7, "pt"),
+
+      # Legend anchored inside the bottom-right corner
+      legend.position      = c(0.985, 0.03),
+      legend.justification = c(1, 0),
+
+      # Legend styling: no title, small black text, translucent white background
+      legend.title      = ggplot2::element_blank(),
+      legend.text       = ggplot2::element_text(size = 8, color = "black"),
+      legend.key        = ggplot2::element_blank(),
+      legend.key.height = grid::unit(10, "pt"),
+      legend.background = ggplot2::element_rect(fill = scales::alpha("white", 0.85), color = NA),
+
+      # No grid lines
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+
+      # White backgrounds with no panel border
+      panel.background = ggplot2::element_rect(fill = "white", color = NA),
+      plot.background  = ggplot2::element_rect(fill = "white", color = NA),
+
+      # Bottom, left, and right axis spines, leaving the top open
+      axis.line.x.bottom = ggplot2::element_line(color = "black"),
+      axis.line.y.left   = ggplot2::element_line(color = "black"),
+      axis.line.y.right  = ggplot2::element_line(color = "black"),
+
+      # Margins leaving room for the angled industry names and the axis titles
+      plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
+    ) +
+
+    # Pad the axis ends
+    ggplot2::scale_x_discrete(expand = ggplot2::expansion(add = 0.8)) +
+
+    # Allow the angled industry names to render outside the panel, on the shared y-axis limits
+    ggplot2::coord_cartesian(ylim = discrimination_axis_limits, clip = "off")
+
+  # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
+  between_industry_figure_layout <- ggplot2::ggplotGrob(between_industry_figure)
+
+  # Pin the panel height, so the panel sits identically in every figure regardless of the industry name lengths below it
+  between_industry_figure_layout$heights[between_industry_figure_layout$layout$t[between_industry_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+
+  # Anchor the layout to the top of the page, so the varying industry-name block below cannot shift the panel vertically
+  between_industry_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(between_industry_figure_layout))
+
+  # Open the exported figure file
+  png(file.path(figures, paste0("industry_ratings_dual_axis_figures_between_", survey_measure, ".png")), width = 16, height = 6.5, units = "in", res = 300, bg = "white")
+
+  # Draw the pinned layout into the file
+  grid::grid.draw(between_industry_figure_layout)
+
+  # Close the exported figure file
+  dev.off()
 }
