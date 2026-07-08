@@ -7,6 +7,96 @@
 # ------------------------------------------------------------------------------
 # PIPELINE
 # ------------------------------------------------------------------------------
+write_between_industry_correlation_sheets <- function(
+    results,
+    output_dir,
+    survey_vars,
+    variance_df = NULL
+) {
+  if (is.null(variance_df)) {
+    variance_df <- read_parquet_sheet(output_dir, "variance")
+  }
+
+  between_industry_vars <- paste0(survey_vars, "_im_w")
+  between_industry_vars <- intersect(
+    between_industry_vars,
+    unique(as.character(variance_df$outcome))
+  )
+
+  if (length(between_industry_vars) < 2L) {
+    stop(
+      "Cannot build between-industry correlation sheet: fewer than two _im_w ",
+      "outcomes were found in the variance sheet.",
+      call. = FALSE
+    )
+  }
+
+  covariance_between_industry_df <- write_covariance_sheet(
+    results = results,
+    output_dir = output_dir,
+    sheet_name = "covariance_between_industry",
+    survey_vars = between_industry_vars
+  )
+
+  corr_between_industry_df <- build_correlation_from_varcov(
+    variance_df,
+    covariance_between_industry_df
+  )
+
+  write_parquet_sheet(
+    output_dir,
+    "correlation_between_industry",
+    corr_between_industry_df
+  )
+
+  invisible(corr_between_industry_df)
+}
+
+write_within_industry_correlation_sheets <- function(
+    results,
+    output_dir,
+    survey_vars,
+    variance_df = NULL
+) {
+  if (is.null(variance_df)) {
+    variance_df <- read_parquet_sheet(output_dir, "variance")
+  }
+
+  within_industry_vars <- paste0(survey_vars, "_dm_w")
+  within_industry_vars <- intersect(
+    within_industry_vars,
+    unique(as.character(variance_df$outcome))
+  )
+
+  if (length(within_industry_vars) < 2L) {
+    stop(
+      "Cannot build within-industry correlation sheet: fewer than two _dm_w ",
+      "outcomes were found in the variance sheet.",
+      call. = FALSE
+    )
+  }
+
+  covariance_within_industry_df <- write_covariance_sheet(
+    results = results,
+    output_dir = output_dir,
+    sheet_name = "covariance_within_industry",
+    survey_vars = within_industry_vars
+  )
+
+  corr_within_industry_df <- build_correlation_from_varcov(
+    variance_df,
+    covariance_within_industry_df
+  )
+
+  write_parquet_sheet(
+    output_dir,
+    "correlation_within_industry",
+    corr_within_industry_df
+  )
+
+  invisible(corr_within_industry_df)
+}
+
 run_analysis_pipeline <- function(
     data, respondent_col, survey_vars, experimental_vars = NULL,
     subset_var = NULL, subset_value = NULL,
@@ -164,6 +254,24 @@ run_analysis_pipeline <- function(
 
   write_parquet_sheet(output_dir, "correlation", corr_df)
 
+  if (isTRUE(industry_means)) {
+    message("Within-industry Correlation Calculations")
+    write_within_industry_correlation_sheets(
+      results = results,
+      output_dir = output_dir,
+      survey_vars = survey_vars,
+      variance_df = variance_df
+    )
+
+    message("Between-industry Correlation Calculations")
+    write_between_industry_correlation_sheets(
+      results = results,
+      output_dir = output_dir,
+      survey_vars = survey_vars,
+      variance_df = variance_df
+    )
+  }
+
   message("✅ Step 4 Complete. Output directory: ", output_dir)
 
 ################################################################################
@@ -313,25 +421,28 @@ run_analysis_pipeline <- function(
   dm_rhs_outcomes <- c(
     "FirmCont_favor_white_dm_w", "conduct_favor_white_dm_w", "pooled_favor_white_dm_w",
     "FirmCont_favor_male_dm_w",  "conduct_favor_male_dm_w",  "pooled_favor_male_dm_w",
-    "conduct_favor_younger_dm_w"
+    "conduct_favor_younger_dm_w", "FirmSelective_dm_w"
   )
   im_rhs_outcomes <- c(
     "FirmCont_favor_white_im_w", "conduct_favor_white_im_w", "pooled_favor_white_im_w",
     "FirmCont_favor_male_im_w",  "conduct_favor_male_im_w",  "pooled_favor_male_im_w",
-    "conduct_favor_younger_im_w"
+    "conduct_favor_younger_im_w", "FirmSelective_im_w"
   )
 
   # Build noise matrices for _dm and _im outcomes
+  covariance_dm_df <- read_parquet_sheet(output_dir, "covariance_within_industry")
+  covariance_im_df <- read_parquet_sheet(output_dir, "covariance_between_industry")
+
   noise_dm_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
   noise_im_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
 
   for (m in models_to_build) {
     noise_dm_97[[m]] <- build_noise_matrix(
-      variance_df, covariance_df, outcomes = dm_rhs_outcomes,
+      variance_df, covariance_dm_df, outcomes = dm_rhs_outcomes,
       subset_value = "subset97", model_value = m
     )
     noise_im_97[[m]] <- build_noise_matrix(
-      variance_df, covariance_df, outcomes = im_rhs_outcomes,
+      variance_df, covariance_im_df, outcomes = im_rhs_outcomes,
       subset_value = "subset97", model_value = m
     )
   }
@@ -373,6 +484,23 @@ run_analysis_pipeline <- function(
     weights_col = "njobs"
   )
 
+  regs_within_selectivity <- list(
+    list(lhs = "log_dif_dm_w",
+         rhs = c("pooled_favor_white_dm_w", "FirmSelective_dm_w"))
+  )
+
+  write_eiv_sheet(
+    output_dir, sheet_name = "EIV_within_selectivity",
+    regs = regs_within_selectivity,
+    coef_df_wide = coef_firm_wide,
+    noise_mats_97 = noise_dm_97,
+    models = models_to_run_eiv,
+    id_col = "entity_id",
+    model_col = "model",
+    use_fe = FALSE,
+    weights_col = "njobs"
+  )
+
   # Between-industry: build industry-level dataframe
   # Compute njobs-weighted industry means of experimental LHS vars from firm data
   lhs_im <- coef_firm_wide |>
@@ -405,6 +533,23 @@ run_analysis_pipeline <- function(
   write_eiv_sheet(
     output_dir, sheet_name = "EIV_between",
     regs = regs_between,
+    coef_df_wide = coef_ind_eiv,
+    noise_mats_97 = noise_im_97,
+    models = models_to_run_eiv,
+    id_col = "entity_id",
+    model_col = "model",
+    use_fe = FALSE,
+    weights_col = "njobs"
+  )
+
+  regs_between_selectivity <- list(
+    list(lhs = "log_dif_im_w",
+         rhs = c("pooled_favor_white_im_w", "FirmSelective_im_w"))
+  )
+
+  write_eiv_sheet(
+    output_dir, sheet_name = "EIV_between_selectivity",
+    regs = regs_between_selectivity,
     coef_df_wide = coef_ind_eiv,
     noise_mats_97 = noise_im_97,
     models = models_to_run_eiv,

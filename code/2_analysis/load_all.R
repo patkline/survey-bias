@@ -17,4 +17,5 @@ source(file.path(analysis, "eivreg.R")) # EIV
 source(file.path(analysis, "eiv_functions.R")) # EIV
 source(file.path(analysis, "revelio_eiv.R")) # Revelio EIV
 source(file.path(analysis, "compute_firm_mean_ratings.R")) 
+source(file.path(analysis, "eeo1_eiv.R")) # EEO-1 industry-share EIV
 source(file.path(analysis, "make_industry_means.R")) # EIV

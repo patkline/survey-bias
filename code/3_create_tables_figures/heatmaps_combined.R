@@ -4,6 +4,20 @@
 # --------------------------------------------------------------------
 source("code/globals.R")
 
+heatmap_run_mode <- Sys.getenv("HEATMAPS_COMBINED_RUN", unset = "all")
+valid_heatmap_run_modes <- c("all", "standard", "industry", "between_industry", "within_industry", "none")
+if (!heatmap_run_mode %in% valid_heatmap_run_modes) {
+  stop(
+    "Invalid HEATMAPS_COMBINED_RUN='", heatmap_run_mode, "'. ",
+    "Valid values are: ", paste(valid_heatmap_run_modes, collapse = ", "),
+    call. = FALSE
+  )
+}
+
+run_standard_heatmaps <- heatmap_run_mode %in% c("all", "standard")
+run_between_industry_heatmap <- heatmap_run_mode %in% c("all", "industry", "between_industry")
+run_within_industry_heatmap <- heatmap_run_mode %in% c("all", "industry", "within_industry")
+
 ensure_symmetry <- function(df) {
   stopifnot(all(c("lhs","rhs") %in% names(df)))
   flipped <- df %>%
@@ -276,6 +290,16 @@ label_mapping <- c(
   "FirmCont_favor_white" = "Discrimination Black (Contact)"
 )
 
+label_mapping_between_industry <- stats::setNames(
+  unname(label_mapping),
+  paste0(names(label_mapping), "_im_w")
+)
+
+label_mapping_within_industry <- stats::setNames(
+  unname(label_mapping),
+  paste0(names(label_mapping), "_dm_w")
+)
+
 custom_order_non <- c(
   "Discrimination Black (Conduct)",
   "Discrimination Black (Hire)",
@@ -394,21 +418,82 @@ create_combined_tri_heatmap(
 # ------------------------------------------------------------
 # Likert + Borda combined heatmaps (symmetric version)
 # ------------------------------------------------------------
-create_combined_tri_heatmap(
-  dir_path     = file.path(intermediate, "Full_Sample"),
-  sheet_pl     = "correlation",
-  sheet_borda  = "correlation",
-  model_pl     = "OLS",
-  model_borda  = "Borda",
-  all_flag     = TRUE,
-  title        = "",
-  filename     = file.path(figures, "heatmap_combined_full_ols_borda.png"),
-  label_mapping = label_mapping,
-  custom_order  = custom_order_non,
-  top_model_label = "Borda",
-  bottom_model_label = "Likert"
+if (run_standard_heatmaps) {
+  create_combined_tri_heatmap(
+    dir_path     = file.path(intermediate, "Full_Sample"),
+    sheet_pl     = "correlation",
+    sheet_borda  = "correlation",
+    model_pl     = "OLS",
+    model_borda  = "Borda",
+    all_flag     = TRUE,
+    title        = "",
+    filename     = file.path(figures, "heatmap_combined_full_ols_borda.png"),
+    label_mapping = label_mapping,
+    custom_order  = custom_order_non,
+    top_model_label = "Borda",
+    bottom_model_label = "Likert"
+  )
+}
+
+# Between-industry weighted industry-mean correlations. This sheet is written by
+# section 2 when industry_means = TRUE.
+between_industry_corr_path <- parquet_sheet_path(
+  file.path(intermediate, "Full_Sample"),
+  "correlation_between_industry"
 )
 
+if (run_between_industry_heatmap && file.exists(between_industry_corr_path)) {
+  create_combined_tri_heatmap(
+    dir_path     = file.path(intermediate, "Full_Sample"),
+    sheet_pl     = "correlation_between_industry",
+    sheet_borda  = "correlation_between_industry",
+    model_pl     = "OLS",
+    model_borda  = "Borda",
+    all_flag     = FALSE,
+    title        = "",
+    filename     = file.path(figures, "heatmap_between_industry_full_ols_borda.png"),
+    label_mapping = label_mapping_between_industry,
+    custom_order  = custom_order_non,
+    top_model_label = "Borda",
+    bottom_model_label = "Likert"
+  )
+} else if (run_between_industry_heatmap) {
+  warning(
+    "Skipping between-industry heatmap because correlation_between_industry ",
+    "does not exist yet. Rerun section 2 before rebuilding this figure."
+  )
+}
+
+# Within-industry weighted demeaned correlations. This sheet is written by
+# section 2 when industry_means = TRUE.
+within_industry_corr_path <- parquet_sheet_path(
+  file.path(intermediate, "Full_Sample"),
+  "correlation_within_industry"
+)
+
+if (run_within_industry_heatmap && file.exists(within_industry_corr_path)) {
+  create_combined_tri_heatmap(
+    dir_path     = file.path(intermediate, "Full_Sample"),
+    sheet_pl     = "correlation_within_industry",
+    sheet_borda  = "correlation_within_industry",
+    model_pl     = "OLS",
+    model_borda  = "Borda",
+    all_flag     = FALSE,
+    title        = "",
+    filename     = file.path(figures, "heatmap_within_industry_full_ols_borda.png"),
+    label_mapping = label_mapping_within_industry,
+    custom_order  = custom_order_non,
+    top_model_label = "Borda",
+    bottom_model_label = "Likert"
+  )
+} else if (run_within_industry_heatmap) {
+  warning(
+    "Skipping within-industry heatmap because correlation_within_industry ",
+    "does not exist yet. Rerun section 2 before rebuilding this figure."
+  )
+}
+
+if (run_standard_heatmaps) {
 # Highlighted version (cells are 1-indexed: row=top..bottom, col=left..right)
 create_combined_tri_heatmap(
   dir_path     = file.path(intermediate, "Full_Sample"),
@@ -512,3 +597,4 @@ create_combined_tri_heatmap(
   top_model_label = "Borda",
   bottom_model_label = "Likert"
 )
+}

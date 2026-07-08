@@ -67,6 +67,13 @@ firms97 <- data %>% dplyr::filter(!is.na(dif)) %>% select(firm_id) %>% distinct(
 subset_var <- NULL
 subset_value <- NULL
 output_dir <- file.path(intermediate, "Full_Sample")
+analysis_check_sheets <- c(
+  "Coefficients", "rcov", "variance", "covariance", "correlation",
+  "covariance_within_industry", "correlation_within_industry",
+  "covariance_between_industry", "correlation_between_industry",
+  "EIV_firm", "EIV_within", "EIV_between",
+  "EIV_within_selectivity", "EIV_between_selectivity"
+)
 
 # Function Call Female
 system.time({
@@ -81,7 +88,7 @@ system.time({
 })
 
 message("🎃 Full_Sample write check:")
-for (sheet in c("Coefficients", "rcov", "variance", "covariance", "correlation", "EIV_firm", "EIV_within", "EIV_between")) {
+for (sheet in analysis_check_sheets) {
   check_path <- parquet_sheet_path(file.path(intermediate, "Full_Sample"), sheet)
   check_info <- file.info(check_path)
   message("  ", basename(check_path), " | exists=", file.exists(check_path),
@@ -140,7 +147,7 @@ for (i in seq_len(nrow(runs))) {
   })
 
   message("🎃 Subset write check: ", runs$output_stub[i])
-  for (sheet in c("Coefficients", "rcov", "variance", "covariance", "correlation", "EIV_firm", "EIV_within", "EIV_between")) {
+  for (sheet in analysis_check_sheets) {
     check_path <- parquet_sheet_path(file.path(intermediate, runs$output_stub[i]), sheet)
     check_info <- file.info(check_path)
     message("  ", basename(check_path), " | exists=", file.exists(check_path),
@@ -149,12 +156,25 @@ for (i in seq_len(nrow(runs))) {
   }
 }
 
-message("Running Revelio EIV outputs")
-revelio_eiv_by_subdir <- run_revelio_eiv_for_subdirs(default_revelio_eiv_filemap$subdir)
+# message("Running Revelio EIV outputs")
+# revelio_eiv_by_subdir <- run_revelio_eiv_for_subdirs(default_revelio_eiv_filemap$subdir)
+#
+# message("Revelio EIV write check:")
+# for (subdir in default_revelio_eiv_filemap$subdir) {
+#   check_path <- parquet_sheet_path(file.path(intermediate, subdir), "EIV_revelio_firm")
+#   check_info <- file.info(check_path)
+#   message("  ", subdir, "/", basename(check_path),
+#           " | exists=", file.exists(check_path),
+#           " | size=", check_info$size,
+#           " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
+# }
 
-message("Revelio EIV write check:")
-for (subdir in default_revelio_eiv_filemap$subdir) {
-  check_path <- parquet_sheet_path(file.path(intermediate, subdir), "EIV_revelio_firm")
+message("Running EEO-1 industry-share EIV outputs")
+eeo1_eiv_by_subdir <- run_eeo1_eiv_for_subdirs(default_eeo1_eiv_filemap$subdir)
+
+message("EEO-1 industry-share EIV write check:")
+for (subdir in default_eeo1_eiv_filemap$subdir) {
+  check_path <- parquet_sheet_path(file.path(intermediate, subdir), eeo1_eiv_sheet)
   check_info <- file.info(check_path)
   message("  ", subdir, "/", basename(check_path),
           " | exists=", file.exists(check_path),
