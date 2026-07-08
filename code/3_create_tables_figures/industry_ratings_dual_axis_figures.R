@@ -40,20 +40,11 @@ firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(outc
 # Should be 164 firms x 2 aggregation methods x 3 survey measures = 984 observations remaining
 stopifnot(nrow(firm_level_rating_estimates) == 164 * 2 * 3)
 
-# Keep the firms with number of jobs i.e., the 97 audit-sample firms carrying the industry aggregation weights
-firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(!is.na(njobs))
-
-# Should be 97 firms x 2 aggregation methods x 3 survey measures = 582 observations remaining
-stopifnot(nrow(firm_level_rating_estimates) == 97 * 2 * 3)
-
-# Employment counts should be positive so every industry has positive total weight
-stopifnot(all(firm_level_rating_estimates$njobs > 0))
-
 # Rating estimates should be non-missing
 stopifnot(!anyNA(firm_level_rating_estimates$estimate))
 
 # Keep necessary variables
-firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::select(entity_id, entity, model, outcome, estimate, njobs)
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::select(entity_id, entity, model, outcome, estimate)
 
 # Rename variables to be more descriptive
 firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::rename(firm_id = entity_id, firm = entity, aggregation_method = model, survey_measure = outcome, rating_estimate = estimate)
@@ -73,8 +64,8 @@ firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::arrange(sur
 # Firm ids sorted ascending, the order every estimate vector and covariance matrix is aligned to
 firm_id_vector <- sort(unique(firm_level_rating_estimates$firm_id))
 
-# Should be the 97 firms with number of jobs
-stopifnot(length(firm_id_vector) == 97)
+# Should be the 164 rated firms
+stopifnot(length(firm_id_vector) == 164)
 
 # Open the full-sample robust covariance sheet
 firm_level_robust_covariances <- arrow::open_dataset(parquet_sheet_path(file.path(intermediate, "Full_Sample"), "rcov"))
@@ -88,14 +79,14 @@ firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(
 # Keep the survey measures plotted
 firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger"))
 
-# Keep the covariance entries among the firms with number of jobs
+# Keep the covariance entries among the rated firms
 firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(entity_id_i %in% firm_id_vector, entity_id_j %in% firm_id_vector)
 
 # Collect the filtered covariance rows
 firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::collect()
 
-# Should be 97 firms x 97 firms x 2 aggregation methods x 3 survey measures = 56454 firm pairs remaining
-stopifnot(nrow(firm_level_robust_covariances) == 97 * 97 * 2 * 3)
+# Should be 164 firms x 164 firms x 2 aggregation methods x 3 survey measures = 161376 firm pairs remaining
+stopifnot(nrow(firm_level_robust_covariances) == 164 * 164 * 2 * 3)
 
 # Uniquely identified by aggregation model x survey measure x firm pair, none missing
 stopifnot(!anyDuplicated(firm_level_robust_covariances[c("model", "outcome", "entity_id_i", "entity_id_j")]), !anyNA(firm_level_robust_covariances))
@@ -109,8 +100,11 @@ firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::rename(
 # -----------------------------------------------------------------------------------------------------------------------------
 # Construct the industry aggregation matrices
 # -----------------------------------------------------------------------------------------------------------------------------
+# Crosswalk firms should be exactly the rated firms, so the crosswalk's industries are the plotted industries
+stopifnot(setequal(firm_industry_crosswalk$firm_id, firm_id_vector))
+
 # Industry codes sorted ascending, the order every industry-level object is aligned to
-industry_id_vector <- sort(unique(firm_industry_crosswalk$aer_naics2[firm_industry_crosswalk$firm_id %in% firm_id_vector]))
+industry_id_vector <- sort(unique(firm_industry_crosswalk$aer_naics2))
 
 # Define the firm-by-industry indicator matrix i.e., one row per firm, a 1 in its industry's column
 industry_indicator_matrix <- 1 * outer(firm_industry_crosswalk$aer_naics2[match(firm_id_vector, firm_industry_crosswalk$firm_id)], industry_id_vector, FUN = "==")
@@ -121,23 +115,14 @@ dimnames(industry_indicator_matrix) <- list(as.character(firm_id_vector), as.cha
 # Every firm should sit in exactly one industry
 stopifnot(all(rowSums(industry_indicator_matrix) == 1))
 
-# Number of jobs per firm, aligned to firm_id_vector
-firm_njobs_vector <- firm_level_rating_estimates |> dplyr::distinct(firm_id, njobs)
-
-# Should be one number of jobs per firm
-stopifnot(nrow(firm_njobs_vector) == length(firm_id_vector), all(firm_njobs_vector$firm_id == firm_id_vector))
-
-# Keep the number of jobs as a vector
-firm_njobs_vector <- firm_njobs_vector$njobs
-
-# Define the weighted aggregation matrix i.e., one row per industry, holding its firms' njobs shares as averaging weights
-weighted_aggregation_matrix <- solve(t(industry_indicator_matrix) %*% diag(firm_njobs_vector) %*% industry_indicator_matrix, t(industry_indicator_matrix) %*% diag(firm_njobs_vector))
+# Define the industry aggregation matrix i.e., one row per industry, holding equal averaging weights on its firms
+industry_aggregation_matrix <- solve(t(industry_indicator_matrix) %*% industry_indicator_matrix, t(industry_indicator_matrix))
 
 # Every industry's averaging weights should sum to one
-stopifnot(all(abs(rowSums(weighted_aggregation_matrix) - 1) < 1e-12))
+stopifnot(all(abs(rowSums(industry_aggregation_matrix) - 1) < 1e-12))
 
-# Define the within-industry deviation matrix i.e., maps firm ratings to firm rating minus own-industry weighted mean
-within_industry_deviation_matrix <- diag(length(firm_id_vector)) - industry_indicator_matrix %*% weighted_aggregation_matrix
+# Define the within-industry deviation matrix i.e., maps firm ratings to firm rating minus own-industry mean
+within_industry_deviation_matrix <- diag(length(firm_id_vector)) - industry_indicator_matrix %*% industry_aggregation_matrix
 
 # Deviations of a constant should be zero, so raw and recentered ratings give identical deviations
 stopifnot(all(abs(within_industry_deviation_matrix %*% rep(1, length(firm_id_vector))) < 1e-12))
@@ -174,8 +159,8 @@ for (survey_measure_value in c("pooled_favor_white", "pooled_favor_male", "condu
         # Keep this aggregation method
         working_robust_covariances <- working_robust_covariances |> dplyr::filter(aggregation_method == aggregation_method_value)
 
-        # Should be 97 firms x 97 firms = 9409 firm pairs
-        stopifnot(nrow(working_robust_covariances) == 97 * 97)
+        # Should be 164 firms x 164 firms = 26896 firm pairs
+        stopifnot(nrow(working_robust_covariances) == 164 * 164)
 
         # Define a matrix of 0s to hold this cell's robust covariance, rows and columns ordered by firm_id_vector
         firm_robust_covariance_matrix <- matrix(0, nrow = length(firm_id_vector), ncol = length(firm_id_vector), dimnames = list(as.character(firm_id_vector), as.character(firm_id_vector)))
@@ -183,13 +168,13 @@ for (survey_measure_value in c("pooled_favor_white", "pooled_favor_male", "condu
         # Populate the robust covariance matrix from the firm-pair rows
         firm_robust_covariance_matrix[cbind(as.character(working_robust_covariances$firm_id_i), as.character(working_robust_covariances$firm_id_j))] <- working_robust_covariances$robust_covariance
 
-        # Compute the njobs-weighted industry mean ratings, one per industry
-        industry_mean_rating_vector <- weighted_aggregation_matrix %*% working_rating_estimates$rating_estimate
+        # Compute the industry mean ratings, one per industry
+        industry_mean_rating_vector <- industry_aggregation_matrix %*% working_rating_estimates$rating_estimate
 
         # Compute the industry mean ratings' robust covariance i.e., pre- and post-multiply the firm-level covariance by the aggregation matrix
-        industry_mean_robust_covariance_matrix <- weighted_aggregation_matrix %*% firm_robust_covariance_matrix %*% t(weighted_aggregation_matrix)
+        industry_mean_robust_covariance_matrix <- industry_aggregation_matrix %*% firm_robust_covariance_matrix %*% t(industry_aggregation_matrix)
 
-        # Compute each firm's within-industry rating deviation i.e., rating minus own-industry weighted mean
+        # Compute each firm's within-industry rating deviation i.e., rating minus own-industry mean
         within_industry_deviation_vector <- within_industry_deviation_matrix %*% working_rating_estimates$rating_estimate
 
         # Compute the within-industry deviations' robust covariance i.e., pre- and post-multiply the firm-level covariance by the deviation matrix
@@ -212,29 +197,29 @@ for (survey_measure_value in c("pooled_favor_white", "pooled_favor_male", "condu
 # Should be 19 industries x 2 aggregation methods x 3 survey measures = 114 industry means, none missing
 stopifnot(nrow(industry_rating_estimates) == 19 * 2 * 3, !anyNA(industry_rating_estimates))
 
-# Should be 97 firms x 2 aggregation methods x 3 survey measures = 582 deviations, none missing
-stopifnot(nrow(within_industry_rating_deviations) == 97 * 2 * 3, !anyNA(within_industry_rating_deviations))
+# Should be 164 firms x 2 aggregation methods x 3 survey measures = 984 deviations, none missing
+stopifnot(nrow(within_industry_rating_deviations) == 164 * 2 * 3, !anyNA(within_industry_rating_deviations))
 
-# Attach each survey measure x aggregation method's njobs-weighted grand mean rating across the 97 firms
-within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::left_join(firm_level_rating_estimates |> dplyr::group_by(survey_measure, aggregation_method) |> dplyr::summarise(weighted_grand_mean_rating = weighted.mean(rating_estimate, njobs), .groups = "drop"), by = c("survey_measure", "aggregation_method"))
+# Attach each survey measure x aggregation method's mean rating across the 164 rated firms
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::left_join(firm_level_rating_estimates |> dplyr::group_by(survey_measure, aggregation_method) |> dplyr::summarise(mean_rating_across_firms = mean(rating_estimate), .groups = "drop"), by = c("survey_measure", "aggregation_method"))
 
-# Add the weighted grand mean back to the empirical Bayes deviations, putting the plotted values on the rating scale
-within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::mutate(empirical_bayes_plus_grand_mean = empirical_bayes + weighted_grand_mean_rating)
+# Add the cross-firm mean rating back to the empirical Bayes deviations, putting the plotted values on the rating scale
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::mutate(empirical_bayes_plus_mean_across_firms = empirical_bayes + mean_rating_across_firms)
 
 # Keep necessary variables
-within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, aer_naics2, survey_measure, aggregation_method, empirical_bayes_plus_grand_mean)
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, aer_naics2, survey_measure, aggregation_method, empirical_bayes_plus_mean_across_firms)
 
 # Reshape to one row per firm, one column per survey measure x aggregation method plotted rating
-within_industry_rating_deviations <- within_industry_rating_deviations |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes_plus_grand_mean, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes_plus_grand_mean")
+within_industry_rating_deviations <- within_industry_rating_deviations |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes_plus_mean_across_firms, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes_plus_mean_across_firms")
 
 # Should be one row per firm
-stopifnot(nrow(within_industry_rating_deviations) == 97)
+stopifnot(nrow(within_industry_rating_deviations) == 164)
 
 # Every firm should have a plotted rating for every survey measure x aggregation method column
 stopifnot(!anyNA(within_industry_rating_deviations))
 
 # Borda ratings should be distinct within every survey measure, so the rank-based top/bottom cuts are unambiguous
-stopifnot(all(sapply(within_industry_rating_deviations |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes_plus_grand_mean")), function(rating_column) !anyDuplicated(rating_column))))
+stopifnot(all(sapply(within_industry_rating_deviations |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes_plus_mean_across_firms")), function(rating_column) !anyDuplicated(rating_column))))
 
 # Keep necessary variables
 industry_rating_estimates <- industry_rating_estimates |> dplyr::select(aer_naics2, aer_naics2_name, survey_measure, aggregation_method, empirical_bayes)
@@ -266,10 +251,10 @@ within_industry_plotted_ratings <- c()
 # Loop over each survey measure, collecting the ratings its figure plots
 for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
   # Keep this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
-  within_industry_working_data <- within_industry_rating_deviations |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_grand_mean")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_grand_mean")))
+  within_industry_working_data <- within_industry_rating_deviations |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_mean_across_firms")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_mean_across_firms")))
 
   # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
-  within_industry_working_data <- within_industry_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 72)
+  within_industry_working_data <- within_industry_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 139)
 
   # Rescale the Borda ratings onto the Likert axis, matching the two series' plotted means and standard deviations
   within_industry_working_data <- within_industry_working_data |> dplyr::mutate(borda_empirical_bayes_rating_rescaled = mean(likert_empirical_bayes_rating) + sd(likert_empirical_bayes_rating) / sd(borda_empirical_bayes_rating) * (borda_empirical_bayes_rating - mean(borda_empirical_bayes_rating)))
@@ -287,10 +272,10 @@ stopifnot(all(dplyr::between(within_industry_plotted_ratings, discrimination_axi
 # Loop over each survey measure, drawing one within-industry figure per measure
 for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
   # Keep the firm identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
-  within_industry_plot_working_data <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_grand_mean")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_grand_mean")))
+  within_industry_plot_working_data <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_mean_across_firms")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_mean_across_firms")))
 
   # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
-  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 72)
+  within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 139)
 
   # Should be 50 firms remaining
   stopifnot(nrow(within_industry_plot_working_data) == 50)
