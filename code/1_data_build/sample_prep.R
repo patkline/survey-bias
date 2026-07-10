@@ -142,6 +142,43 @@ survey_vars <- c(
   "FirmDesire"
 )
 
+all_outcome_straightline_resp_ids <- data %>%
+  dplyr::select(resp_id, dplyr::all_of(survey_vars)) %>%
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(survey_vars),
+    names_to = "outcome",
+    values_to = "response"
+  ) %>%
+  dplyr::mutate(response = dplyr::na_if(response, -1)) %>%
+  dplyr::filter(!is.na(response)) %>%
+  dplyr::group_by(resp_id, outcome) %>%
+  dplyr::summarise(
+    n_valid = dplyr::n(),
+    n_distinct_response = dplyr::n_distinct(response),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    straightlined_outcome = n_valid > 2 & n_distinct_response == 1L
+  ) %>%
+  dplyr::group_by(resp_id) %>%
+  dplyr::summarise(
+    n_eligible_outcomes = sum(n_valid > 2),
+    n_straightlined_outcomes = sum(straightlined_outcome),
+    .groups = "drop"
+  ) %>%
+  dplyr::filter(
+    n_eligible_outcomes == length(survey_vars),
+    n_straightlined_outcomes == length(survey_vars)
+  ) %>%
+  dplyr::pull(resp_id)
+
+message(
+  "Dropping respondents who straightlined all ",
+  length(survey_vars),
+  " firm-specific outcomes: ",
+  length(all_outcome_straightline_resp_ids)
+)
+
 # --- collect union of resp_ids that survive 'cleaning' for ANY outcome ---
 resp_ids_union <- integer(0)
 
@@ -165,7 +202,11 @@ for (outcome in survey_vars) {
 }
 
 # --- restrict sample to anyone who appears in ANY outcome's cleaned set ---
-restricted_sample <- data %>% dplyr::filter(resp_id %in% resp_ids_union)
+restricted_sample <- data %>%
+  dplyr::filter(
+    resp_id %in% resp_ids_union,
+    !resp_id %in% all_outcome_straightline_resp_ids
+  )
 
 # --- export to the same folder as the import, new name ---
 write.csv(restricted_sample, file.path(processed, "long_survey_final_summary_stats.csv"), row.names = FALSE)

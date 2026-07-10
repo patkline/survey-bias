@@ -29,6 +29,9 @@ else if "`user'" == "monicahea" {
 else if "`user'" == "jordancammarota" {
     global dropbox_survey_bias_root "/Users/jordancammarota/Dropbox/consolidated_code"
 }
+else if "`user'" == "anh-huynguyen" {
+    global dropbox_survey_bias_root "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
+}
 else {
     di as error "🧌 No Dropbox path configured for user: `user'"
     exit 198
@@ -49,6 +52,9 @@ if "`user'" == "nicorotundo" {
 //    * XX NR: confirm GitHub path with Jordan
 //    global git_survey_bias_root "/Users/jordancammarota/GitHub/survey-bias"
 //}
+else if "`user'" == "anh-huynguyen" {
+    global git_survey_bias_root "/Users/anh-huynguyen/Documents/GitHub/survey-bias"
+}
 else {
     di as error "🧌 No GitHub path configured for user: `user'"
     exit 198
@@ -67,7 +73,9 @@ if "${data_and_output_storage_location}" == "github" {
     global qje_2022_data_and_outputs "${git_survey_bias_root}/qje_2022_replication_data_and_outputs"
 }
 else if "${data_and_output_storage_location}" == "dropbox" {
-    global db_data_output_mirror "${dropbox_survey_bias_root}/github_data_and_output_mirrors"
+    * Branch-specific Dropbox data/output sandbox. This folder lives inside the
+    * canonical mirror so runs on this branch cannot overwrite existing outputs.
+    global db_data_output_mirror "${dropbox_survey_bias_root}/github_data_and_output_mirrors/github_data_and_output_mirrors_loosen_sample_filters"
     global data "${db_data_output_mirror}/data"
     global output "${db_data_output_mirror}/output"
     global qje_2022_data_and_outputs "${db_data_output_mirror}/qje_2022_replication_data_and_outputs"
@@ -82,9 +90,9 @@ Code paths
 ----------------------------------------------------------------------------------------------*/
 * GitHub code root and subdirectories
 global code "${git_survey_bias_root}/code"
-global build "${code}/data_build"
-global analysis "${code}/analysis"
-global create_tables_figures "${code}/create_tables_figures"
+global build "${code}/1_data_build"
+global analysis "${code}/2_analysis"
+global create_tables_figures "${code}/3_create_tables_figures"
 global helper_functions "${code}/helper_functions"
 
 /* ---------------------------------------------------------------------------------------------
@@ -101,6 +109,7 @@ Output paths
 ----------------------------------------------------------------------------------------------*/
 * Output subdirectories (output root set above by storage switch)
 global excel "${output}/excel"
+global intermediate "${output}/intermediate"
 global figures "${output}/figures"
 global tables "${output}/tables"
 

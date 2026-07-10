@@ -320,7 +320,6 @@ run_analysis_pipeline <- function(
     list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
     list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
     list(lhs = "log_dif",           rhs = c("FirmCont_favor_white_ep")),
-    list(lhs = "log_dif",           rhs = c("conduct_favor_white_ep")),
     list(lhs = "log_dif",           rhs = c("pooled_favor_white_ep")),
     list(lhs = "log_dif",           rhs = c("FirmSelective")),
     list(lhs = "log_dif",           rhs = c("discretion")),

@@ -39,6 +39,12 @@ user = getpass.getuser().lower()
 # Assign Dropbox root for current user
 dropbox_survey_bias_root = dropbox_roots_by_user.get(user)
 
+# Branch-specific Dropbox data/output sandbox. This folder lives inside the
+# canonical mirror so runs on this branch cannot overwrite existing outputs.
+dropbox_data_output_mirror_relative_path = Path(
+    "github_data_and_output_mirrors"
+) / "github_data_and_output_mirrors_loosen_sample_filters"
+
 # ------------------------------------------------------------------------------
 # Define optional user-specific WRDS username
 # ------------------------------------------------------------------------------
@@ -137,7 +143,9 @@ elif data_and_output_storage_location == "dropbox":
         raise RuntimeError(f"🧌 No Dropbox path configured for user: {user}")
 
     # Path to the data and output mirror on Dropbox
-    db_survey_bias_data_and_output_mirror = Path(dropbox_survey_bias_root) / "github_data_and_output_mirrors"
+    db_survey_bias_data_and_output_mirror = (
+        Path(dropbox_survey_bias_root) / dropbox_data_output_mirror_relative_path
+    )
     
     # Data and output paths on Dropbox mirror
     data = db_survey_bias_data_and_output_mirror / "data"

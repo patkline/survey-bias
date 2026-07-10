@@ -29,11 +29,6 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
     dplyr::filter(!is.na(!!rank_sym)) %>%
     dplyr::group_by(resp_id) %>%
     dplyr::filter(dplyr::n() > 2) %>%
-    dplyr::mutate(
-      min_rank = min(!!rank_sym, na.rm = TRUE),
-      max_rank = max(!!rank_sym, na.rm = TRUE)
-    ) %>%
-    dplyr::filter(min_rank != max_rank) %>%
     dplyr::ungroup()
   
   # Rating data (RAW)

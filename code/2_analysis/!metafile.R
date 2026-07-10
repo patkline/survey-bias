@@ -47,7 +47,6 @@ survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
                  "pooled_male", "pooled_female")
 
 valence_triples <- list(
-  list(valence1 = "conduct_black",     valence2 = "conduct_white",     new_outcome = "conduct_favor_white_ep"),
   list(valence1 = "FirmCont_black",    valence2 = "FirmCont_white",    new_outcome = "FirmCont_favor_white_ep"),
   list(valence1 = "FirmHire_black",    valence2 = "FirmHire_white",    new_outcome = "FirmHire_favor_white_ep"),
   list(valence1 = "pooled_black",      valence2 = "pooled_white",    new_outcome = "pooled_favor_white_ep"),
