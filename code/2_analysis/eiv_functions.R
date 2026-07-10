@@ -14,10 +14,11 @@
 source("code/globals.R")
 
 # ----------------------------------------------------------------------------------------
-# compute_njobs_weighted_katz_noise() --- njobs-weighted Katz measurement-error variance
-# for one error-prone regressor i.e. one diagonal entry of the EIV Sigma_error
+# compute_njobs_weighted_signal_components() --- njobs-weighted variance,
+# noise, and scalar Katz pieces for one error-prone regressor i.e. one
+# diagonal entry of the EIV Sigma_error
 # ----------------------------------------------------------------------------------------
-compute_njobs_weighted_katz_noise <- function(
+compute_njobs_weighted_signal_components <- function(
   # Firm-level estimate of the error-prone regressor (belief, discretion, wage gap, etc.), one entry per firm
   firm_regressor_vector,
 
@@ -59,16 +60,305 @@ compute_njobs_weighted_katz_noise <- function(
     4 * sum(firm_weighted_regressor_centered_vector * (firm_robust_covariance_matrix %*% firm_weighted_regressor_centered_vector)) -
     2 * sum((firm_weight_vector * firm_robust_covariance_matrix) * t(firm_weight_vector * firm_robust_covariance_matrix))
 
+  # Katz-corrected signal variance across firms
+  njobs_weighted_katz_signal_variance_across_firms <- katz_correct(
+    njobs_weighted_unbiased_signal_variance_across_firms,
+    njobs_weighted_signal_variance_sampling_variance
+  )
+
   # Katz measurement-error variance across firms i.e. weighted variance minus the Katz-corrected signal variance
-  njobs_weighted_katz_noise_across_firms <- njobs_weighted_variance_across_firms - katz_correct(njobs_weighted_unbiased_signal_variance_across_firms, njobs_weighted_signal_variance_sampling_variance)
+  njobs_weighted_katz_noise_across_firms <- njobs_weighted_variance_across_firms - njobs_weighted_katz_signal_variance_across_firms
 
   # Return NA when the Katz noise is non-finite or non-positive (signal swamped by noise on a small subsample); eivreg rejects an NA Sigma_error so a cell actually used still fails loudly
   if (!is.finite(njobs_weighted_katz_noise_across_firms) || njobs_weighted_katz_noise_across_firms <= 0) {
-    return(NA_real_)
+    njobs_weighted_katz_noise_across_firms <- NA_real_
   }
 
-  # Return the njobs-weighted Katz measurement-error variance
-  njobs_weighted_katz_noise_across_firms
+  # Return every component used by the scalar Katz diagonal.
+  list(
+    variance_njobs_weighted = njobs_weighted_variance_across_firms,
+    noise_njobs_weighted = njobs_weighted_noise_across_firms,
+    sigma2_hat_njobs_weighted = njobs_weighted_unbiased_signal_variance_across_firms,
+    Vhat_njobs_weighted = njobs_weighted_signal_variance_sampling_variance,
+    signal_njobs_weighted_katz = njobs_weighted_katz_signal_variance_across_firms,
+    noise_njobs_weighted_katz = njobs_weighted_katz_noise_across_firms
+  )
+}
+
+# ----------------------------------------------------------------------------------------
+# compute_njobs_weighted_katz_noise() --- backwards-compatible scalar helper
+# ----------------------------------------------------------------------------------------
+compute_njobs_weighted_katz_noise <- function(
+  firm_regressor_vector,
+  firm_number_of_jobs_vector,
+  firm_robust_covariance_matrix
+) {
+  compute_njobs_weighted_signal_components(
+    firm_regressor_vector = firm_regressor_vector,
+    firm_number_of_jobs_vector = firm_number_of_jobs_vector,
+    firm_robust_covariance_matrix = firm_robust_covariance_matrix
+  )$noise_njobs_weighted_katz
+}
+
+# ----------------------------------------------------------------------------------------
+# Matrix helpers for the multivariate Katz correction.
+# ----------------------------------------------------------------------------------------
+symmetrize_matrix <- function(x) {
+  x <- as.matrix(x)
+  (x + t(x)) / 2
+}
+
+is_positive_definite_matrix <- function(x, tol = 1e-10) {
+  x <- symmetrize_matrix(x)
+  all(is.finite(x)) && min(eigen(x, symmetric = TRUE, only.values = TRUE)$values) > tol
+}
+
+is_positive_semidefinite_matrix <- function(x, tol = 1e-10) {
+  x <- symmetrize_matrix(x)
+  all(is.finite(x)) && min(eigen(x, symmetric = TRUE, only.values = TRUE)$values) >= -tol
+}
+
+make_positive_semidefinite_matrix <- function(x, floor_value = 1e-10) {
+  x <- symmetrize_matrix(x)
+  eig <- eigen(x, symmetric = TRUE)
+  out <- eig$vectors %*% diag(pmax(eig$values, floor_value), nrow = length(eig$values)) %*% t(eig$vectors)
+  dimnames(out) <- dimnames(x)
+  symmetrize_matrix(out)
+}
+
+matrix_square_root <- function(x, inverse = FALSE, floor_value = 1e-10) {
+  x <- symmetrize_matrix(x)
+  eig <- eigen(x, symmetric = TRUE)
+  vals <- pmax(eig$values, floor_value)
+  vals <- if (isTRUE(inverse)) 1 / sqrt(vals) else sqrt(vals)
+  out <- eig$vectors %*% diag(vals, nrow = length(vals)) %*% t(eig$vectors)
+  dimnames(out) <- dimnames(x)
+  symmetrize_matrix(out)
+}
+
+vech_matrix <- function(x) {
+  x <- as.matrix(x)
+  x[lower.tri(x, diag = TRUE)]
+}
+
+unvech_matrix <- function(x, names = NULL) {
+  x <- as.numeric(x)
+  k <- (sqrt(8 * length(x) + 1) - 1) / 2
+  if (abs(k - round(k)) > 1e-8) {
+    stop("unvech_matrix(): vector length is not triangular.", call. = FALSE)
+  }
+  k <- as.integer(round(k))
+  out <- matrix(0, nrow = k, ncol = k, dimnames = list(names, names))
+  out[lower.tri(out, diag = TRUE)] <- x
+  out <- out + t(out) - diag(diag(out), nrow = k)
+  out
+}
+
+weighted_covariance_matrix <- function(data, vars, weights) {
+  x <- as.matrix(data[, vars, drop = FALSE])
+  storage.mode(x) <- "double"
+  weights <- as.numeric(weights)
+  weights <- weights / sum(weights)
+  x_centered <- sweep(x, 2, colSums(x * weights), "-")
+  out <- crossprod(x_centered, x_centered * weights)
+  dimnames(out) <- list(vars, vars)
+  symmetrize_matrix(out)
+}
+
+estimate_signal_covariance_vcov <- function(observed_x, raw_noise_matrix, weights) {
+  # First-order delta-method covariance for vech(Sigma_hat), using the
+  # average RHS measurement-error covariance as the per-entity error covariance.
+  observed_x <- as.matrix(observed_x)
+  raw_noise_matrix <- symmetrize_matrix(raw_noise_matrix)
+  weights <- as.numeric(weights)
+  weights <- weights / sum(weights)
+
+  k <- ncol(observed_x)
+  var_names <- colnames(observed_x)
+  if (is.null(var_names)) var_names <- paste0("x", seq_len(k))
+
+  x_centered <- sweep(observed_x, 2, colSums(observed_x * weights), "-")
+  centering_matrix <- diag(weights, nrow = length(weights)) - tcrossprod(weights)
+
+  vech_positions <- which(lower.tri(matrix(0, k, k), diag = TRUE), arr.ind = TRUE)
+  n_elements <- nrow(vech_positions)
+
+  gradients <- vector("list", n_elements)
+  element_names <- character(n_elements)
+
+  for (element_index in seq_len(n_elements)) {
+    row_index <- vech_positions[element_index, "row"]
+    col_index <- vech_positions[element_index, "col"]
+
+    gradient_matrix <- matrix(0, nrow = nrow(x_centered), ncol = k)
+    if (row_index == col_index) {
+      gradient_matrix[, row_index] <- 2 * as.numeric(centering_matrix %*% x_centered[, row_index])
+    } else {
+      gradient_matrix[, row_index] <- as.numeric(centering_matrix %*% x_centered[, col_index])
+      gradient_matrix[, col_index] <- as.numeric(centering_matrix %*% x_centered[, row_index])
+    }
+
+    gradients[[element_index]] <- gradient_matrix
+    element_names[element_index] <- paste(var_names[row_index], var_names[col_index], sep = "__")
+  }
+
+  signal_vcov <- matrix(0, nrow = n_elements, ncol = n_elements,
+                        dimnames = list(element_names, element_names))
+
+  for (i in seq_len(n_elements)) {
+    for (j in i:n_elements) {
+      covariance_value <- sum(rowSums((gradients[[i]] %*% raw_noise_matrix) * gradients[[j]]))
+      signal_vcov[i, j] <- covariance_value
+      signal_vcov[j, i] <- covariance_value
+    }
+  }
+
+  make_positive_semidefinite_matrix(signal_vcov, floor_value = 0)
+}
+
+draw_multivariate_normal <- function(n, mean, vcov) {
+  mean <- as.numeric(mean)
+  vcov <- make_positive_semidefinite_matrix(vcov, floor_value = 0)
+  eig <- eigen(vcov, symmetric = TRUE)
+  transform <- eig$vectors %*% diag(sqrt(pmax(eig$values, 0)), nrow = length(eig$values))
+  draws <- matrix(stats::rnorm(n * length(mean)), nrow = n)
+  sweep(draws %*% t(transform), 2, mean, "+")
+}
+
+multivariate_katz_signal_mean <- function(
+  signal_hat,
+  signal_vcov,
+  draws = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_DRAWS", unset = "50000")),
+  target_accepts = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_TARGET_ACCEPTS", unset = "5000")),
+  batch_size = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_BATCH_SIZE", unset = "10000")),
+  seed = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_SEED", unset = "1961")),
+  pd_tol = 1e-10
+) {
+  signal_hat <- symmetrize_matrix(signal_hat)
+  signal_vcov <- make_positive_semidefinite_matrix(signal_vcov, floor_value = 0)
+
+  if (ncol(signal_hat) < 2L ||
+      (is_positive_definite_matrix(signal_hat, tol = pd_tol) && max(abs(signal_vcov)) < 1e-16)) {
+    return(signal_hat)
+  }
+
+  old_seed <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  } else {
+    NULL
+  }
+  on.exit({
+    if (is.null(old_seed)) {
+      if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    } else {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  set.seed(seed)
+
+  mean_vector <- vech_matrix(signal_hat)
+  accepted_sum <- rep(0, length(mean_vector))
+  accepted_count <- 0L
+  drawn_count <- 0L
+  max_draws <- max(draws, target_accepts)
+
+  while (drawn_count < max_draws && accepted_count < target_accepts) {
+    current_batch_size <- min(batch_size, max_draws - drawn_count)
+    current_draws <- draw_multivariate_normal(current_batch_size, mean_vector, signal_vcov)
+    drawn_count <- drawn_count + current_batch_size
+
+    for (draw_index in seq_len(nrow(current_draws))) {
+      candidate <- unvech_matrix(current_draws[draw_index, ], names = colnames(signal_hat))
+      if (is_positive_definite_matrix(candidate, tol = pd_tol)) {
+        accepted_sum <- accepted_sum + current_draws[draw_index, ]
+        accepted_count <- accepted_count + 1L
+      }
+    }
+  }
+
+  if (accepted_count == 0L) {
+    warning("multivariate_katz_signal_mean(): no positive-definite draws accepted; using nearest positive-definite signal matrix.", call. = FALSE)
+    return(make_positive_semidefinite_matrix(signal_hat, floor_value = pd_tol))
+  }
+
+  out <- unvech_matrix(accepted_sum / accepted_count, names = colnames(signal_hat))
+  attr(out, "multivariate_katz_acceptance_rate") <- accepted_count / drawn_count
+  attr(out, "multivariate_katz_draws") <- drawn_count
+  attr(out, "multivariate_katz_accepts") <- accepted_count
+  out
+}
+
+constrain_signal_inside_observed_covariance <- function(signal_matrix, observed_covariance_matrix,
+                                                        eigen_floor = 1e-8) {
+  signal_matrix <- symmetrize_matrix(signal_matrix)
+  observed_covariance_matrix <- make_positive_semidefinite_matrix(
+    observed_covariance_matrix,
+    floor_value = eigen_floor
+  )
+
+  observed_sqrt <- matrix_square_root(observed_covariance_matrix, inverse = FALSE, floor_value = eigen_floor)
+  observed_inv_sqrt <- matrix_square_root(observed_covariance_matrix, inverse = TRUE, floor_value = eigen_floor)
+
+  relative_signal <- symmetrize_matrix(observed_inv_sqrt %*% signal_matrix %*% observed_inv_sqrt)
+  relative_eig <- eigen(relative_signal, symmetric = TRUE)
+  clipped_values <- pmin(pmax(relative_eig$values, eigen_floor), 1 - eigen_floor)
+  constrained_relative_signal <- relative_eig$vectors %*%
+    diag(clipped_values, nrow = length(clipped_values)) %*%
+    t(relative_eig$vectors)
+
+  out <- observed_sqrt %*% constrained_relative_signal %*% observed_sqrt
+  dimnames(out) <- dimnames(signal_matrix)
+  symmetrize_matrix(out)
+}
+
+compute_multivariate_katz_noise_matrix <- function(observed_covariance_matrix,
+                                                   raw_noise_matrix,
+                                                   weights,
+                                                   observed_x,
+                                                   pd_tol = 1e-10) {
+  observed_covariance_matrix <- symmetrize_matrix(observed_covariance_matrix)
+  raw_noise_matrix <- symmetrize_matrix(raw_noise_matrix)
+
+  if (anyNA(observed_covariance_matrix) || anyNA(raw_noise_matrix) ||
+      !all(is.finite(observed_covariance_matrix)) || !all(is.finite(raw_noise_matrix))) {
+    return(NULL)
+  }
+
+  if (!is_positive_semidefinite_matrix(raw_noise_matrix, tol = 1e-8)) {
+    raw_noise_matrix <- make_positive_semidefinite_matrix(raw_noise_matrix, floor_value = pd_tol)
+  }
+
+  raw_signal_matrix <- symmetrize_matrix(observed_covariance_matrix - raw_noise_matrix)
+  signal_vcov <- estimate_signal_covariance_vcov(
+    observed_x = observed_x,
+    raw_noise_matrix = raw_noise_matrix,
+    weights = weights
+  )
+
+  katz_signal_matrix <- multivariate_katz_signal_mean(
+    signal_hat = raw_signal_matrix,
+    signal_vcov = signal_vcov,
+    pd_tol = pd_tol
+  )
+
+  constrained_signal_matrix <- constrain_signal_inside_observed_covariance(
+    signal_matrix = katz_signal_matrix,
+    observed_covariance_matrix = observed_covariance_matrix,
+    eigen_floor = pd_tol
+  )
+
+  katz_noise_matrix <- symmetrize_matrix(observed_covariance_matrix - constrained_signal_matrix)
+  if (!is_positive_semidefinite_matrix(katz_noise_matrix, tol = 1e-8)) {
+    katz_noise_matrix <- make_positive_semidefinite_matrix(katz_noise_matrix, floor_value = pd_tol)
+  }
+
+  attr(katz_noise_matrix, "multivariate_katz_acceptance_rate") <- attr(katz_signal_matrix, "multivariate_katz_acceptance_rate")
+  attr(katz_noise_matrix, "multivariate_katz_draws") <- attr(katz_signal_matrix, "multivariate_katz_draws")
+  attr(katz_noise_matrix, "multivariate_katz_accepts") <- attr(katz_signal_matrix, "multivariate_katz_accepts")
+
+  katz_noise_matrix
 }
 
 # ----------------------------------------------------------------------------------------
@@ -135,24 +425,42 @@ build_noise_matrix <- function(
 
   # Define empty matrix (i.e., NA values) with one row and column per belief measure
   noise_variance_covariance_matrix <- matrix(NA_real_, nrow = length(outcomes), ncol = length(outcomes), dimnames = list(outcomes, outcomes))
+  raw_noise_variance_covariance_matrix <- matrix(NA_real_, nrow = length(outcomes), ncol = length(outcomes), dimnames = list(outcomes, outcomes))
 
   # Restrict the variance sheet to the given subset x model
   noise_variance_per_belief_measure <- variance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
 
-  # Keep just the belief measure and njobs-weighted Katz noise variance columns
-  noise_variance_per_belief_measure <- noise_variance_per_belief_measure |> dplyr::select(dplyr::all_of(c(outcome_col, "noise_njobs_weighted_katz")))
+  # Keep just the belief measure and scalar Katz/raw noise variance columns. Older
+  # output sheets do not have the raw njobs-weighted column, so fall back to the
+  # unweighted raw noise when needed.
+  if (!("noise_njobs_weighted" %in% names(noise_variance_per_belief_measure))) {
+    noise_variance_per_belief_measure$noise_njobs_weighted <- NA_real_
+  }
+  noise_variance_per_belief_measure <- noise_variance_per_belief_measure |>
+    dplyr::select(dplyr::all_of(c(outcome_col, "noise", "noise_njobs_weighted", "noise_njobs_weighted_katz")))
 
   # Find each belief measure's row position in the filtered variance sheet; NA when the measure has no row
   belief_measure_row_positions <- match(outcomes, noise_variance_per_belief_measure[[outcome_col]])
 
   # Fill the diagonal with the njobs-weighted Katz noise variances, reordered to the matrix row order; absent measures stay NA
   diag(noise_variance_covariance_matrix) <- as.numeric(noise_variance_per_belief_measure$noise_njobs_weighted_katz[belief_measure_row_positions])
+  raw_diagonal_noise <- dplyr::if_else(
+    is.na(noise_variance_per_belief_measure$noise_njobs_weighted),
+    noise_variance_per_belief_measure$noise,
+    noise_variance_per_belief_measure$noise_njobs_weighted
+  )
+  diag(raw_noise_variance_covariance_matrix) <- as.numeric(raw_diagonal_noise[belief_measure_row_positions])
 
   # Restrict the covariance sheet to the given subset x model
   noise_covariance_per_belief_measure_pair <- covariance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
 
-  # Keep just the two belief-measure pair columns and the noise covariance column
-  noise_covariance_per_belief_measure_pair <- noise_covariance_per_belief_measure_pair |> dplyr::select(dplyr::all_of(c(lhs_col, rhs_col, "noise")))
+  # Keep just the two belief-measure pair columns and the raw noise covariance
+  # columns. Older output sheets do not have the raw njobs-weighted column.
+  if (!("noise_njobs_weighted" %in% names(noise_covariance_per_belief_measure_pair))) {
+    noise_covariance_per_belief_measure_pair$noise_njobs_weighted <- NA_real_
+  }
+  noise_covariance_per_belief_measure_pair <- noise_covariance_per_belief_measure_pair |>
+    dplyr::select(dplyr::all_of(c(lhs_col, rhs_col, "noise", "noise_njobs_weighted")))
 
   # Fill the off-diagonals one belief-measure pair at a time
   if (nrow(noise_covariance_per_belief_measure_pair) > 0) {
@@ -167,7 +475,11 @@ build_noise_matrix <- function(
       belief_measure_2 <- as.character(noise_covariance_per_belief_measure_pair[[rhs_col]][pair_row])
       
       # Extract the noise covariance value for the current pair 
-      noise_covariance_value <- as.numeric(noise_covariance_per_belief_measure_pair$noise[pair_row])
+      raw_noise_covariance_value <- as.numeric(noise_covariance_per_belief_measure_pair$noise_njobs_weighted[pair_row])
+      if (is.na(raw_noise_covariance_value)) {
+        raw_noise_covariance_value <- as.numeric(noise_covariance_per_belief_measure_pair$noise[pair_row])
+      }
+      noise_covariance_value <- raw_noise_covariance_value
 
       # If both measures are rows/columns of the matrix, fill the pair's two symmetric cells
       if (!is.na(belief_measure_1) && !is.na(belief_measure_2) && belief_measure_1 %in% outcomes && belief_measure_2 %in% outcomes) {
@@ -176,9 +488,15 @@ build_noise_matrix <- function(
         
         # Fill the second cell
         noise_variance_covariance_matrix[belief_measure_2, belief_measure_1] <- noise_covariance_value
+
+        # Fill the raw-noise cells used by the multivariate Katz posterior step.
+        raw_noise_variance_covariance_matrix[belief_measure_1, belief_measure_2] <- raw_noise_covariance_value
+        raw_noise_variance_covariance_matrix[belief_measure_2, belief_measure_1] <- raw_noise_covariance_value
       }
     }
   }
+
+  attr(noise_variance_covariance_matrix, "raw_noise_matrix") <- raw_noise_variance_covariance_matrix
 
   # Return the completed noise variance-covariance matrix
   noise_variance_covariance_matrix
@@ -288,6 +606,60 @@ run_eiv_one <- function(
 
   # Extract the noise variance-covariance matrix for the RHS variables
   rhs_vars_noise_variance_covariance_matrix <- as.matrix(noise_mat[rhs_vars, rhs_vars, drop = FALSE])
+
+  # Extract the raw, pre-Katz noise matrix when available. The multivariate
+  # Katz correction starts from the raw signal covariance and then truncates
+  # the posterior to the positive-definite region.
+  raw_noise_mat <- attr(noise_mat, "raw_noise_matrix")
+  if (is.null(raw_noise_mat)) raw_noise_mat <- noise_mat
+  rhs_vars_raw_noise_variance_covariance_matrix <- as.matrix(raw_noise_mat[rhs_vars, rhs_vars, drop = FALSE])
+
+  # Apply the multivariate Katz correction when two or more RHS variables are
+  # noisy. Zero-error controls, such as EEO-1 shares, remain outside this block.
+  rhs_raw_noise_for_noisy_check <- symmetrize_matrix(rhs_vars_raw_noise_variance_covariance_matrix)
+  noisy_rhs_vars <- rhs_vars[vapply(rhs_vars, function(rhs_var) {
+    any(abs(rhs_raw_noise_for_noisy_check[rhs_var, ]) > 1e-12, na.rm = TRUE) ||
+      any(abs(rhs_raw_noise_for_noisy_check[, rhs_var]) > 1e-12, na.rm = TRUE)
+  }, logical(1))]
+
+  multivariate_katz_applied <- FALSE
+  multivariate_katz_acceptance_rate <- NA_real_
+  multivariate_katz_draws <- NA_integer_
+  multivariate_katz_accepts <- NA_integer_
+
+  if (length(noisy_rhs_vars) >= 2L) {
+    observed_covariance_noisy_rhs <- weighted_covariance_matrix(
+      data = estimation_sample,
+      vars = noisy_rhs_vars,
+      weights = estimation_sample[["weight"]]
+    )
+    observed_x_noisy_rhs <- as.matrix(estimation_sample[, noisy_rhs_vars, drop = FALSE])
+    storage.mode(observed_x_noisy_rhs) <- "double"
+
+    multivariate_katz_noise_matrix <- compute_multivariate_katz_noise_matrix(
+      observed_covariance_matrix = observed_covariance_noisy_rhs,
+      raw_noise_matrix = rhs_vars_raw_noise_variance_covariance_matrix[noisy_rhs_vars, noisy_rhs_vars, drop = FALSE],
+      weights = estimation_sample[["weight"]],
+      observed_x = observed_x_noisy_rhs
+    )
+
+    if (!is.null(multivariate_katz_noise_matrix) &&
+        !anyNA(multivariate_katz_noise_matrix) &&
+        is_positive_semidefinite_matrix(multivariate_katz_noise_matrix, tol = 1e-8)) {
+      rhs_vars_noise_variance_covariance_matrix[noisy_rhs_vars, noisy_rhs_vars] <- multivariate_katz_noise_matrix
+      multivariate_katz_applied <- TRUE
+      multivariate_katz_acceptance_rate <- attr(multivariate_katz_noise_matrix, "multivariate_katz_acceptance_rate")
+      multivariate_katz_draws <- attr(multivariate_katz_noise_matrix, "multivariate_katz_draws")
+      multivariate_katz_accepts <- attr(multivariate_katz_noise_matrix, "multivariate_katz_accepts")
+    } else {
+      warning(
+        "run_eiv_one(): multivariate Katz correction failed for model = ",
+        model_value, ", LHS = ", lhs_var, ", RHS = ", paste(noisy_rhs_vars, collapse = " + "),
+        "; falling back to scalar-Katz noise matrix.",
+        call. = FALSE
+      )
+    }
+  }
 
   # Extract the formula text for the RHS variables
   rhs_formula_text <- paste(rhs_vars, collapse = " + ")
@@ -421,6 +793,13 @@ run_eiv_one <- function(
         
         # Number of observations in the estimation sample of the regression
         n          = nrow(estimation_sample),
+
+        # Multivariate Katz diagnostics; TRUE only when two or more noisy RHS
+        # variables were jointly corrected before calling eivreg().
+        multivariate_katz = multivariate_katz_applied,
+        multivariate_katz_acceptance_rate = multivariate_katz_acceptance_rate,
+        multivariate_katz_draws = multivariate_katz_draws,
+        multivariate_katz_accepts = multivariate_katz_accepts,
         
         # Keep character columns as strings rather than converting to factors 
         stringsAsFactors = FALSE

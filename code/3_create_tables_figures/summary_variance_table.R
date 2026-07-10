@@ -328,6 +328,259 @@ write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapp
   )
 }
 
+# -------------------------------------------------------------------
+# Outcome-level belief summary table for Likert and Borda.
+#
+# Counts are shared across aggregation methods because OLS/Likert and
+# Borda use the same filtered respondent-firm observations for a given
+# outcome. Means and average SEs are model-specific and use the raw
+# post-aggregation firm-level estimates rather than the recentered
+# variance objects.
+# -------------------------------------------------------------------
+fmt_int <- function(x) {
+  z <- suppressWarnings(as.numeric(x))
+  out <- rep("", length(z))
+  ok <- is.finite(z)
+  out[ok] <- formatC(round(z[ok]), format = "d", big.mark = ",")
+  out
+}
+
+finite_sum_or_na <- function(x) {
+  z <- suppressWarnings(as.numeric(x))
+  z <- z[is.finite(z)]
+  if (!length(z)) return(NA_real_)
+  sum(z)
+}
+
+finite_mean_or_na <- function(x) {
+  z <- suppressWarnings(as.numeric(x))
+  z <- z[is.finite(z)]
+  if (!length(z)) return(NA_real_)
+  mean(z)
+}
+
+finite_max_or_na <- function(x) {
+  z <- suppressWarnings(as.numeric(x))
+  z <- z[is.finite(z)]
+  if (!length(z)) return(NA_real_)
+  max(z)
+}
+
+build_response_count_summary_from_raw <- function(outcomes) {
+  raw_data_path <- file.path(processed, "long_survey_final.csv")
+  if (!file.exists(raw_data_path)) {
+    warning("Cannot reconstruct response counts; missing processed data: ",
+            raw_data_path)
+    return(data.frame(
+      outcome = outcomes,
+      number_responses = NA_real_,
+      number_respondents = NA_real_,
+      mean_respondents_per_firm = NA_real_,
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (!exists("leave_in_connected_set", mode = "function")) {
+    source(file.path(analysis, "leave_in_connected.R"))
+  }
+  if (!exists("prepare_pltree_data", mode = "function")) {
+    source(file.path(analysis, "create_wide_rankings.R"))
+  }
+
+  raw_data <- utils::read.csv(raw_data_path, stringsAsFactors = FALSE)
+
+  rows <- lapply(outcomes, function(outcome) {
+    if (!outcome %in% names(raw_data)) {
+      return(data.frame(
+        outcome = outcome,
+        number_responses = NA_real_,
+        number_respondents = NA_real_,
+        mean_respondents_per_firm = NA_real_,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    prep <- withCallingHandlers(
+      prepare_pltree_data(
+        data = raw_data,
+        rank_col = outcome,
+        subgroup_var = NULL,
+        subgroup_filter = NULL
+      ),
+      warning = function(w) {
+        if (grepl("NAs introduced by coercion", conditionMessage(w), fixed = TRUE)) {
+          invokeRestart("muffleWarning")
+        }
+      }
+    )
+
+    rating_long <- prep$data_rating_long
+    firm_counts <- rating_long %>%
+      dplyr::group_by(.data$firm_id) %>%
+      dplyr::summarise(
+        firm_number_of_respondents = dplyr::n(),
+        .groups = "drop"
+      )
+
+    data.frame(
+      outcome = outcome,
+      number_responses = nrow(rating_long),
+      number_respondents = dplyr::n_distinct(rating_long$resp_id),
+      mean_respondents_per_firm = mean(firm_counts$firm_number_of_respondents),
+      stringsAsFactors = FALSE
+    )
+  })
+
+  dplyr::bind_rows(rows)
+}
+
+build_response_count_summary <- function(coef_df, outcomes) {
+  count_cols <- c("firm_number_of_respondents", "total_number_of_respondents")
+  if (all(count_cols %in% names(coef_df)) &&
+      any(is.finite(suppressWarnings(as.numeric(coef_df$firm_number_of_respondents))))) {
+    count_model_candidates <- c("OLS_not_recentered", "Borda_not_recentered",
+                                "OLS", "Borda")
+    count_model <- intersect(count_model_candidates,
+                             unique(as.character(coef_df$model)))[1]
+
+    return(
+      coef_df %>%
+        dplyr::filter(.data$subset == "all",
+                      .data$entity_type == "Firm",
+                      .data$model == count_model,
+                      .data$outcome %in% outcomes) %>%
+        dplyr::group_by(.data$outcome) %>%
+        dplyr::summarise(
+          number_responses = finite_sum_or_na(.data$firm_number_of_respondents),
+          number_respondents = finite_max_or_na(.data$total_number_of_respondents),
+          mean_respondents_per_firm = finite_mean_or_na(.data$firm_number_of_respondents),
+          .groups = "drop"
+        )
+    )
+  }
+
+  build_response_count_summary_from_raw(outcomes)
+}
+
+write_belief_summary_ols_borda_table <- function(dir_path,
+                                                 outcomes,
+                                                 tables_dir,
+                                                 label_mapping = NULL,
+                                                 csv_name = "belief_summary_ols_borda.csv",
+                                                 tex_name = "belief_summary_ols_borda.tex",
+                                                 latex_decimals = 3,
+                                                 respondent_decimals = 1,
+                                                 se_column = "rse") {
+  coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
+                      error = function(e) NULL)
+  if (is.null(coef_df)) {
+    stop("Could not read 'Coefficients' sheet from: ", dir_path)
+  }
+
+  if (!se_column %in% names(coef_df)) {
+    stop("Coefficients sheet missing requested SE column: ", se_column)
+  }
+
+  model_map <- c(Likert = "OLS_not_recentered", Borda = "Borda_not_recentered")
+  missing_models <- setdiff(unname(model_map), unique(as.character(coef_df$model)))
+  if (length(missing_models)) {
+    stop("Coefficients sheet missing raw belief models: ",
+         paste(missing_models, collapse = ", "))
+  }
+
+  counts <- build_response_count_summary(coef_df, outcomes)
+
+  summarize_model <- function(model_value, prefix) {
+    out <- coef_df %>%
+      dplyr::filter(.data$subset == "all",
+                    .data$entity_type == "Firm",
+                    .data$model == model_value,
+                    .data$outcome %in% outcomes) %>%
+      dplyr::group_by(.data$outcome) %>%
+      dplyr::summarise(
+        model_mean = finite_mean_or_na(.data$estimate),
+        model_avg_se = finite_mean_or_na(.data[[se_column]]),
+        .groups = "drop"
+      )
+    names(out)[names(out) == "model_mean"] <- paste0(prefix, "_mean")
+    names(out)[names(out) == "model_avg_se"] <- paste0(prefix, "_avg_se")
+    out
+  }
+
+  likert <- summarize_model(model_map[["Likert"]], "Likert")
+  borda  <- summarize_model(model_map[["Borda"]], "Borda")
+
+  tab <- data.frame(outcome = unique(outcomes), stringsAsFactors = FALSE) %>%
+    dplyr::left_join(counts, by = "outcome") %>%
+    dplyr::left_join(likert, by = "outcome") %>%
+    dplyr::left_join(borda, by = "outcome")
+
+  tab$Outcome_display <- map_label(tab$outcome, label_mapping)
+  tab <- tab %>% dplyr::arrange(.data$Outcome_display, .data$outcome)
+
+  csv_out_path <- file.path(tables_dir, csv_name)
+  out_csv <- data.frame(
+    Outcome = tab$Outcome_display,
+    Responses = tab$number_responses,
+    Respondents = tab$number_respondents,
+    `Likert: mean` = tab$Likert_mean,
+    `Likert: Average SE` = tab$Likert_avg_se,
+    `Borda: mean` = tab$Borda_mean,
+    `Borda: Average SE` = tab$Borda_avg_se,
+    check.names = FALSE
+  )
+  utils::write.csv(out_csv, csv_out_path, row.names = FALSE)
+
+  latex_df <- tab %>%
+    dplyr::transmute(
+      Outcome = .data$Outcome_display,
+      Responses = fmt_int(.data$number_responses),
+      Respondents = fmt_int(.data$number_respondents),
+      `Likert Mean` = fmt_dec(.data$Likert_mean, latex_decimals),
+      `Likert Average SE` = fmt_dec(.data$Likert_avg_se, latex_decimals),
+      `Borda Mean` = fmt_dec(.data$Borda_mean, latex_decimals),
+      `Borda Average SE` = fmt_dec(.data$Borda_avg_se, latex_decimals)
+    )
+
+  xt <- xtable::xtable(
+    latex_df,
+    align = c("l", "l", rep("c", 6))
+  )
+
+  header <- paste0(
+    "\\toprule\n",
+    " & \\multicolumn{2}{c}{Sample} & ",
+    "\\multicolumn{4}{c}{Aggregate Firm Scores} \\\\\n",
+    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-7}\n",
+    " & & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\\n",
+    "\\cmidrule(lr){4-5} \\cmidrule(lr){6-7}\n",
+    "Outcome & ",
+    "Responses & ",
+    "Respondents & ",
+    "Mean & Average SE & ",
+    "Mean & Average SE \\\\\n",
+    "\\midrule\n"
+  )
+
+  tex_out_path <- file.path(tables_dir, tex_name)
+  print(
+    xt,
+    include.rownames = FALSE,
+    include.colnames = FALSE,
+    file = tex_out_path,
+    add.to.row = list(pos = list(0), command = header),
+    sanitize.text.function = identity,
+    booktabs = TRUE,
+    floating = FALSE,
+    comment = FALSE
+  )
+
+  cat("Belief summary table saved:",
+      basename(csv_out_path), "and", basename(tex_out_path), "\n")
+
+  invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+}
+
 # -------------------------------
 # Standard outcomes
 # -------------------------------
@@ -338,6 +591,13 @@ write_variance_table_both(
   label_mapping = label_mapping,
   csv_base      = "variance_biascorrected",
   tex_base      = "variance_biascorrected"
+)
+
+write_belief_summary_ols_borda_table(
+  dir_path      = dir_path,
+  outcomes      = outs,
+  tables_dir    = tables,
+  label_mapping = label_mapping
 )
 
 # -------------------------------
