@@ -63,7 +63,7 @@ firm_audit_gaps <- firm_audit_gaps |> dplyr::select(entity_id, entity, outcome, 
 firm_audit_gaps <- firm_audit_gaps |> dplyr::rename(firm_id = entity_id, firm_name = entity, contact_gap_type = outcome, difference_in_log_contact_rate = estimate)
 
 # Relabel the contact-gap type to be more descriptive
-firm_audit_gaps <- firm_audit_gaps |> dplyr::mutate(contact_gap_type = dplyr::recode(contact_gap_type, "log_dif" = "white_black", "log_dif_gender" = "male_female"))
+firm_audit_gaps <- firm_audit_gaps |> dplyr::mutate(contact_gap_type = dplyr::recode(contact_gap_type, "log_dif" = "white_minus_black", "log_dif_gender" = "male_minus_female"))
 
 # Should be unique by firm and contact gap type
 stopifnot(!anyDuplicated(firm_audit_gaps[c("firm_id", "contact_gap_type")]), !anyNA(firm_audit_gaps[c("firm_id", "contact_gap_type")]))
@@ -235,10 +235,10 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
     # Loop over aggregation method
     for (aggregation_method in c("ols", "borda")) {
         # Loop over each LHS variable
-        for (lhs_variable in c("dif_log_contact_rate_white_black", "dif_log_contact_rate_male_female")) {
+        for (lhs_variable in c("dif_log_contact_rate_white_minus_black", "dif_log_contact_rate_male_minus_female")) {
 
             # RHS belief base name implied by the LHS audit gap; race gap uses the white-favoritism belief, gender gap the male-favoritism belief
-            rhs_variable_base_name <- c(dif_log_contact_rate_white_black = "pooled_favor_white", dif_log_contact_rate_male_female = "pooled_favor_male")[[lhs_variable]]
+            rhs_variable_base_name <- c(dif_log_contact_rate_white_minus_black = "pooled_favor_white", dif_log_contact_rate_male_minus_female = "pooled_favor_male")[[lhs_variable]]
 
             # Full RHS belief column name; base name plus the aggregation method suffix
             rhs_variable <- paste0(rhs_variable_base_name, "_", aggregation_method)
