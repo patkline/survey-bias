@@ -148,6 +148,10 @@ construct_firm_level_estimates <- function(
         entity      = firm,
         # Firm job count
         njobs       = njobs,
+        # Number of respondent-firm score observations for this firm
+        firm_number_of_respondents = as.integer(firm_number_of_respondents),
+        # Number of distinct respondents contributing to this outcome
+        total_number_of_respondents = as.integer(total_number_of_respondents),
         # Firm mean rating estimate
         estimate    = as.numeric(firm_mean_rating),
         # Naive standard error of the estimate

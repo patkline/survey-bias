@@ -198,6 +198,10 @@ compute_firm_mean_ratings <- function(
   firm_level_rating_estimates_centered <- data.frame(
     # Firm identifier
     firm_id          = firm_ids,
+    # Number of respondent-firm score observations for this firm
+    firm_number_of_respondents = collapsed_firm_ratings$firm_number_of_respondents,
+    # Number of distinct respondents contributing to this outcome
+    total_number_of_respondents = total_number_of_respondents_across_all_firms,
     # Recentered firm mean rating
     firm_mean_rating = firm_mean_rating_centered,
     # Naive standard error of the recentered firm mean rating
@@ -212,6 +216,10 @@ compute_firm_mean_ratings <- function(
   firm_level_rating_estimates_raw <- data.frame(
     # Firm identifier
     firm_id          = firm_ids,
+    # Number of respondent-firm score observations for this firm
+    firm_number_of_respondents = collapsed_firm_ratings$firm_number_of_respondents,
+    # Number of distinct respondents contributing to this outcome
+    total_number_of_respondents = total_number_of_respondents_across_all_firms,
     # Non-recentered firm mean rating
     firm_mean_rating = collapsed_firm_ratings$firm_mean_rating,
     # Naive standard error of the non-recentered firm mean rating

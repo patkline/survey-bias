@@ -52,6 +52,17 @@ add_zero_error_controls <- function(noise_mat, controls) {
   )
 
   out[rownames(noise_mat), colnames(noise_mat)] <- noise_mat
+  raw_noise_mat <- attr(noise_mat, "raw_noise_matrix")
+  if (!is.null(raw_noise_mat)) {
+    raw_out <- matrix(
+      0,
+      nrow = length(expanded_names),
+      ncol = length(expanded_names),
+      dimnames = list(expanded_names, expanded_names)
+    )
+    raw_out[rownames(raw_noise_mat), colnames(raw_noise_mat)] <- raw_noise_mat
+    attr(out, "raw_noise_matrix") <- raw_out
+  }
   out
 }
 
