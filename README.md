@@ -238,7 +238,7 @@ for the lightweight firm-name match step.
     - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
     - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
     - `summary_topbottom_dualaxis.R` --- Top/Bottom-N firms by Borda EB, with each non-Borda model's EB on the primary axis and Borda EB on the secondary
-  - `heatmaps_combined.R` --- across-outcome correlation heatmaps (OLS upper / Borda lower)
+  - `firm_ratings_signal_correlation_heatmaps.R` --- across-measure signal-correlation heatmaps (Likert lower / Borda upper), full-sample + between/within-industry + purple highlight variants
   - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.)
   - `eiv_table_discretion.R` --- discretion-as-LHS EIV panel
   - `eiv_table_bivariate.r` --- bivariate EIV (favor-x + control)
