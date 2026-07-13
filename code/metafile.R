@@ -17,7 +17,7 @@ message("\n----------------------------------------")
 message("Running data build...")
 message("----------------------------------------\n")
 
-source(file.path(build, "metafile.R"))
+source(file.path(build, "!metafile.R"))
 
 # ------------------------------------------------------------------------------
 # Run analysis
@@ -26,7 +26,7 @@ message("\n----------------------------------------")
 message("Running analysis...")
 message("----------------------------------------\n")
 
-source(file.path(analysis, "metafile.R"))
+source(file.path(analysis, "!metafile.R"))
 
 # ------------------------------------------------------------------------------
 # Generate figures & tables
@@ -35,4 +35,4 @@ message("\n----------------------------------------")
 message("Creating tables and figures...")
 message("----------------------------------------\n")
 
-#source(file.path(create_tables_figures, "metafile.R"))
+source(file.path(create_tables_figures, "!metafile.R"))
