@@ -225,8 +225,8 @@ for the lightweight firm-name match step.
 **Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
 
 - `!metafile.R` --- sources each table/figure script in order
-  - `summary_statistics_tables.R` --- respondent demographic composition tables by sample split (probability/convenience + names/conduct) and the rating-confidence share table
-  - `summary_statistics_bar_graphs.R` --- survey response share bar graphs: 1-5 rating distributions, yes/no questions, feared-discrimination two-ways by race, conduct-arm information sources
+  - `summary_statistics_tables.R` --- respondent demographic composition tables by probability/convenience sample split and the rating-confidence share table
+  - `summary_statistics_bar_graphs.R` --- survey response share bar graphs: 1-5 rating distributions, yes/no questions, feared-discrimination shares by race within each subsample (+ animation stage), conduct-arm information sources
   - `summary_statistics_histograms.R` --- response duration histogram
   - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
     - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
@@ -249,8 +249,10 @@ for the lightweight firm-name match step.
   - `eiv_revelio_outcome_tables.R` --- Controlling for Revelio workforce shares on the RHS of main EIV regs 
   - `eiv_revelio_composition_tables.R` --- Revelio outcomes (race/gender workforce share and paygaps as LHS)
   - `eiv_eeo1_share_tables.R` --- EIV tables using EEO-1 industry-level race/gender shares
+  - `revelio_eeo1_frontline_share_correlations.R` --- firm-level Revelio workforce shares vs EEO-1 industry shares: comparison CSV, correlations, industry black-share scatterplots
   - `eiv_scatterplots.R` --- audit contact gaps on raw firm-level beliefs, scatter with naive (weighted OLS, robust SE) and EIV fitted lines
   - `eiv_coefplot_by_subgroup.R` --- coefplot of subgroup-split EIV slopes (njobs-weighted Katz noise), with slope-difference annotations
+  - `firm_belief_estimates_by_aggregation_method_table.do` --- appendix table of firm-level belief estimates by aggregation method (Stata, run in batch mode via the metafile's `run_stata_fail_fast`)
 
 ## Documentation on codebase
 

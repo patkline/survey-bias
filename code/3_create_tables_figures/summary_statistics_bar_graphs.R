@@ -15,8 +15,8 @@ survey_responses <- read.csv(file.path(processed, "long_survey_final_summary_sta
 # Uniquely identified by respondent x firm slot, none missing
 stopifnot(!anyDuplicated(survey_responses[c("ResponseId", "option_number")]), !anyNA(survey_responses[c("ResponseId", "option_number")]))
 
-# Should be 6515 respondents x 5 firm slots = 32575 rows
-stopifnot(nrow(survey_responses) == 32575)
+# Should be 6515 respondents x 5 firm slots = 32575 rows i.e., every respondent carries slots numbered 1-5
+stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$ResponseId) == 6515, all(survey_responses$option_number %in% 1:5))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Collapse to one row per respondent for the respondent-level questions
@@ -45,14 +45,17 @@ rating_answer_labels <- list(
 # Scale wording for each rating variable
 rating_scale_wordings <- c(FirmCont_white = "gap", FirmCont_black = "gap", FirmHire_white = "gap", FirmHire_black = "gap", FirmCont_male = "gap", FirmCont_female = "gap", FirmHire_male = "gap", FirmHire_female = "gap", conduct_white = "level", conduct_black = "level", conduct_female = "level", conduct_male = "level", conduct_older = "level", conduct_younger = "level")
 
+# Plotted quantity for each rating variable, from the survey question wording; contact/hire questions are relative to the other group's name, conduct questions ask about discrimination against the named group
+rating_x_axis_titles <- c(FirmCont_white = "Likelihood of Contacting a White-Named vs Black-Named Applicant", FirmCont_black = "Likelihood of Contacting a Black-Named vs White-Named Applicant", FirmHire_white = "Likelihood of Hiring a White-Named vs Black-Named Applicant", FirmHire_black = "Likelihood of Hiring a Black-Named vs White-Named Applicant", FirmCont_male = "Likelihood of Contacting a Male-Named vs Female-Named Applicant", FirmCont_female = "Likelihood of Contacting a Female-Named vs Male-Named Applicant", FirmHire_male = "Likelihood of Hiring a Male-Named vs Female-Named Applicant", FirmHire_female = "Likelihood of Hiring a Female-Named vs Male-Named Applicant", conduct_white = "Likelihood of Discriminating Against White Job-Seekers", conduct_black = "Likelihood of Discriminating Against Black Job-Seekers", conduct_female = "Likelihood of Discriminating Against Female Job-Seekers", conduct_male = "Likelihood of Discriminating Against Male Job-Seekers", conduct_older = "Likelihood of Discriminating Against Older Job-Seekers (Above 40)", conduct_younger = "Likelihood of Discriminating Against Young Job-Seekers (Below 40)")
+
 # Loop over the belief rating variables
-for (rating_variable in c("FirmCont_white", "FirmCont_black", "FirmHire_white", "FirmHire_black", "FirmCont_male", "FirmCont_female", "FirmHire_male", "FirmHire_female", "conduct_white", "conduct_black", "conduct_female", "conduct_male", "conduct_older", "conduct_younger")) {
+for (rating_variable in names(rating_x_axis_titles)) {
 
     # Assert the rating takes only the 1-5 scale values, the -1 prefer-not-to-answer code, or missing
     stopifnot(all(survey_responses[[rating_variable]] %in% c(NA, -1, 1:5)))
 
-    # Answer categories in display order: the five scale labels, then prefer not to answer, then missing
-    answer_categories <- c(rating_answer_labels[[rating_scale_wordings[[rating_variable]]]], "Prefer not to answer", "Missing")
+    # Answer categories in display order: the five scale labels, then the don't-know/prefer-not option, then missing
+    answer_categories <- c(rating_answer_labels[[rating_scale_wordings[[rating_variable]]]], "Don't Know/\nPrefer Not to Answer", "Missing")
 
     # Keep every response row of respondents with at least one non-missing rating for this variable
     rating_responses <- survey_responses |> dplyr::group_by(ResponseId) |> dplyr::filter(any(!is.na(.data[[rating_variable]]))) |> dplyr::ungroup()
@@ -60,7 +63,7 @@ for (rating_variable in c("FirmCont_white", "FirmCont_black", "FirmHire_white", 
     # Label each response row with its answer category; kept respondents' missing rows stay in the denominator
     rating_responses <- rating_responses |> dplyr::mutate(answer_category = dplyr::case_when(
         is.na(.data[[rating_variable]]) ~ "Missing",
-        .data[[rating_variable]] == -1 ~ "Prefer not to answer",
+        .data[[rating_variable]] == -1 ~ "Don't Know/\nPrefer Not to Answer",
         .data[[rating_variable]] == 1 ~ answer_categories[1],
         .data[[rating_variable]] == 2 ~ answer_categories[2],
         .data[[rating_variable]] == 3 ~ answer_categories[3],
@@ -77,11 +80,26 @@ for (rating_variable in c("FirmCont_white", "FirmCont_black", "FirmHire_white", 
     # Should be one row per answer category, counts summing to the kept response rows
     stopifnot(nrow(category_shares) == 7, sum(category_shares$n) == nrow(rating_responses))
 
-    # Share of response rows in each answer category, in percent, with its binomial standard error
-    category_shares <- category_shares |> dplyr::mutate(proportion = n / nrow(rating_responses), share = 100 * proportion, share_standard_error = sqrt(proportion * (1 - proportion) / nrow(rating_responses)) * 100)
+    # Should be exactly five response rows per kept respondent; balance makes the row-level share equal the mean respondent-level share
+    stopifnot(all(dplyr::count(rating_responses, ResponseId)$n == 5))
+
+    # Each kept respondent's share of their five response rows in each answer category, zero-filled for categories they never used
+    respondent_category_shares <- rating_responses |> dplyr::count(ResponseId, answer_category) |> tidyr::complete(ResponseId, answer_category = answer_categories, fill = list(n = 0)) |> dplyr::mutate(respondent_share = n / 5)
+
+    # Should be one row per kept respondent x answer category
+    stopifnot(nrow(respondent_category_shares) == 7 * dplyr::n_distinct(rating_responses$ResponseId))
+
+    # Respondent-level standard error of each category share; one respondent's five ratings are correlated, so the respondent is the independent unit
+    category_standard_errors <- respondent_category_shares |> dplyr::group_by(answer_category) |> dplyr::summarise(mean_respondent_share = mean(respondent_share), share_standard_error = 100 * sd(respondent_share) / sqrt(dplyr::n()), .groups = "drop")
+
+    # Share of response rows in each answer category, in percent, with its respondent-level standard error
+    category_shares <- category_shares |> dplyr::mutate(proportion = n / nrow(rating_responses), share = 100 * proportion) |> dplyr::left_join(category_standard_errors, by = "answer_category")
+
+    # Should be the same category share from both constructions
+    stopifnot(all(abs(category_shares$proportion - category_shares$mean_respondent_share) < 1e-12))
 
     # 95% confidence interval margin for each share
-    category_shares <- category_shares |> dplyr::mutate(share_margin_of_error = 1.96 * share_standard_error)
+    category_shares <- category_shares |> dplyr::mutate(share_margin_of_error = 1.96 * share_standard_error) |> dplyr::select(-mean_respondent_share)
 
     # Drop the missing category from the plot; its rows remain in the share denominator
     category_shares <- category_shares |> dplyr::filter(answer_category != "Missing")
@@ -98,11 +116,11 @@ for (rating_variable in c("FirmCont_white", "FirmCont_black", "FirmHire_white", 
         # 95% confidence interval error bars
         geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = share + share_margin_of_error), width = 0.15, linewidth = 0.6) +
 
-        # Axis labels
-        labs(x = "", y = "Share of Responses (%)") +
+        # Axis labels name the plotted rating; the tick labels carry the percent sign
+        labs(x = rating_x_axis_titles[[rating_variable]], y = "Share of Responses") +
 
-        # Anchor the bars at zero with headroom above
-        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+        # Fix the share axis to 0-100%
+        scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
 
         # Theme baseline
         theme_classic(base_size = 13) +
@@ -112,9 +130,10 @@ for (rating_variable in c("FirmCont_white", "FirmCont_black", "FirmHire_white", 
             # No grid lines
             panel.grid = element_blank(),
 
-            # Bottom and left axis spines, no ticks
+            # Bottom and left axis spines; thin tick marks on the share axis only
             axis.line = element_line(color = "black"),
-            axis.ticks = element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_line(color = "black"),
 
             # Angle the answer-category labels
             axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
@@ -133,16 +152,11 @@ yes_no_answer_categories <- c("No", "Yes", "Prefer not to answer", "Missing")
 # Loop over the yes/no question variables
 for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
 
-    # Assert the question takes only the yes/no/prefer-not answers, the empty-string missing code, or missing
-    stopifnot(all(survey_respondents[[yes_no_variable]] %in% c(NA, "", "No", "Yes", "Prefer not to answer")))
+    # Assert the question takes only the yes/no/prefer-not answers or the empty-string missing code
+    stopifnot(all(survey_respondents[[yes_no_variable]] %in% c("", "No", "Yes", "Prefer not to answer")))
 
-    # Label each respondent with their answer category
-    yes_no_respondents <- survey_respondents |> dplyr::mutate(answer_category = dplyr::case_when(
-        is.na(.data[[yes_no_variable]]) | .data[[yes_no_variable]] == "" ~ "Missing",
-        .data[[yes_no_variable]] == "No" ~ "No",
-        .data[[yes_no_variable]] == "Yes" ~ "Yes",
-        .data[[yes_no_variable]] == "Prefer not to answer" ~ "Prefer not to answer"
-    ))
+    # Label each respondent with their answer category, the empty-string missing code as Missing
+    yes_no_respondents <- survey_respondents |> dplyr::mutate(answer_category = dplyr::if_else(.data[[yes_no_variable]] == "", "Missing", .data[[yes_no_variable]]))
 
     # Count respondents by answer category
     category_shares <- yes_no_respondents |> dplyr::count(answer_category)
@@ -171,11 +185,11 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
         # 95% confidence interval error bars
         geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = share + share_margin_of_error), width = 0.15, linewidth = 0.6) +
 
-        # Axis labels
-        labs(x = "", y = "Share of Respondents (%)") +
+        # Axis labels; the tick labels carry the percent sign
+        labs(x = "", y = "Share of Respondents") +
 
-        # Anchor the bars at zero with headroom above
-        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+        # Fix the share axis to 0-100%
+        scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
 
         # Theme baseline
         theme_classic(base_size = 13) +
@@ -185,9 +199,10 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
             # No grid lines
             panel.grid = element_blank(),
 
-            # Bottom and left axis spines, no ticks
+            # Bottom and left axis spines; thin tick marks on the share axis only
             axis.line = element_line(color = "black"),
-            axis.ticks = element_blank()
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_line(color = "black")
         )
 
     # Export the share bar graph
@@ -213,9 +228,10 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
             # No grid lines
             panel.grid = element_blank(),
 
-            # Bottom and left axis spines, no ticks
+            # Bottom and left axis spines; thin tick marks on the count axis only
             axis.line = element_line(color = "black"),
-            axis.ticks = element_blank()
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_line(color = "black")
         )
 
     # Export the count bar graph
@@ -223,75 +239,97 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Feared-discrimination two-way bar graphs i.e., the share fearing discrimination by race within gender and job-search groups
+# Feared-discrimination subsample bar graph i.e., the share fearing discrimination by race within each subsample
 # -----------------------------------------------------------------------------------------------------------------------------
-# Loop over the two-way split variables
-for (two_way_split_variable in c("gender", "looking_job")) {
+# Assert the subsample split variables and fear are 0/1 indicators and race takes only its three categories, none missing
+stopifnot(all(survey_respondents$gender %in% c(0, 1)), all(survey_respondents$looking_job %in% c(0, 1)), all(survey_respondents$fear %in% c(0, 1)), all(survey_respondents$race_recode %in% c("Black", "White", "Other")))
 
-    # Assert the split variable and fear are 0/1 indicators and race takes only its three categories, none missing
-    stopifnot(all(survey_respondents[[two_way_split_variable]] %in% c(0, 1)), all(survey_respondents$fear %in% c(0, 1)), all(survey_respondents$race_recode %in% c("Black", "White", "Other")))
+# Define empty subsample shares dataframe
+subsample_shares <- data.frame()
 
-    # Label the split groups for display
-    two_way_respondents <- survey_respondents |> dplyr::mutate(split_group = list(gender = c("1" = "Female", "0" = "Male"), looking_job = c("1" = "Looking for Job", "0" = "Not Looking"))[[two_way_split_variable]][as.character(.data[[two_way_split_variable]])])
+# Loop over the subsample split variables
+for (subsample_split_variable in c("gender", "looking_job")) {
 
-    # Share of respondents fearing discrimination by split group x race, with the respondent count
-    group_shares <- two_way_respondents |> dplyr::group_by(split_group, race_recode) |> dplyr::summarise(N = dplyr::n(), fear_share = mean(fear), .groups = "drop")
+    # Label the subsamples for display
+    split_respondents <- survey_respondents |> dplyr::mutate(subsample = list(gender = c("1" = "Female", "0" = "Male"), looking_job = c("1" = "Looking for Job", "0" = "Not Looking"))[[subsample_split_variable]][as.character(.data[[subsample_split_variable]])])
 
-    # Should be 2 split groups x 3 races = 6 bars covering all respondents, none missing
-    stopifnot(nrow(group_shares) == 6, sum(group_shares$N) == nrow(survey_respondents), !anyNA(group_shares))
-
-    # Binomial standard error of each share
-    group_shares <- group_shares |> dplyr::mutate(share_standard_error = sqrt(fear_share * (1 - fear_share) / N))
-
-    # 95% confidence interval bounds, capped at the 0-1 share range
-    group_shares <- group_shares |> dplyr::mutate(share_lower_bound = pmax(0, fear_share - 1.96 * share_standard_error), share_upper_bound = pmin(1, fear_share + 1.96 * share_standard_error))
-
-    # Order the races for the bar and legend order
-    group_shares <- group_shares |> dplyr::mutate(race_recode = factor(race_recode, levels = c("Black", "White", "Other")))
-
-    # Define the two-way bar graph
-    two_way_bar_graph <- ggplot(group_shares, aes(x = split_group, y = fear_share, fill = race_recode)) +
-
-        # Race-colored share bars, dodged within each split group
-        geom_col(position = position_dodge(width = 0.75), width = 0.65) +
-
-        # 95% confidence interval error bars
-        geom_errorbar(aes(ymin = share_lower_bound, ymax = share_upper_bound), position = position_dodge(width = 0.75), width = 0.18, linewidth = 0.6) +
-
-        # Bar color for each race
-        scale_fill_manual(values = c("Black" = "steelblue", "White" = "darkorange", "Other" = "grey55")) +
-
-        # Share axis in percent, anchored at zero with headroom above
-        scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.05))) +
-
-        # Axis labels and legend title
-        labs(x = "", y = "Share of Respondents (%)", fill = "Race") +
-
-        # Theme baseline
-        theme_classic(base_size = 13) +
-
-        # Theme adjustments
-        theme(
-            # No grid lines
-            panel.grid = element_blank(),
-
-            # Bottom and left axis spines, no ticks
-            axis.line = element_line(color = "black"),
-            axis.ticks = element_blank(),
-
-            # Legend to the right of the panel
-            legend.position = "right"
-        )
-
-    # Export the two-way bar graph, one file per split variable
-    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_y_fear_x_", two_way_split_variable, "_group_race.png")), plot = two_way_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
+    # Append the share of respondents fearing discrimination by subsample x race, with the respondent count
+    subsample_shares <- dplyr::bind_rows(subsample_shares, split_respondents |> dplyr::group_by(subsample, race_recode) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"))
 }
+
+# Should be 4 subsamples x 3 races = 12 bars covering every respondent once per split, none missing
+stopifnot(nrow(subsample_shares) == 12, sum(subsample_shares$respondent_count) == 2 * nrow(survey_respondents), !anyNA(subsample_shares))
+
+# Binomial standard error of each share
+subsample_shares <- subsample_shares |> dplyr::mutate(share_standard_error = sqrt(fear_share * (1 - fear_share) / respondent_count))
+
+# 95% confidence interval bounds, capped at the 0-1 share range
+subsample_shares <- subsample_shares |> dplyr::mutate(share_lower_bound = pmax(0, fear_share - 1.96 * share_standard_error), share_upper_bound = pmin(1, fear_share + 1.96 * share_standard_error))
+
+# Order the subsamples and races for the bar and legend order
+subsample_shares <- subsample_shares |> dplyr::mutate(subsample = factor(subsample, levels = c("Female", "Male", "Looking for Job", "Not Looking")), race_recode = factor(race_recode, levels = c("Black", "White", "Other")))
+
+# Define the subsample bar graph
+subsample_bar_graph <- ggplot(subsample_shares, aes(x = subsample, y = fear_share, fill = race_recode)) +
+
+    # Race-colored share bars, dodged within each subsample; bar width below the dodge width leaves a small gap within each set
+    geom_col(position = position_dodge(width = 0.66), width = 0.6) +
+
+    # 95% confidence interval error bars
+    geom_errorbar(aes(ymin = share_lower_bound, ymax = share_upper_bound), position = position_dodge(width = 0.66), width = 0.18, linewidth = 0.6) +
+
+    # Dashed separator between the gender and job-search subsample pairs; grey44 matches Stata gs7
+    geom_vline(xintercept = 2.5, linetype = "dashed", color = "grey44") +
+
+    # Bar color for each race
+    scale_fill_manual(values = c("Black" = "steelblue", "White" = "darkorange", "Other" = "grey55")) +
+
+    # Draw all four subsample slots even when the data covers fewer i.e., in the animation stage
+    scale_x_discrete(drop = FALSE) +
+
+    # Fix the share axis to 0-100%
+    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1), labels = scales::percent_format(accuracy = 1), expand = c(0, 0)) +
+
+    # Axis labels name the plotted share, without a legend title; the tick labels carry the percent sign
+    labs(x = "Subsample", y = "Share Fearing Discrimination", fill = NULL) +
+
+    # Theme baseline
+    theme_classic(base_size = 13) +
+
+    # Theme adjustments
+    theme(
+        # No grid lines
+        panel.grid = element_blank(),
+
+        # Bottom and left axis spines; thin tick marks on the share axis only
+        axis.line = element_line(color = "black"),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_line(color = "black"),
+
+        # Legend inside the plot, top-right
+        legend.position = "inside",
+        legend.position.inside = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_blank()
+    )
+
+# Export the subsample bar graph
+ggsave(file.path(figures, "summary_statistics_bar_graphs_y_fear_x_subsample_group_race.png"), plot = subsample_bar_graph, width = 9.5, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
+
+# Extract the full figure's panel ranges, fixing the axes across the animation stages
+subsample_bar_graph_panel_ranges <- ggplot_build(subsample_bar_graph)$layout$panel_params[[1]]
+
+# Gender-only animation stage: swap the plot's data for the gender-pair bars, keeping every layer, pinned to the full figure's axis ranges
+ggsave(file.path(figures, "summary_statistics_bar_graphs_y_fear_x_subsample_group_race_animation_1.png"), plot = subsample_bar_graph + dplyr::filter(subsample_shares, subsample %in% c("Female", "Male")) + coord_cartesian(xlim = subsample_bar_graph_panel_ranges$x.range, ylim = subsample_bar_graph_panel_ranges$y.range, expand = FALSE), width = 9.5, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Information source bar graph i.e., the share of conduct-arm respondents citing each source about firm conduct
 # -----------------------------------------------------------------------------------------------------------------------------
+# Assert the information source selection is never missing; the empty string codes no selection
+stopifnot(!anyNA(survey_respondents$information_source))
+
 # Keep conduct-arm respondents with a non-empty information source selection
-information_source_respondents <- survey_respondents |> dplyr::filter(conduct_arm, !is.na(information_source), information_source != "")
+information_source_respondents <- survey_respondents |> dplyr::filter(conduct_arm, information_source != "")
 
 # Should be 804 conduct-arm respondents citing at least one source
 stopifnot(nrow(information_source_respondents) == 804)
@@ -304,8 +342,10 @@ for (category_index in seq_len(nrow(source_shares))) {
     source_shares$share[category_index] <- mean(grepl(source_shares$information_source_category[category_index], information_source_respondents$information_source, fixed = TRUE)) * 100
 }
 
-# Should be one share per category, none missing
-stopifnot(nrow(source_shares) == 5, !anyNA(source_shares$share))
+# Assert every selection decomposes into the five known source categories i.e., a renamed or added option fails loudly
+leftover_selection_text <- information_source_respondents$information_source
+for (source_category in source_shares$information_source_category) leftover_selection_text <- gsub(source_category, "", leftover_selection_text, fixed = TRUE)
+stopifnot(all(gsub("[, ]", "", leftover_selection_text) == ""))
 
 # Order the source categories for display
 source_shares$information_source_category <- factor(source_shares$information_source_category, levels = source_shares$information_source_category)
@@ -316,11 +356,11 @@ information_source_bar_graph <- ggplot(source_shares, aes(x = information_source
     # Steelblue source-share bars
     geom_col(width = 0.8, fill = "steelblue") +
 
-    # Anchor the bars at zero with headroom above
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    # Fix the share axis to 0-100%
+    scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
 
-    # Axis labels
-    labs(x = "", y = "Share of Respondents (%)") +
+    # Axis labels; the tick labels carry the percent sign
+    labs(x = "", y = "Share of Respondents") +
 
     # Theme baseline
     theme_classic(base_size = 13) +
@@ -330,9 +370,10 @@ information_source_bar_graph <- ggplot(source_shares, aes(x = information_source
         # No grid lines
         panel.grid = element_blank(),
 
-        # Bottom and left axis spines, no ticks
+        # Bottom and left axis spines; thin tick marks on the share axis only
         axis.line = element_line(color = "black"),
-        axis.ticks = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_line(color = "black"),
 
         # Angle the source labels
         axis.text.x = element_text(angle = 45, hjust = 1)

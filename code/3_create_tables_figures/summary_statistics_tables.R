@@ -15,35 +15,32 @@ survey_responses <- read.csv(file.path(processed, "long_survey_final_summary_sta
 # Uniquely identified by respondent x firm slot, none missing
 stopifnot(!anyDuplicated(survey_responses[c("ResponseId", "option_number")]), !anyNA(survey_responses[c("ResponseId", "option_number")]))
 
-# Should be 6515 respondents x 5 firm slots = 32575 rows
-stopifnot(nrow(survey_responses) == 32575)
+# Should be 6515 respondents x 5 firm slots = 32575 rows i.e., every respondent carries slots numbered 1-5
+stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$ResponseId) == 6515, all(survey_responses$option_number %in% 1:5))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Collapse to one row per respondent
 # -----------------------------------------------------------------------------------------------------------------------------
-# Flag names-arm respondents i.e., those with no conduct rating for any firm
-survey_responses <- survey_responses |> dplyr::group_by(ResponseId) |> dplyr::mutate(names_arm = !any(!is.na(conduct_white) | !is.na(conduct_male) | !is.na(conduct_favor_white) | !is.na(conduct_favor_male))) |> dplyr::ungroup()
-
 # Keep one row per respondent with the respondent-level variables
-survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, gender, race_recode, hispanic, age, married, educ, empstat, income, sample, names_arm, confidence_age_conduct, confidence_gend_conduct, confidence_race_conduct, confidence_gend_names, confidence_race_names)
+survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, gender, race_recode, hispanic, age, married, educ, empstat, income, sample, confidence_age_conduct, confidence_gend_conduct, confidence_race_conduct, confidence_gend_names, confidence_race_names)
 
 # Should be one row per respondent i.e., every kept variable is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
 
-# Should be 6515 respondents, 3257 of them in the names arm
-stopifnot(nrow(survey_respondents) == 6515, sum(survey_respondents$names_arm) == 3257)
+# Should be 6515 respondents
+stopifnot(nrow(survey_respondents) == 6515)
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Recode the demographics into the summary-table display categories
 # -----------------------------------------------------------------------------------------------------------------------------
-# Assert the gender indicator is 0/1 and every age is at least the bottom bin edge
-stopifnot(all(survey_respondents$gender %in% c(0, 1)), all(survey_respondents$age >= 18))
+# Assert the gender and sample indicators are 0/1 and every age is at least the bottom bin edge
+stopifnot(all(survey_respondents$gender %in% c(0, 1)), all(survey_respondents$sample %in% c(0, 1)), all(survey_respondents$age >= 18))
 
 # Label the gender indicator
 survey_respondents <- survey_respondents |> dplyr::mutate(gender = c("1" = "Female", "0" = "Male")[as.character(gender)])
 
 # Relabel the other-race category
-survey_respondents <- survey_respondents |> dplyr::mutate(race_recode = dplyr::recode(race_recode, "White" = "White", "Black" = "Black", "Other" = "Other or Mixed Race"))
+survey_respondents <- survey_respondents |> dplyr::mutate(race_recode = dplyr::recode(race_recode, "Other" = "Other or Mixed Race"))
 
 # Bucket the Hispanic origin answers
 survey_respondents <- survey_respondents |> dplyr::mutate(hispanic = dplyr::case_when(
@@ -78,10 +75,10 @@ survey_respondents <- survey_respondents |> dplyr::mutate(empstat = dplyr::case_
 # Bucket the income ranges
 survey_respondents <- survey_respondents |> dplyr::mutate(income = dplyr::case_when(
     income == "Less than $5,000" ~ "Less Than $5,000",
-    income %in% c("$5,000 to $9,999", "$10,000 to $14,999", "$15,000 to $19,999", "$20,000 to $24,999", "$25,000 to $29,999") ~ "$5,000 To $30,000",
-    income %in% c("$30,000 to $34,999", "$35,000 to $39,999", "$40,000 to $49,999", "$50,000 to $59,999") ~ "$30,000 To $60,000",
-    income %in% c("$60,000 to $74,999", "$75,000 to $84,999", "$85,000 to $99,999") ~ "$60,000 To $100,000",
-    income %in% c("$100,000 to $124,999", "$125,000 to $149,999", "$150,000 to $174,999", "$175,000 to $199,999", "$200,000 or more") ~ "More Than $100,000"
+    income %in% c("$5,000 to $9,999", "$10,000 to $14,999", "$15,000 to $19,999", "$20,000 to $24,999", "$25,000 to $29,999") ~ "$5,000 To $29,999",
+    income %in% c("$30,000 to $34,999", "$35,000 to $39,999", "$40,000 to $49,999", "$50,000 to $59,999") ~ "$30,000 To $59,999",
+    income %in% c("$60,000 to $74,999", "$75,000 to $84,999", "$85,000 to $99,999") ~ "$60,000 To $99,999",
+    income %in% c("$100,000 to $124,999", "$125,000 to $149,999", "$150,000 to $174,999", "$175,000 to $199,999", "$200,000 or more") ~ "$100,000 Or More"
 ))
 
 # Bin the ages; right-open bins so age 25 lands in [25,40)
@@ -94,10 +91,10 @@ stopifnot(!anyNA(survey_respondents[c("gender", "race_recode", "hispanic", "age"
 # Count respondents by display category, overall and within each half of the two sample splits
 # -----------------------------------------------------------------------------------------------------------------------------
 # Demographic display categories in table order
-demographic_display_order <- c("Female", "Male", "Black", "White", "Other or Mixed Race", "Hispanic", "Not Hispanic", "[18,25)", "[25,40)", "[40,65)", "65+", "Married", "Never Married", "Other", "No High School Diploma", "High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree", "Working As Paid Employee", "Working Self-employed", "Not Working: Looking For Work", "Not Working: Retired", "Not Working: Other", "Less Than $5,000", "$5,000 To $30,000", "$30,000 To $60,000", "$60,000 To $100,000", "More Than $100,000")
+demographic_display_order <- c("Female", "Male", "Black", "White", "Other or Mixed Race", "Hispanic", "Not Hispanic", "[18,25)", "[25,40)", "[40,65)", "65+", "Married", "Never Married", "Other", "No High School Diploma", "High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree", "Working As Paid Employee", "Working Self-employed", "Not Working: Looking For Work", "Not Working: Retired", "Not Working: Other", "Less Than $5,000", "$5,000 To $29,999", "$30,000 To $59,999", "$60,000 To $99,999", "$100,000 Or More")
 
 # Stack the eight demographics into one long frame of display categories
-respondent_categories <- survey_respondents |> dplyr::select(ResponseId, sample, names_arm, gender, race_recode, hispanic, age, married, educ, empstat, income) |> tidyr::pivot_longer(cols = c(gender, race_recode, hispanic, age, married, educ, empstat, income), names_to = "demographic", values_to = "display_category")
+respondent_categories <- survey_respondents |> dplyr::select(ResponseId, sample, gender, race_recode, hispanic, age, married, educ, empstat, income) |> tidyr::pivot_longer(cols = c(gender, race_recode, hispanic, age, married, educ, empstat, income), names_to = "demographic", values_to = "display_category")
 
 # Should be 6515 respondents x 8 demographics, every category one of the 28 display categories
 stopifnot(nrow(respondent_categories) == 6515 * 8, all(respondent_categories$display_category %in% demographic_display_order))
@@ -105,8 +102,8 @@ stopifnot(nrow(respondent_categories) == 6515 * 8, all(respondent_categories$dis
 # Should be no display category shared across demographics
 stopifnot(nrow(dplyr::distinct(respondent_categories, demographic, display_category)) == 28)
 
-# Loop over the two sample splits
-for (split_variable in c("sample", "names_arm")) {
+# Loop over the sample splits
+for (split_variable in c("sample")) {
 
     # Count respondents in each display category, overall and within each half of the split
     split_counts <- respondent_categories |> dplyr::group_by(display_category) |> dplyr::summarise(count_all = dplyr::n(), count_1 = sum(.data[[split_variable]] == 1), count_0 = sum(.data[[split_variable]] == 0), .groups = "drop")
@@ -136,16 +133,15 @@ demographic_table_sections <- list(
     "Marital Status" = c("Married", "Never Married", "Other"),
     "Education" = c("No High School Diploma", "High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree"),
     "Employment" = c("Working As Paid Employee", "Working Self-employed", "Not Working: Looking For Work", "Not Working: Retired", "Not Working: Other"),
-    "Income" = c("Less Than $5,000", "$5,000 To $30,000", "$30,000 To $60,000", "$60,000 To $100,000", "More Than $100,000")
+    "Income" = c("Less Than $5,000", "$5,000 To $29,999", "$30,000 To $59,999", "$60,000 To $99,999", "$100,000 Or More")
 )
 
-# Specifications for the five demographic tables: sample split, column labels, sections kept, header rows, export name
+# Specifications for the three demographic tables: sample split, column labels, table sections, export name
+    # the demographics_education panel keeps only the slide-displayed categories; shares stay relative to all respondents
 demographic_table_specifications <- list(
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = names(demographic_table_sections), include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_probability_convenience.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = c("Gender", "Race", "Hispanic", "Age", "Marital Status"), include_section_headers = FALSE, export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_demographics.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = "Education", include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_education.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = c("Employment", "Income"), include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_work_income.tex"),
-    list(split_variable = "names_arm", column_labels = c("Names", "Conduct"), sections_kept = names(demographic_table_sections), include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_names_conduct.tex")
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = demographic_table_sections, export_name = "summary_statistics_tables_demographics_by_probability_convenience.tex"),
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = list("Demographics" = c("Female", "Black", "White", "Hispanic", "[18,25)", "[25,40)", "[40,65)"), "Education" = c("High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree")), export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_demographics_education.tex"),
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = demographic_table_sections[c("Employment", "Income")], export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_work_income.tex")
 )
 
 # Loop over the demographic table specifications
@@ -157,23 +153,21 @@ for (table_specification in demographic_table_specifications) {
     # Define empty table body
     table_rows <- data.frame()
 
-    # Loop over the kept sections
-    for (section_name in table_specification$sections_kept) {
+    # Loop over the table sections
+    for (section_name in names(table_specification$sections)) {
 
         # Add the bolded section header row
-        if (table_specification$include_section_headers) {
-            table_rows <- dplyr::bind_rows(table_rows, data.frame(display_category = paste0("\\textbf{", section_name, "}"), count_all = NA_integer_, share_all = NA_real_, count_1 = NA_integer_, share_1 = NA_real_, count_0 = NA_integer_, share_0 = NA_real_))
-        }
+        table_rows <- dplyr::bind_rows(table_rows, data.frame(display_category = paste0("\\textbf{", section_name, "}"), count_all = NA_integer_, share_all = NA_real_, count_1 = NA_integer_, share_1 = NA_real_, count_0 = NA_integer_, share_0 = NA_real_))
 
-        # Add the section's display-category rows
-        table_rows <- dplyr::bind_rows(table_rows, split_counts |> dplyr::filter(display_category %in% demographic_table_sections[[section_name]]) |> dplyr::select(display_category, count_all, share_all, count_1, share_1, count_0, share_0))
+        # Add the section's display-category rows, indented under the section header
+        table_rows <- dplyr::bind_rows(table_rows, split_counts |> dplyr::filter(display_category %in% table_specification$sections[[section_name]]) |> dplyr::select(display_category, count_all, share_all, count_1, share_1, count_0, share_0) |> dplyr::mutate(display_category = paste0("\\quad ", display_category)))
     }
 
     # Add the respondent-count row
     table_rows <- dplyr::bind_rows(table_rows, data.frame(display_category = "N. Of Respondents", count_all = nrow(survey_respondents), share_all = NA_real_, count_1 = sum(survey_respondents[[table_specification$split_variable]] == 1), share_1 = NA_real_, count_0 = sum(survey_respondents[[table_specification$split_variable]] == 0), share_0 = NA_real_))
 
     # Should be one row per kept category plus the header and respondent-count rows
-    stopifnot(nrow(table_rows) == sum(lengths(demographic_table_sections[table_specification$sections_kept])) + table_specification$include_section_headers * length(table_specification$sections_kept) + 1)
+    stopifnot(nrow(table_rows) == sum(lengths(table_specification$sections)) + length(table_specification$sections) + 1)
 
     # Escape the dollar signs in the income labels
     table_rows <- table_rows |> dplyr::mutate(display_category = stringr::str_replace_all(display_category, "\\$", "\\\\$"))
@@ -190,11 +184,8 @@ for (table_specification in demographic_table_specifications) {
     # Add the rule separating the respondent-count row
     latex_table <- kableExtra::row_spec(latex_table, nrow(table_rows) - 1, extra_latex_after = "\\midrule")
 
-    # Strip the leading blank line and the stray double backslash after the added rule
-    latex_text <- gsub("\\\\midrule\\\\\\\\", "\\\\midrule", sub("^\\s*\\n", "", as.character(latex_table)))
-
-    # Write the table
-    writeLines(latex_text, file.path(tables, table_specification$export_name))
+    # Write the table, stripping the leading blank line and the stray double backslash after the added rule
+    writeLines(gsub("\\\\midrule\\\\\\\\", "\\\\midrule", sub("^\\s*\\n", "", as.character(latex_table))), file.path(tables, table_specification$export_name))
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -219,7 +210,7 @@ confidence_table_rows <- data.frame()
 for (confidence_specification in confidence_table_specifications) {
 
     # Assert the confidence question takes only the five confidence levels or the empty-string missing code
-    stopifnot(all(survey_respondents[[confidence_specification$confidence_variable]] %in% c(NA, "", "Not at all confident", "Slightly confident", "Somewhat confident", "Very confident", "Extremely confident")))
+    stopifnot(all(survey_respondents[[confidence_specification$confidence_variable]] %in% c("", "Not at all confident", "Slightly confident", "Somewhat confident", "Very confident", "Extremely confident")))
 
     # Count each respondent's non-missing ratings of the matching belief variable and their range across firms
     respondent_rating_variation <- survey_responses |> dplyr::filter(!is.na(.data[[confidence_specification$rating_variable]])) |> dplyr::group_by(ResponseId) |> dplyr::summarise(rating_count = dplyr::n(), rating_range = max(.data[[confidence_specification$rating_variable]]) - min(.data[[confidence_specification$rating_variable]]), .groups = "drop")
@@ -227,21 +218,14 @@ for (confidence_specification in confidence_table_specifications) {
     # Keep respondents with at least three ratings that are not all identical
     confidence_respondents <- survey_respondents |> dplyr::filter(ResponseId %in% respondent_rating_variation$ResponseId[respondent_rating_variation$rating_count >= 3 & respondent_rating_variation$rating_range > 0])
 
-    # Label each kept respondent with their confidence level
-    confidence_respondents <- confidence_respondents |> dplyr::mutate(confidence_category = dplyr::case_when(
-        is.na(.data[[confidence_specification$confidence_variable]]) | .data[[confidence_specification$confidence_variable]] == "" ~ "Missing",
-        .data[[confidence_specification$confidence_variable]] == "Not at all confident" ~ "Not at all confident",
-        .data[[confidence_specification$confidence_variable]] == "Slightly confident" ~ "Slightly confident",
-        .data[[confidence_specification$confidence_variable]] == "Somewhat confident" ~ "Somewhat confident",
-        .data[[confidence_specification$confidence_variable]] == "Very confident" ~ "Very confident",
-        .data[[confidence_specification$confidence_variable]] == "Extremely confident" ~ "Extremely confident"
-    ))
+    # Label each kept respondent with their confidence level, the empty-string missing code as Missing
+    confidence_respondents <- confidence_respondents |> dplyr::mutate(confidence_category = dplyr::if_else(.data[[confidence_specification$confidence_variable]] == "", "Missing", .data[[confidence_specification$confidence_variable]]))
 
     # Count kept respondents by confidence level
     confidence_shares <- confidence_respondents |> dplyr::count(confidence_category)
 
     # Add zero-count rows for confidence levels with no respondents, in display order
-    confidence_shares <- data.frame(confidence_category = confidence_display_order) |> dplyr::left_join(confidence_shares, by = "confidence_category") |> dplyr::mutate(n = dplyr::coalesce(n, 0L))
+    confidence_shares <- data.frame(confidence_category = confidence_display_order) |> dplyr::left_join(confidence_shares, by = "confidence_category", relationship = "one-to-one") |> dplyr::mutate(n = dplyr::coalesce(n, 0L))
 
     # Should be one row per confidence level, counts summing to the kept respondents
     stopifnot(nrow(confidence_shares) == 6, sum(confidence_shares$n) == nrow(confidence_respondents))

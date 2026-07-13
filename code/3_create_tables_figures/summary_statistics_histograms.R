@@ -15,8 +15,8 @@ survey_responses <- read.csv(file.path(processed, "long_survey_final_summary_sta
 # Uniquely identified by respondent x firm slot, none missing
 stopifnot(!anyDuplicated(survey_responses[c("ResponseId", "option_number")]), !anyNA(survey_responses[c("ResponseId", "option_number")]))
 
-# Should be 6515 respondents x 5 firm slots = 32575 rows
-stopifnot(nrow(survey_responses) == 32575)
+# Should be 6515 respondents x 5 firm slots = 32575 rows i.e., every respondent carries slots numbered 1-5
+stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$ResponseId) == 6515, all(survey_responses$option_number %in% 1:5))
 
 # Keep one row per respondent with the response duration
 survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, response_duration)
@@ -24,8 +24,8 @@ survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, response_d
 # Should be one row per respondent i.e., the response duration is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
 
-# Should be 6515 respondents, every duration present and non-negative
-stopifnot(nrow(survey_respondents) == 6515, !anyNA(survey_respondents$response_duration), all(survey_respondents$response_duration >= 0))
+# Should be 6515 respondents, every duration present, finite, and non-negative
+stopifnot(nrow(survey_respondents) == 6515, all(is.finite(survey_respondents$response_duration)), all(survey_respondents$response_duration >= 0))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Response duration histogram i.e., the distribution of survey completion times
@@ -39,8 +39,11 @@ response_duration_histogram <- ggplot(survey_respondents, aes(x = response_durat
     # One-minute duration bins as a share of respondents
     geom_histogram(aes(y = after_stat(count / sum(count))), binwidth = 1, boundary = 0, closed = "left", fill = "steelblue", color = "black", linewidth = 0.2) +
 
-    # Axis labels
+    # Axis labels; the share tick labels carry the percent sign
     labs(x = "Duration (in minutes)", y = "Share of Respondents") +
+
+    # Share axis in percent
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
 
     # Median and interquartile annotation in the top-left corner
     annotate("text", x = -Inf, y = Inf, hjust = -0.02, vjust = 1.6, label = sprintf("Median: %.3f | P25: %.3f | P75: %.3f", median(survey_respondents$response_duration_minutes), quantile(survey_respondents$response_duration_minutes, 0.25), quantile(survey_respondents$response_duration_minutes, 0.75))) +
@@ -56,9 +59,9 @@ response_duration_histogram <- ggplot(survey_respondents, aes(x = response_durat
         # No grid lines
         panel.grid = element_blank(),
 
-        # Bottom and left axis spines, no ticks
+        # Bottom and left axis spines with thin tick marks
         axis.line = element_line(color = "black"),
-        axis.ticks = element_blank()
+        axis.ticks = element_line(color = "black")
     )
 
 # Export the histogram
