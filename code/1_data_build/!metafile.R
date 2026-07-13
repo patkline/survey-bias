@@ -95,19 +95,20 @@ run_stata_fail_fast <- function(script_path) {
 # Data build
 # ------------------------------------------------------------------------------
 
-# Optional WRDS/Revelio pull. Off by default because it requires WRDS access,
-# credentials, network access, and sometimes MFA.
-run_revelio_pull <- tolower(Sys.getenv("RUN_REVELIO_PULL", unset = "false")) %in%
-  c("1", "true", "yes", "y")
-
-if (run_revelio_pull) {
-  run_python_fail_fast(
-    file.path(build, "revelio_pull.py"),
-    c("--batch-size", "1", "--batch-retries", "2")
-  )
-} else {
-  message("Skipping WRDS/Revelio pull; using the saved external CSV if present.")
-}
+# Optional WRDS/Revelio pull. Commented out for the loosened-sample-filter branch
+# run because it requires WRDS access, credentials, network access, and sometimes MFA.
+# run_revelio_pull <- tolower(Sys.getenv("RUN_REVELIO_PULL", unset = "false")) %in%
+#   c("1", "true", "yes", "y")
+#
+# if (run_revelio_pull) {
+#   run_python_fail_fast(
+#     file.path(build, "revelio_pull.py"),
+#     c("--batch-size", "1", "--batch-retries", "2")
+#   )
+# } else {
+#   message("Skipping WRDS/Revelio pull; using the saved external CSV if present.")
+# }
+message("Skipping WRDS/Revelio pull for this branch run.")
 
 # Clean raw Qualtrics data
 run_python_fail_fast(file.path(build, "clean_raw_qualtrics_data.py"))
@@ -137,4 +138,5 @@ run_stata_fail_fast(file.path(build, "build_industry_emp_share_by_demographic_ee
 run_stata_fail_fast(file.path(build, "build_cps_industry_wage_gaps_levels_residualized.do"))
 
 # Match Revelio firm measures to the survey firm IDs
-run_python_fail_fast(file.path(build, "build_revelio_firm_measures.py"))
+# run_python_fail_fast(file.path(build, "build_revelio_firm_measures.py"))
+message("Skipping Revelio firm-measures build for this branch run.")

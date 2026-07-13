@@ -14,6 +14,8 @@
 source("code/globals.R")
 source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 source(file.path(analysis, "katz_correct.R"))
+source(file.path(analysis, "leave_in_connected.R"))
+source(file.path(analysis, "create_wide_rankings.R"))
 
 # Per-model column display names + recognized label set
 MODEL_DISPLAY_NAMES <- c(
@@ -328,6 +330,167 @@ write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapp
   )
 }
 
+write_csv_checked <- function(x, out_path, label = "CSV output") {
+  tmp_path <- tempfile(
+    pattern = paste0(tools::file_path_sans_ext(basename(out_path)), "_"),
+    fileext = ".csv"
+  )
+  on.exit(unlink(tmp_path), add = TRUE)
+
+  utils::write.csv(x, tmp_path, row.names = FALSE)
+  copy_checked_output(tmp_path, out_path, label = label)
+}
+
+latex_escape_text <- function(x) {
+  out <- as.character(x)
+  for (ch in c("&", "%", "$", "#", "_", "{", "}")) {
+    out <- gsub(ch, paste0("\\", ch), out, fixed = TRUE)
+  }
+  out
+}
+
+format_count <- function(x) {
+  z <- suppressWarnings(as.integer(x))
+  out <- rep("", length(z))
+  ok <- !is.na(z)
+  out[ok] <- formatC(z[ok], format = "d", big.mark = ",")
+  out
+}
+
+write_belief_summary_ols_borda <- function(dir_path,
+                                           outcomes,
+                                           tables_dir,
+                                           label_mapping = NULL,
+                                           csv_name = "belief_summary_ols_borda.csv",
+                                           tex_name = "belief_summary_ols_borda.tex",
+                                           latex_decimals = 3) {
+  coef_df <- read_parquet_sheet(dir_path, "Coefficients")
+
+  required_cols <- c("subset", "model", "outcome", "entity_type", "estimate", "rse")
+  missing_cols <- setdiff(required_cols, names(coef_df))
+  if (length(missing_cols)) {
+    stop("Coefficients sheet missing columns: ", paste(missing_cols, collapse = ", "))
+  }
+
+  survey_path <- file.path(processed, "long_survey_final.csv")
+  if (!file.exists(survey_path)) {
+    stop("Could not find prepared survey data for belief summary table: ", survey_path)
+  }
+  survey_data <- utils::read.csv(survey_path, stringsAsFactors = FALSE)
+
+  counts <- dplyr::bind_rows(lapply(outcomes, function(outcome) {
+    prep <- prepare_pltree_data(
+      data            = survey_data,
+      rank_col        = outcome,
+      subgroup_var    = NULL,
+      subgroup_filter = NULL
+    )
+    data_long <- prep$data_rating_long
+
+    data.frame(
+      outcome     = outcome,
+      Responses   = nrow(data_long),
+      Respondents = dplyr::n_distinct(data_long$resp_id),
+      stringsAsFactors = FALSE
+    )
+  }))
+
+  model_preference <- data.frame(
+    model = c("OLS_not_recentered", "OLS", "Borda_not_recentered", "Borda"),
+    table_model = c("OLS", "OLS", "Borda", "Borda"),
+    preference = c(1L, 2L, 1L, 2L),
+    stringsAsFactors = FALSE
+  )
+
+  metrics <- coef_df %>%
+    dplyr::inner_join(model_preference, by = "model") %>%
+    dplyr::filter(
+      .data$subset == "all",
+      .data$entity_type == "Firm",
+      .data$outcome %in% outcomes
+    ) %>%
+    dplyr::group_by(.data$outcome, .data$table_model) %>%
+    dplyr::filter(.data$preference == min(.data$preference, na.rm = TRUE)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      estimate = suppressWarnings(as.numeric(.data$estimate)),
+      rse      = suppressWarnings(as.numeric(.data$rse))
+    ) %>%
+    dplyr::group_by(.data$outcome, .data$table_model) %>%
+    dplyr::summarise(
+      mean   = mean(.data$estimate, na.rm = TRUE),
+      avg_se = mean(.data$rse, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    tidyr::pivot_wider(
+      names_from  = "table_model",
+      values_from = c("mean", "avg_se")
+    )
+
+  tab <- data.frame(outcome = outcomes, stringsAsFactors = FALSE) %>%
+    dplyr::left_join(counts, by = "outcome") %>%
+    dplyr::left_join(metrics, by = "outcome") %>%
+    dplyr::mutate(Outcome = map_label(.data$outcome, label_mapping)) %>%
+    dplyr::arrange(.data$Outcome, .data$outcome) %>%
+    dplyr::transmute(
+      Outcome,
+      Responses,
+      Respondents,
+      `Likert: mean`       = .data$mean_OLS,
+      `Likert: Average SE` = .data$avg_se_OLS,
+      `Borda: mean`        = .data$mean_Borda,
+      `Borda: Average SE`  = .data$avg_se_Borda
+    )
+
+  csv_out_path <- file.path(tables_dir, csv_name)
+  write_csv_checked(as.data.frame(tab, check.names = FALSE), csv_out_path,
+                    label = "belief summary CSV")
+
+  latex_df <- data.frame(
+    Outcome     = latex_escape_text(tab$Outcome),
+    Responses   = format_count(tab$Responses),
+    Respondents = format_count(tab$Respondents),
+    `Likert Mean` = fmt_dec(tab$`Likert: mean`, latex_decimals),
+    `Likert SE`   = fmt_dec(tab$`Likert: Average SE`, latex_decimals),
+    `Borda Mean`  = fmt_dec(tab$`Borda: mean`, latex_decimals),
+    `Borda SE`    = fmt_dec(tab$`Borda: Average SE`, latex_decimals),
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+
+  xt <- xtable::xtable(latex_df, align = c("l", "l", rep("c", 6)))
+  header <- paste0(
+    "  \\toprule\n",
+    "  \\toprule\n",
+    " & \\multicolumn{2}{c}{Sample} & \\multicolumn{4}{c}{Aggregate Firm Scores} \\\\\n",
+    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-7}\n",
+    " & & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\\n",
+    "\\cmidrule(lr){4-5} \\cmidrule(lr){6-7}\n",
+    "Outcome & Responses & Respondents & Mean & Average SE & Mean & Average SE \\\\\n",
+    "\\midrule\n",
+    " \\midrule\n"
+  )
+
+  tex_out_path <- file.path(tables_dir, tex_name)
+  write_xtable_checked(
+    xt,
+    tex_out_path,
+    include.rownames = FALSE,
+    include.colnames = FALSE,
+    add.to.row = list(pos = list(0), command = header),
+    sanitize.text.function = identity,
+    booktabs = TRUE,
+    floating = FALSE,
+    comment = FALSE,
+    label = "belief summary LaTeX"
+  )
+
+  cat("Belief summary table saved:",
+      basename(csv_out_path), "and", basename(tex_out_path), "\n")
+
+  invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+}
+
 # -------------------------------
 # Standard outcomes
 # -------------------------------
@@ -338,6 +501,13 @@ write_variance_table_both(
   label_mapping = label_mapping,
   csv_base      = "variance_biascorrected",
   tex_base      = "variance_biascorrected"
+)
+
+write_belief_summary_ols_borda(
+  dir_path      = dir_path,
+  outcomes      = outs,
+  tables_dir    = tables,
+  label_mapping = label_mapping
 )
 
 # -------------------------------

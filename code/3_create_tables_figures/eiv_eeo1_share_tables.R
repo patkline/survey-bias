@@ -262,16 +262,44 @@ write_controls_table <- function(eiv_firm, eiv_eeo1) {
   invisible(out_tex)
 }
 
-selectivity_control_cells <- function(eiv_eeo1, lhs, belief_rhs, target_rhs,
-                                      entry_share_rhs, all_share_rhs,
+selectivity_control_cells <- function(eiv_firm, eiv_eeo1, lhs, belief_rhs,
+                                      target_rhs,
                                       statistic = c("estimate", "se")) {
   statistic <- match.arg(statistic)
   out <- rep(NA_real_, controls_n_cols)
   names(out) <- paste0("col", seq_len(controls_n_cols))
 
-  col_index <- 1L
-  for (model in c("OLS", "Borda")) {
-    out[col_index] <- pull_eiv_value(
+  model_columns <- list(
+    OLS = c(1L, 2L, 3L, 4L),
+    Borda = c(5L, 6L, 7L, 8L)
+  )
+
+  for (model in names(model_columns)) {
+    cols <- model_columns[[model]]
+
+    if (target_rhs == belief_rhs) {
+      out[cols[[1L]]] <- pull_eiv_value(
+        eiv_df = eiv_firm,
+        lhs_var = lhs,
+        rhs_var = belief_rhs,
+        model_filter = model,
+        coef_num = 1L,
+        formula_filter = belief_rhs,
+        statistic = statistic
+      )
+
+      out[cols[[2L]]] <- pull_eiv_value(
+        eiv_df = eiv_firm,
+        lhs_var = lhs,
+        rhs_var = belief_rhs,
+        model_filter = model,
+        coef_num = 2L,
+        formula_filter = belief_rhs,
+        statistic = statistic
+      )
+    }
+
+    out[cols[[3L]]] <- pull_eiv_value(
       eiv_df = eiv_eeo1,
       lhs_var = lhs,
       rhs_var = target_rhs,
@@ -280,9 +308,8 @@ selectivity_control_cells <- function(eiv_eeo1, lhs, belief_rhs, target_rhs,
       formula_filter = rhs_formula(belief_rhs, "FirmSelective"),
       statistic = statistic
     )
-    col_index <- col_index + 1L
 
-    out[col_index] <- pull_eiv_value(
+    out[cols[[4L]]] <- pull_eiv_value(
       eiv_df = eiv_eeo1,
       lhs_var = lhs,
       rhs_var = target_rhs,
@@ -291,90 +318,25 @@ selectivity_control_cells <- function(eiv_eeo1, lhs, belief_rhs, target_rhs,
       formula_filter = rhs_formula(belief_rhs, "FirmSelective"),
       statistic = statistic
     )
-    col_index <- col_index + 1L
-
-    out[col_index] <- pull_eiv_value(
-      eiv_df = eiv_eeo1,
-      lhs_var = lhs,
-      rhs_var = target_rhs,
-      model_filter = model,
-      coef_num = 1L,
-      formula_filter = rhs_formula(belief_rhs, "FirmSelective", entry_share_rhs),
-      statistic = statistic
-    )
-    col_index <- col_index + 1L
-
-    out[col_index] <- pull_eiv_value(
-      eiv_df = eiv_eeo1,
-      lhs_var = lhs,
-      rhs_var = target_rhs,
-      model_filter = model,
-      coef_num = 1L,
-      formula_filter = rhs_formula(belief_rhs, "FirmSelective", all_share_rhs),
-      statistic = statistic
-    )
-    col_index <- col_index + 1L
   }
 
   out
 }
 
-selectivity_share_cells <- function(eiv_eeo1, lhs, belief_rhs, selectivity_rhs,
-                                    share_rhs, target_cols,
-                                    statistic = c("estimate", "se")) {
-  statistic <- match.arg(statistic)
-  out <- rep(NA_real_, controls_n_cols)
-  names(out) <- paste0("col", seq_len(controls_n_cols))
-
-  for (i in seq_along(target_cols)) {
-    out[target_cols[[i]]] <- pull_eiv_value(
-      eiv_df = eiv_eeo1,
-      lhs_var = lhs,
-      rhs_var = share_rhs,
-      model_filter = c("OLS", "Borda")[[i]],
-      coef_num = 1L,
-      formula_filter = rhs_formula(belief_rhs, selectivity_rhs, share_rhs),
-      statistic = statistic
-    )
-  }
-
-  out
-}
-
-make_selectivity_control_panel_rows <- function(panel_label, eiv_eeo1, lhs,
-                                                belief_rhs, entry_share_rhs,
-                                                all_share_rhs) {
+make_selectivity_control_panel_rows <- function(panel_label, eiv_firm,
+                                                eiv_eeo1, lhs,
+                                                belief_rhs) {
   belief_est <- selectivity_control_cells(
-    eiv_eeo1, lhs, belief_rhs, belief_rhs,
-    entry_share_rhs, all_share_rhs, "estimate"
+    eiv_firm, eiv_eeo1, lhs, belief_rhs, belief_rhs, "estimate"
   )
   belief_se <- selectivity_control_cells(
-    eiv_eeo1, lhs, belief_rhs, belief_rhs,
-    entry_share_rhs, all_share_rhs, "se"
+    eiv_firm, eiv_eeo1, lhs, belief_rhs, belief_rhs, "se"
   )
   selectivity_est <- selectivity_control_cells(
-    eiv_eeo1, lhs, belief_rhs, "FirmSelective",
-    entry_share_rhs, all_share_rhs, "estimate"
+    eiv_firm, eiv_eeo1, lhs, belief_rhs, "FirmSelective", "estimate"
   )
   selectivity_se <- selectivity_control_cells(
-    eiv_eeo1, lhs, belief_rhs, "FirmSelective",
-    entry_share_rhs, all_share_rhs, "se"
-  )
-  entry_share_est <- selectivity_share_cells(
-    eiv_eeo1, lhs, belief_rhs, "FirmSelective",
-    entry_share_rhs, c(3L, 7L), "estimate"
-  )
-  entry_share_se <- selectivity_share_cells(
-    eiv_eeo1, lhs, belief_rhs, "FirmSelective",
-    entry_share_rhs, c(3L, 7L), "se"
-  )
-  all_share_est <- selectivity_share_cells(
-    eiv_eeo1, lhs, belief_rhs, "FirmSelective",
-    all_share_rhs, c(4L, 8L), "estimate"
-  )
-  all_share_se <- selectivity_share_cells(
-    eiv_eeo1, lhs, belief_rhs, "FirmSelective",
-    all_share_rhs, c(4L, 8L), "se"
+    eiv_firm, eiv_eeo1, lhs, belief_rhs, "FirmSelective", "se"
   )
 
   tibble::as_tibble(dplyr::bind_rows(
@@ -383,40 +345,34 @@ make_selectivity_control_panel_rows <- function(panel_label, eiv_eeo1, lhs,
     make_value_row("", belief_se, fmt_se),
     make_value_row("Selectivity Beliefs", selectivity_est, fmt3),
     make_value_row("", selectivity_se, fmt_se),
-    make_value_row("EEO-1 Entry Share", entry_share_est, fmt3),
-    make_value_row("", entry_share_se, fmt_se),
-    make_value_row("EEO-1 All-Worker Share", all_share_est, fmt3),
-    make_value_row("", all_share_se, fmt_se),
     new_empty_row("")
   ))
 }
 
-make_selectivity_controls_table_df <- function(eiv_eeo1) {
+make_selectivity_controls_table_df <- function(eiv_firm, eiv_eeo1) {
   dplyr::bind_rows(
     make_selectivity_control_panel_rows(
       panel_label = "Panel A: Race",
+      eiv_firm = eiv_firm,
       eiv_eeo1 = eiv_eeo1,
       lhs = "log_dif",
-      belief_rhs = "pooled_favor_white",
-      entry_share_rhs = "eeo1_black_entry_level_share",
-      all_share_rhs = "eeo1_black_all_jobs_share"
+      belief_rhs = "pooled_favor_white"
     ),
     make_selectivity_control_panel_rows(
       panel_label = "Panel B: Gender",
+      eiv_firm = eiv_firm,
       eiv_eeo1 = eiv_eeo1,
       lhs = "log_dif_gender",
-      belief_rhs = "pooled_favor_male",
-      entry_share_rhs = "eeo1_female_entry_level_share",
-      all_share_rhs = "eeo1_female_all_jobs_share"
+      belief_rhs = "pooled_favor_male"
     ),
     tibble::as_tibble(dplyr::bind_rows(
-      make_value_row("Industry FE", c("", "X", "", "", "", "X", "", ""), identity)
+      make_value_row("Industry FE", c("", "X", "", "X", "", "X", "", "X"), identity)
     ))
   )
 }
 
-write_selectivity_controls_table <- function(eiv_eeo1) {
-  table_df <- make_selectivity_controls_table_df(eiv_eeo1)
+write_selectivity_controls_table <- function(eiv_firm, eiv_eeo1) {
+  table_df <- make_selectivity_controls_table_df(eiv_firm, eiv_eeo1)
 
   lines <- c(
     "\\begin{tabular}{lcccccccc}",
@@ -556,7 +512,7 @@ eiv_firm <- read_full_sample_sheet("EIV_firm")
 eiv_eeo1 <- read_full_sample_sheet(eeo1_eiv_sheet)
 
 write_controls_table(eiv_firm, eiv_eeo1)
-write_selectivity_controls_table(eiv_eeo1)
+write_selectivity_controls_table(eiv_firm, eiv_eeo1)
 write_outcomes_table(eiv_eeo1)
 
 message("EEO-1 EIV share tables complete.")
