@@ -131,8 +131,10 @@ source(file.path(create_tables_figures, "eiv_table_within_between_selectivity.R"
 # ------------------------------------------------------------------------------
 
 # Revelio and EEO-1 table and figure scripts
-source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
-source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
+# The Revelio EIV table scripts are skipped on this branch: its analysis stage does not
+# produce the EIV_revelio_* intermediate sheets they read
+# source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
+# source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
 source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
 
