@@ -75,8 +75,10 @@ run_stata_fail_fast <- function(script_path) {
 # Summary statistics
 # ------------------------------------------------------------------------------
 
-# Summary statistics wrapper script
-source(file.path(create_tables_figures, "summary_statistics_wrapper.R"))
+# Summary statistics scripts
+source(file.path(create_tables_figures, "summary_statistics_tables.R"))
+source(file.path(create_tables_figures, "summary_statistics_bar_graphs.R"))
+source(file.path(create_tables_figures, "summary_statistics_histograms.R"))
 
 # ------------------------------------------------------------------------------
 # XX
@@ -102,6 +104,7 @@ source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
 source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
+source(file.path(create_tables_figures, "eiv_scatterplots.R"))
 source(file.path(create_tables_figures, "eiv_coefplot_by_subgroup.R"))
 
 # Appendix table of firm-level belief estimates by aggregation method (Stata)
