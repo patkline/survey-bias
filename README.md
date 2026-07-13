@@ -225,33 +225,32 @@ for the lightweight firm-name match step.
 **Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
 
 - `!metafile.R` --- sources each table/figure script in order
-  - `summary_statistics_wrapper.R` --- descriptive plots from raw responses
-    - `helper_functions/summary_figures_ratings.R` --- Likert distributions
-    - `helper_functions/summary_figures_yes_no.R` --- yes/no/PNA bars
-    - `helper_functions/summary_figures_confidence.R` --- confidence-question tables
-    - `helper_functions/summary_figure_info_source.R` --- info-source bars
-    - `helper_functions/summary_two_way_bar.R` --- two-way bar charts
-    - `helper_functions/summary_statistics_new.R` --- N / mean / SD tables
-    - `helper_functions/response_duration_hist.R` --- response duration histograms
+  - `summary_statistics_tables.R` --- respondent demographic composition tables by sample split (probability/convenience + names/conduct) and the rating-confidence share table
+  - `summary_statistics_bar_graphs.R` --- survey response share bar graphs: 1-5 rating distributions, yes/no questions, feared-discrimination two-ways by race, conduct-arm information sources
+  - `summary_statistics_histograms.R` --- response duration histogram
   - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
     - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
     - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
     - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
-    - `summary_topbottom_dualaxis.R` --- Top/Bottom-N firms by Borda EB, with each non-Borda model's EB on the primary axis and Borda EB on the secondary
+  - `top_bottom_firm_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
   - `firm_ratings_signal_correlation_heatmaps.R` --- across-measure signal-correlation heatmaps (Likert lower / Borda upper), full-sample + between/within-industry + purple highlight variants
-  - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.)
+  - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.) + bivariate EIV (favor-x + control)
   - `eiv_table_discretion.R` --- discretion-as-LHS EIV panel
-  - `eiv_table_bivariate.r` --- bivariate EIV (favor-x + control)
+  - `eiv_table_selectivity_discretion.R` --- univariate selectivity/discretion EIV tables (`EIV_univariate_wt_ols_borda*.tex`)
   - `eiv_table_within_between.R` --- within/between-industry EIV decomposition
+  - `eiv_table_within_between_selectivity.R` --- same, for selectivity (`EIV_race_within_between_selectivity_ols_borda.tex`)
   - `cross_sample_signal_corr.R` --- signal correlation across paired subsamples + Wald test
   - `cross_sample_signal_corr_raw.R` --- same, no noise correction
   - `cross_sample_signal_corr_placebo.R` --- same, random-split placebo
   - `cross_model_corr.R` --- agreement between OLS / Borda / OL firm rankings
   - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
   - `opposite_valence_corr_table.R` --- Black-vs-White, Male-vs-Female pair correlations
-  - `industry_decomposition_line_charts.R` --- within- vs between-industry contribution to signal
+  - `industry_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for every industry and the within-industry top/bottom-25 firms
   - `eiv_revelio_outcome_tables.R` --- Controlling for Revelio workforce shares on the RHS of main EIV regs 
   - `eiv_revelio_composition_tables.R` --- Revelio outcomes (race/gender workforce share and paygaps as LHS)
+  - `eiv_eeo1_share_tables.R` --- EIV tables using EEO-1 industry-level race/gender shares
+  - `eiv_scatterplots.R` --- audit contact gaps on raw firm-level beliefs, scatter with naive (weighted OLS, robust SE) and EIV fitted lines
+  - `eiv_coefplot_by_subgroup.R` --- coefplot of subgroup-split EIV slopes (njobs-weighted Katz noise), with slope-difference annotations
 
 ## Documentation on codebase
 
