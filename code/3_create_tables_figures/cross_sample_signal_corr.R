@@ -1,10 +1,11 @@
 # -----------------------------------------------------------------------------------------------------------------------------
-# Purpose: Cross-sample signal correlation table (Table 4) --- for each respondent split, the debiased
-# correlation between the two subgroups' firm-level belief estimates, alongside a Wald test of belief
-# equality
+# Purpose: Cross-sample signal correlation table --- for each respondent split, the debiased
+# correlation between the two subgroups' firm-level belief estimates, a Wald test of belief equality, and a
+# minimum distance test of perfect correlation --- plus the minimum distance scatterplots for the race and
+# gender splits, with animation stages for the race split
 #
 # Created: Jordan Cammarota
-# Cleaned: Nico Rotundo 2026-06-29
+# Edited: Nico Rotundo 2026-06-29
 # -----------------------------------------------------------------------------------------------------------------------------
 # Run globals
 source("code/globals.R")
@@ -611,8 +612,8 @@ if (cross_sample_signal_corr_bootstrap_reps > 0) {
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# For each split, aggregation method, and belief measure, compute the debiased signal correlation and the
-# Wald test of belief equality across the two subsamples
+# For each split, aggregation method, and belief measure, compute the debiased signal correlation, the Wald
+# test of belief equality across the two subsamples, and the minimum distance test of perfect correlation
 # -----------------------------------------------------------------------------------------------------------------------------
 # Define dataframe to store all correlation results
 aggregated_correlation_results <- data.frame()
@@ -1093,9 +1094,6 @@ for (subgroup_comparison in list(c("Black", "White"), c("Female", "Male"))) {
                         gp = grid::gpar(fontsize = 11)
                     )
                 )
-
-            # Display the scatterplot in the active graphics device
-            print(minimum_distance_annotated_belief_scatterplot)
 
             # Export the scatterplot, one file per subgroup comparison x aggregation method x belief measure
             ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, ".png")), plot = minimum_distance_annotated_belief_scatterplot, width = 10, height = 6, dpi = 300, bg = "white")

@@ -34,6 +34,8 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
       J = as.integer(length(common_cols)),
       covariance = NA_real_,
       noise = NA_real_,
+      covariance_njobs_weighted = NA_real_,
+      noise_njobs_weighted = NA_real_,
       N1 = N1,
       N2 = N2,
       Ncommon = Ncommon
@@ -71,11 +73,34 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   }
   
   noise <- if (J > 0L) sum(Matrix::diag(Theta12)) / J else NA_real_
+
+  covariance_njobs_weighted <- NA_real_
+  noise_njobs_weighted <- NA_real_
+  if ("njobs" %in% names(res1$firm_table) && "njobs" %in% names(res2$firm_table)) {
+    njobs1 <- as.numeric(res1$firm_table$njobs[match(firm_ids, res1$firm_table$entity_id)])
+    njobs2 <- as.numeric(res2$firm_table$njobs[match(firm_ids, res2$firm_table$entity_id)])
+
+    if (!anyNA(njobs1) && !anyNA(njobs2) &&
+        all(is.finite(njobs1)) && all(is.finite(njobs2)) &&
+        all(njobs1 > 0) && all(njobs2 > 0) &&
+        max(abs(njobs1 - njobs2)) < 1e-8) {
+      firm_weights <- njobs1 / sum(njobs1)
+      beta1_weighted <- as.numeric(res1$firm_table$estimate[match(firm_ids, res1$firm_table$entity_id)])
+      beta2_weighted <- as.numeric(res2$firm_table$estimate[match(firm_ids, res2$firm_table$entity_id)])
+      beta1_weighted <- beta1_weighted - sum(firm_weights * beta1_weighted)
+      beta2_weighted <- beta2_weighted - sum(firm_weights * beta2_weighted)
+
+      covariance_njobs_weighted <- sum(firm_weights * beta1_weighted * beta2_weighted)
+      noise_njobs_weighted <- sum(firm_weights * Matrix::diag(Theta12))
+    }
+  }
   
   list(
     J = J,
     covariance = covariance,
     noise = noise,
+    covariance_njobs_weighted = covariance_njobs_weighted,
+    noise_njobs_weighted = noise_njobs_weighted,
     N1 = N1,
     N2 = N2,
     Ncommon = Ncommon
@@ -128,6 +153,8 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
             Ncommon = out$Ncommon,
             covariance = out$covariance,
             noise = out$noise,
+            covariance_njobs_weighted = out$covariance_njobs_weighted,
+            noise_njobs_weighted = out$noise_njobs_weighted,
             stringsAsFactors = FALSE
           )
           k <- k + 1L
@@ -161,6 +188,8 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
             Ncommon = out$Ncommon,
             covariance = out$covariance,
             noise = out$noise,
+            covariance_njobs_weighted = out$covariance_njobs_weighted,
+            noise_njobs_weighted = out$noise_njobs_weighted,
             stringsAsFactors = FALSE
           )
           k <- k + 1L

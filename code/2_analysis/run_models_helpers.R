@@ -539,6 +539,8 @@ write_coefficients_long_sheet <- function(
         if (!("rse" %in% names(ft)))   ft$rse   <- NA_real_
         if (!("eb" %in% names(ft)))    ft$eb    <- NA_real_
         if (!("njobs" %in% names(ft))) ft$njobs <- NA_real_
+        if (!("firm_number_of_respondents" %in% names(ft))) ft$firm_number_of_respondents <- NA_integer_
+        if (!("total_number_of_respondents" %in% names(ft))) ft$total_number_of_respondents <- NA_integer_
         
         rows[[k]] <- ft %>%
           dplyr::transmute(
@@ -549,6 +551,8 @@ write_coefficients_long_sheet <- function(
             entity_id   = as.integer(entity_id),
             entity      = as.character(entity),
             njobs    = suppressWarnings(as.numeric(njobs)),
+            firm_number_of_respondents = suppressWarnings(as.integer(firm_number_of_respondents)),
+            total_number_of_respondents = suppressWarnings(as.integer(total_number_of_respondents)),
             estimate = as.numeric(estimate),
             se       = as.numeric(se),
             rse      = as.numeric(rse),

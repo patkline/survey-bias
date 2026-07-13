@@ -63,7 +63,7 @@ firm_audit_gaps <- firm_audit_gaps |> dplyr::select(entity_id, entity, outcome, 
 firm_audit_gaps <- firm_audit_gaps |> dplyr::rename(firm_id = entity_id, firm_name = entity, contact_gap_type = outcome, difference_in_log_contact_rate = estimate)
 
 # Relabel the contact-gap type to be more descriptive
-firm_audit_gaps <- firm_audit_gaps |> dplyr::mutate(contact_gap_type = dplyr::recode(contact_gap_type, "log_dif" = "white_black", "log_dif_gender" = "male_female"))
+firm_audit_gaps <- firm_audit_gaps |> dplyr::mutate(contact_gap_type = dplyr::recode(contact_gap_type, "log_dif" = "white_minus_black", "log_dif_gender" = "male_minus_female"))
 
 # Should be unique by firm and contact gap type
 stopifnot(!anyDuplicated(firm_audit_gaps[c("firm_id", "contact_gap_type")]), !anyNA(firm_audit_gaps[c("firm_id", "contact_gap_type")]))
@@ -157,14 +157,20 @@ for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking",
     # Should be 2 models x 2 belief measures = 4 observations remaining
     stopifnot(nrow(subgroup_noise) == 4)
 
+    # Check the weighted unbiased signal variance estimate equals the weighted across-firm variance minus the weighted mean squared standard error
+    stopifnot(all(abs(subgroup_noise$sigma2_hat_njobs_weighted - (subgroup_noise$variance_njobs_weighted - subgroup_noise$noise_njobs_weighted)) < 1e-12))
+
+    # Check the weighted Katz measurement-error variance equals the weighted across-firm variance minus the weighted Katz-corrected signal variance
+    stopifnot(all(abs(subgroup_noise$noise_njobs_weighted_katz - (subgroup_noise$variance_njobs_weighted - subgroup_noise$signal_njobs_weighted_katz)) < 1e-12))
+
+    # Guard the weighted Katz measurement-error variance: must be positive (PSD) and no larger than the weighted mean squared standard error (Katz only inflates the signal)
+    stopifnot(all(subgroup_noise$noise_njobs_weighted_katz > 0), all(subgroup_noise$noise_njobs_weighted_katz <= subgroup_noise$noise_njobs_weighted + 1e-12))
+
     # Keep necessary variables
     subgroup_noise <- subgroup_noise |> dplyr::select(model, outcome, noise_njobs_weighted_katz)
 
     # Rename variables to be more descriptive
     subgroup_noise <- subgroup_noise |> dplyr::rename(aggregation_method = model, belief_measure = outcome, njobs_weighted_katz_noise_across_firms = noise_njobs_weighted_katz)
-
-    # The njobs-weighted Katz measurement-error variance must be present and positive for every cell fed to eivreg
-    stopifnot(!anyNA(subgroup_noise$njobs_weighted_katz_noise_across_firms), all(subgroup_noise$njobs_weighted_katz_noise_across_firms > 0))
 
     # Lowercase the aggregation method for the wide column suffix
     subgroup_noise <- subgroup_noise |> dplyr::mutate(aggregation_method = tolower(aggregation_method))
@@ -235,10 +241,10 @@ for (subgroup_comparison in list(c("white", "black"), c("male", "female"), c("lo
     # Loop over aggregation method
     for (aggregation_method in c("ols", "borda")) {
         # Loop over each LHS variable
-        for (lhs_variable in c("dif_log_contact_rate_white_black", "dif_log_contact_rate_male_female")) {
+        for (lhs_variable in c("dif_log_contact_rate_white_minus_black", "dif_log_contact_rate_male_minus_female")) {
 
             # RHS belief base name implied by the LHS audit gap; race gap uses the white-favoritism belief, gender gap the male-favoritism belief
-            rhs_variable_base_name <- c(dif_log_contact_rate_white_black = "pooled_favor_white", dif_log_contact_rate_male_female = "pooled_favor_male")[[lhs_variable]]
+            rhs_variable_base_name <- c(dif_log_contact_rate_white_minus_black = "pooled_favor_white", dif_log_contact_rate_male_minus_female = "pooled_favor_male")[[lhs_variable]]
 
             # Full RHS belief column name; base name plus the aggregation method suffix
             rhs_variable <- paste0(rhs_variable_base_name, "_", aggregation_method)

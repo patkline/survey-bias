@@ -75,30 +75,57 @@ run_stata_fail_fast <- function(script_path) {
 # Summary statistics
 # ------------------------------------------------------------------------------
 
-# Summary statistics wrapper script
-source(file.path(create_tables_figures, "summary_statistics_wrapper.R"))
+# Summary statistics scripts
+source(file.path(create_tables_figures, "summary_statistics_tables.R"))
+source(file.path(create_tables_figures, "summary_statistics_bar_graphs.R"))
+source(file.path(create_tables_figures, "summary_statistics_histograms.R"))
 
 # ------------------------------------------------------------------------------
-# XX
+# Belief variance summaries
 # ------------------------------------------------------------------------------
-# Source individual table/figure scripts
+
+# Shared outcome lists and helpers for the variance tables; must come first
 source(file.path(create_tables_figures, "summary_outcomes_config.R"))
+
+# Variance table scripts
 source(file.path(create_tables_figures, "summary_variance_table.R"))
 source(file.path(create_tables_figures, "summary_variance_within_between.R"))
+
+# ------------------------------------------------------------------------------
+# Firm and industry rating figures
+# ------------------------------------------------------------------------------
+
+# Rating figure scripts
 source(file.path(create_tables_figures, "top_bottom_firm_ratings_dual_axis_figures.R"))
-source(file.path(create_tables_figures, "heatmaps_combined.R"))
 source(file.path(create_tables_figures, "eiv_table_panels.R"))
 source(file.path(create_tables_figures, "eiv_table_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
 if (!nzchar(Sys.getenv("CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS"))) {
   Sys.setenv(CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS = "499")
 }
+source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
+source(file.path(create_tables_figures, "firm_ratings_signal_correlation_heatmaps.R"))
+
+# ------------------------------------------------------------------------------
+# Signal correlations across subsamples, models, and valences
+# ------------------------------------------------------------------------------
+
+# Signal correlation scripts
 source(file.path(create_tables_figures, "cross_sample_signal_corr.R"))
 source(file.path(create_tables_figures, "cross_sample_signal_corr_raw.R"))
 source(file.path(create_tables_figures, "cross_sample_signal_corr_placebo.R"))
 source(file.path(create_tables_figures, "cross_model_corr.R"))
 source(file.path(create_tables_figures, "valence_correlation_bars.R"))
 source(file.path(create_tables_figures, "opposite_valence_corr_table.R"))
+
+# ------------------------------------------------------------------------------
+# EIV tables
+# ------------------------------------------------------------------------------
+
+# EIV table scripts
+source(file.path(create_tables_figures, "eiv_table_panels.R"))
+source(file.path(create_tables_figures, "eiv_table_discretion.R"))
+source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between_selectivity.R"))
 source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
@@ -106,13 +133,30 @@ source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
 # section-2 Revelio EIV outputs are intentionally not run.
 # source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 # source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
+
+# ------------------------------------------------------------------------------
+# EIV tables with external data
+# ------------------------------------------------------------------------------
+
+# Revelio and EEO-1 table and figure scripts
+source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
+source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
+source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
+
+# ------------------------------------------------------------------------------
+# EIV figures
+# ------------------------------------------------------------------------------
+
+# EIV figure scripts
+source(file.path(create_tables_figures, "eiv_scatterplots.R"))
 source(file.path(create_tables_figures, "eiv_coefplot_by_subgroup.R"))
 
-# Appendix table of firm-level belief estimates by aggregation method (Stata)
+# ------------------------------------------------------------------------------
+# Appendix tables
+# ------------------------------------------------------------------------------
+
+# Firm-level belief estimates by aggregation method (Stata)
 run_stata_fail_fast(file.path(create_tables_figures, "firm_belief_estimates_by_aggregation_method_table.do"))
 
-
 message("🎃 Tables and figures complete")
-
-#source(file.path(create_tables_figures, "heatmap_plots.R"))
