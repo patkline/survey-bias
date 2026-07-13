@@ -157,14 +157,20 @@ for (subgroup in c("White", "Black", "Female", "Male", "Looking", "Not_Looking",
     # Should be 2 models x 2 belief measures = 4 observations remaining
     stopifnot(nrow(subgroup_noise) == 4)
 
+    # Check the weighted unbiased signal variance estimate equals the weighted across-firm variance minus the weighted mean squared standard error
+    stopifnot(all(abs(subgroup_noise$sigma2_hat_njobs_weighted - (subgroup_noise$variance_njobs_weighted - subgroup_noise$noise_njobs_weighted)) < 1e-12))
+
+    # Check the weighted Katz measurement-error variance equals the weighted across-firm variance minus the weighted Katz-corrected signal variance
+    stopifnot(all(abs(subgroup_noise$noise_njobs_weighted_katz - (subgroup_noise$variance_njobs_weighted - subgroup_noise$signal_njobs_weighted_katz)) < 1e-12))
+
+    # Guard the weighted Katz measurement-error variance: must be positive (PSD) and no larger than the weighted mean squared standard error (Katz only inflates the signal)
+    stopifnot(all(subgroup_noise$noise_njobs_weighted_katz > 0), all(subgroup_noise$noise_njobs_weighted_katz <= subgroup_noise$noise_njobs_weighted + 1e-12))
+
     # Keep necessary variables
     subgroup_noise <- subgroup_noise |> dplyr::select(model, outcome, noise_njobs_weighted_katz)
 
     # Rename variables to be more descriptive
     subgroup_noise <- subgroup_noise |> dplyr::rename(aggregation_method = model, belief_measure = outcome, njobs_weighted_katz_noise_across_firms = noise_njobs_weighted_katz)
-
-    # The njobs-weighted Katz measurement-error variance must be present and positive for every cell fed to eivreg
-    stopifnot(!anyNA(subgroup_noise$njobs_weighted_katz_noise_across_firms), all(subgroup_noise$njobs_weighted_katz_noise_across_firms > 0))
 
     # Lowercase the aggregation method for the wide column suffix
     subgroup_noise <- subgroup_noise |> dplyr::mutate(aggregation_method = tolower(aggregation_method))
