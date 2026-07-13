@@ -342,10 +342,8 @@ for (category_index in seq_len(nrow(source_shares))) {
     source_shares$share[category_index] <- mean(grepl(source_shares$information_source_category[category_index], information_source_respondents$information_source, fixed = TRUE)) * 100
 }
 
-# Assert every selection decomposes into the five known source categories i.e., a renamed or added option fails loudly
-leftover_selection_text <- information_source_respondents$information_source
-for (source_category in source_shares$information_source_category) leftover_selection_text <- gsub(source_category, "", leftover_selection_text, fixed = TRUE)
-stopifnot(all(gsub("[, ]", "", leftover_selection_text) == ""))
+# Assert every comma-separated selection token is one of the five known source categories i.e., a renamed or added option fails loudly
+stopifnot(all(trimws(unlist(strsplit(information_source_respondents$information_source, ",", fixed = TRUE))) %in% source_shares$information_source_category))
 
 # Order the source categories for display
 source_shares$information_source_category <- factor(source_shares$information_source_category, levels = source_shares$information_source_category)
