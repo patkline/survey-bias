@@ -88,7 +88,7 @@ survey_respondents <- survey_respondents |> dplyr::mutate(age = as.character(cut
 stopifnot(!anyNA(survey_respondents[c("gender", "race_recode", "hispanic", "age", "married", "educ", "empstat", "income")]))
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Count respondents by display category, overall and within each half of the two sample splits
+# Count respondents by display category, overall and within each half of the sample split
 # -----------------------------------------------------------------------------------------------------------------------------
 # Demographic display categories in table order
 demographic_display_order <- c("Female", "Male", "Black", "White", "Other or Mixed Race", "Hispanic", "Not Hispanic", "[18,25)", "[25,40)", "[40,65)", "65+", "Married", "Never Married", "Other", "No High School Diploma", "High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree", "Working As Paid Employee", "Working Self-employed", "Not Working: Looking For Work", "Not Working: Retired", "Not Working: Other", "Less Than $5,000", "$5,000 To $29,999", "$30,000 To $59,999", "$60,000 To $99,999", "$100,000 Or More")
@@ -137,7 +137,7 @@ demographic_table_sections <- list(
 )
 
 # Specifications for the three demographic tables: sample split, column labels, table sections, export name
-    # the demographics_education panel keeps only the slide-displayed categories; shares stay relative to all respondents
+# The demographics_education panel keeps only the slide-displayed categories; shares stay relative to all respondents
 demographic_table_specifications <- list(
     list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = demographic_table_sections, export_name = "summary_statistics_tables_demographics_by_probability_convenience.tex"),
     list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = list("Demographics" = c("Female", "Black", "White", "Hispanic", "[18,25)", "[25,40)", "[40,65)"), "Education" = c("High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree")), export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_demographics_education.tex"),
