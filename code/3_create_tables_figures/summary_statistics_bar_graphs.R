@@ -45,11 +45,8 @@ rating_answer_labels <- list(
 # Scale wording for each rating variable
 rating_scale_wordings <- c(FirmCont_white = "gap", FirmCont_black = "gap", FirmHire_white = "gap", FirmHire_black = "gap", FirmCont_male = "gap", FirmCont_female = "gap", FirmHire_male = "gap", FirmHire_female = "gap", conduct_white = "level", conduct_black = "level", conduct_female = "level", conduct_male = "level", conduct_older = "level", conduct_younger = "level")
 
-# Export name stem for each rating variable
-rating_export_stems <- c(FirmCont_white = "FirmCont_favor_white_share", FirmCont_black = "FirmCont_favor_black_share", FirmHire_white = "FirmHire_favor_white_share", FirmHire_black = "FirmHire_favor_black_share", FirmCont_male = "FirmCont_favor_male_share", FirmCont_female = "FirmCont_favor_female_share", FirmHire_male = "FirmHire_favor_male_share", FirmHire_female = "FirmHire_favor_female_share", conduct_white = "conduct_white_share", conduct_black = "conduct_black_share", conduct_female = "conduct_female_share", conduct_male = "conduct_male_share", conduct_older = "conduct_older_share", conduct_younger = "conduct_younger_share")
-
 # Loop over the belief rating variables
-for (rating_variable in names(rating_export_stems)) {
+for (rating_variable in c("FirmCont_white", "FirmCont_black", "FirmHire_white", "FirmHire_black", "FirmCont_male", "FirmCont_female", "FirmHire_male", "FirmHire_female", "conduct_white", "conduct_black", "conduct_female", "conduct_male", "conduct_older", "conduct_younger")) {
 
     # Assert the rating takes only the 1-5 scale values, the -1 prefer-not-to-answer code, or missing
     stopifnot(all(survey_responses[[rating_variable]] %in% c(NA, -1, 1:5)))
@@ -95,17 +92,17 @@ for (rating_variable in names(rating_export_stems)) {
     # Define the rating share bar graph
     rating_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = share)) +
 
-        # Grey response-share bars
-        geom_col(width = 0.8, color = "black", fill = "#636363") +
+        # Steelblue response-share bars
+        geom_col(width = 0.8, fill = "steelblue") +
 
-        # 95% confidence interval error bars, capped at the 0-100 axis range
-        geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = pmin(100, share + share_margin_of_error)), width = 0.15, linewidth = 0.6) +
+        # 95% confidence interval error bars
+        geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = share + share_margin_of_error), width = 0.15, linewidth = 0.6) +
 
         # Axis labels
         labs(x = "", y = "Share of Responses (%)") +
 
-        # Fix the share axis to 0-100
-        scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), expand = c(0, 0)) +
+        # Anchor the bars at zero with headroom above
+        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
 
         # Theme baseline
         theme_classic(base_size = 13) +
@@ -115,26 +112,23 @@ for (rating_variable in names(rating_export_stems)) {
             # No grid lines
             panel.grid = element_blank(),
 
-            # Panel border instead of axis spines
-            axis.line = element_blank(),
-            panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+            # Bottom and left axis spines, no ticks
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_blank(),
 
             # Angle the answer-category labels
             axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
         )
 
     # Export the bar graph, one file per rating variable
-    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_", rating_export_stems[[rating_variable]], ".png")), plot = rating_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
+    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_", rating_variable, "_share.png")), plot = rating_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Yes/no question bar graphs i.e., the answer-category distribution of each respondent-level yes/no question
 # -----------------------------------------------------------------------------------------------------------------------------
 # Answer categories in display order
-yes_no_answer_categories <- c("No", "Yes", "Prefer not to answer", "missing")
-
-# Bar color for each answer category
-yes_no_bar_colors <- c("No" = "#2c7fb8", "Yes" = "#d67f2e", "Prefer not to answer" = "#3a8f33", "missing" = "#bdbdbd")
+yes_no_answer_categories <- c("No", "Yes", "Prefer not to answer", "Missing")
 
 # Loop over the yes/no question variables
 for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
@@ -144,7 +138,7 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
 
     # Label each respondent with their answer category
     yes_no_respondents <- survey_respondents |> dplyr::mutate(answer_category = dplyr::case_when(
-        is.na(.data[[yes_no_variable]]) | .data[[yes_no_variable]] == "" ~ "missing",
+        is.na(.data[[yes_no_variable]]) | .data[[yes_no_variable]] == "" ~ "Missing",
         .data[[yes_no_variable]] == "No" ~ "No",
         .data[[yes_no_variable]] == "Yes" ~ "Yes",
         .data[[yes_no_variable]] == "Prefer not to answer" ~ "Prefer not to answer"
@@ -169,22 +163,19 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
     category_shares <- category_shares |> dplyr::mutate(answer_category = factor(answer_category, levels = yes_no_answer_categories))
 
     # Define the share bar graph
-    yes_no_share_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = share, fill = answer_category)) +
+    yes_no_share_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = share)) +
 
-        # Answer-category share bars
-        geom_col(width = 0.8, color = "black") +
+        # Steelblue respondent-share bars
+        geom_col(width = 0.8, fill = "steelblue") +
 
-        # 95% confidence interval error bars, capped at the 0-100 axis range
-        geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = pmin(100, share + share_margin_of_error)), width = 0.15, linewidth = 0.6) +
-
-        # Bar colors, without a legend
-        scale_fill_manual(values = yes_no_bar_colors, guide = "none") +
+        # 95% confidence interval error bars
+        geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = share + share_margin_of_error), width = 0.15, linewidth = 0.6) +
 
         # Axis labels
-        labs(x = "Values", y = "Share of respondents (%)") +
+        labs(x = "", y = "Share of Respondents (%)") +
 
-        # Fix the share axis to 0-100
-        scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), expand = c(0, 0)) +
+        # Anchor the bars at zero with headroom above
+        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
 
         # Theme baseline
         theme_classic(base_size = 13) +
@@ -194,28 +185,25 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
             # No grid lines
             panel.grid = element_blank(),
 
-            # Panel border instead of axis spines
-            axis.line = element_blank(),
-            panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+            # Bottom and left axis spines, no ticks
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_blank()
         )
 
     # Export the share bar graph
     ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_", yes_no_variable, "_share.png")), plot = yes_no_share_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
 
     # Define the count bar graph
-    yes_no_count_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = n, fill = answer_category)) +
+    yes_no_count_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = n)) +
 
-        # Answer-category count bars
-        geom_col(width = 0.8, color = "black") +
-
-        # Bar colors, without a legend
-        scale_fill_manual(values = yes_no_bar_colors, guide = "none") +
+        # Steelblue respondent-count bars
+        geom_col(width = 0.8, fill = "steelblue") +
 
         # Axis labels
-        labs(x = "Values", y = "N. of observations") +
+        labs(x = "", y = "Number of Respondents") +
 
-        # Fix the count axis so the tallest bar touches the panel top
-        scale_y_continuous(limits = c(0, max(category_shares$n)), expand = c(0, 0)) +
+        # Anchor the bars at zero with headroom above
+        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
 
         # Theme baseline
         theme_classic(base_size = 13) +
@@ -225,9 +213,9 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
             # No grid lines
             panel.grid = element_blank(),
 
-            # Panel border instead of axis spines
-            axis.line = element_blank(),
-            panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+            # Bottom and left axis spines, no ticks
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_blank()
         )
 
     # Export the count bar graph
@@ -262,47 +250,41 @@ for (two_way_split_variable in c("gender", "looking_job")) {
     group_shares <- group_shares |> dplyr::mutate(race_recode = factor(race_recode, levels = c("Black", "White", "Other")))
 
     # Define the two-way bar graph
-    two_way_bar_graph <- ggplot(group_shares, aes(x = split_group, y = fear_share, fill = race_recode, pattern = race_recode)) +
+    two_way_bar_graph <- ggplot(group_shares, aes(x = split_group, y = fear_share, fill = race_recode)) +
 
-        # Race-patterned share bars, dodged within each split group
-        ggpattern::geom_col_pattern(position = position_dodge(width = 0.75), width = 0.65, color = "black", pattern_color = "black", pattern_fill = "white", pattern_density = 0.4, pattern_key_scale_factor = 0.8, show.legend = TRUE) +
+        # Race-colored share bars, dodged within each split group
+        geom_col(position = position_dodge(width = 0.75), width = 0.65) +
 
         # 95% confidence interval error bars
         geom_errorbar(aes(ymin = share_lower_bound, ymax = share_upper_bound), position = position_dodge(width = 0.75), width = 0.18, linewidth = 0.6) +
 
-        # Greyscale bar fills
-        scale_fill_grey(start = 0.85, end = 0.35) +
+        # Bar color for each race
+        scale_fill_manual(values = c("Black" = "steelblue", "White" = "darkorange", "Other" = "grey55")) +
 
-        # Bar pattern for each race
-        ggpattern::scale_pattern_manual(values = c("Black" = "none", "White" = "stripe", "Other" = "crosshatch")) +
-
-        # Share axis in percent
-        scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1), labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.05))) +
+        # Share axis in percent, anchored at zero with headroom above
+        scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.05))) +
 
         # Axis labels and legend title
-        labs(x = "", y = "Share of Respondents (%)", fill = "Race", pattern = "Race", title = "") +
-
-        # Shared legend for the fill and pattern scales
-        guides(fill = guide_legend(title = "Race"), pattern = guide_legend(title = "Race")) +
+        labs(x = "", y = "Share of Respondents (%)", fill = "Race") +
 
         # Theme baseline
-        theme_classic(base_size = 12) +
+        theme_classic(base_size = 13) +
 
         # Theme adjustments
         theme(
             # No grid lines
             panel.grid = element_blank(),
 
-            # Panel border instead of axis spines
-            axis.line = element_blank(),
-            panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+            # Bottom and left axis spines, no ticks
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_blank(),
 
             # Legend to the right of the panel
             legend.position = "right"
         )
 
     # Export the two-way bar graph, one file per split variable
-    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_twoway_", c(gender = "gender", looking_job = "looking")[[two_way_split_variable]], "_by_race_fear.png")), plot = two_way_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
+    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_y_fear_x_", two_way_split_variable, "_group_race.png")), plot = two_way_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -331,25 +313,29 @@ source_shares$information_source_category <- factor(source_shares$information_so
 # Define the information source bar graph
 information_source_bar_graph <- ggplot(source_shares, aes(x = information_source_category, y = share)) +
 
-    # Source-share bars
-    geom_col() +
+    # Steelblue source-share bars
+    geom_col(width = 0.8, fill = "steelblue") +
 
-    # Fix the share axis to 0-100
-    scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), expand = c(0, 0)) +
+    # Anchor the bars at zero with headroom above
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
 
     # Axis labels
-    labs(x = NULL, y = "Share of Respondents (%)") +
+    labs(x = "", y = "Share of Respondents (%)") +
 
     # Theme baseline
-    theme_minimal(base_size = 12) +
+    theme_classic(base_size = 13) +
 
     # Theme adjustments
     theme(
-        # Angle the source labels
-        axis.text.x = element_text(angle = 45, hjust = 1),
+        # No grid lines
+        panel.grid = element_blank(),
 
-        # No x-axis title
-        axis.title.x = element_blank()
+        # Bottom and left axis spines, no ticks
+        axis.line = element_line(color = "black"),
+        axis.ticks = element_blank(),
+
+        # Angle the source labels
+        axis.text.x = element_text(angle = 45, hjust = 1)
     )
 
 # Export the bar graph

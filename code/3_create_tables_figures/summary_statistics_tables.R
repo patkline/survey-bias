@@ -21,9 +21,8 @@ stopifnot(nrow(survey_responses) == 32575)
 # -----------------------------------------------------------------------------------------------------------------------------
 # Collapse to one row per respondent
 # -----------------------------------------------------------------------------------------------------------------------------
-# Flag names-arm respondents by the rule the shipped table uses i.e., a missing white-conduct rating on the respondent's first data row
-    #XXNR: switch to the randomized-arm flag (any of the four conduct ratings non-missing across the respondent's firms); the first-row rule misclassifies ~1690 conduct-arm respondents as names-arm
-survey_responses <- survey_responses |> dplyr::group_by(ResponseId) |> dplyr::mutate(names_arm = is.na(dplyr::first(conduct_white))) |> dplyr::ungroup()
+# Flag names-arm respondents i.e., those with no conduct rating for any firm
+survey_responses <- survey_responses |> dplyr::group_by(ResponseId) |> dplyr::mutate(names_arm = !any(!is.na(conduct_white) | !is.na(conduct_male) | !is.na(conduct_favor_white) | !is.na(conduct_favor_male))) |> dplyr::ungroup()
 
 # Keep one row per respondent with the respondent-level variables
 survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, gender, race_recode, hispanic, age, married, educ, empstat, income, sample, names_arm, confidence_age_conduct, confidence_gend_conduct, confidence_race_conduct, confidence_gend_names, confidence_race_names)
@@ -31,8 +30,8 @@ survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, gender, ra
 # Should be one row per respondent i.e., every kept variable is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
 
-# Should be 6515 respondents, 4947 of them names-arm under the first-row rule
-stopifnot(nrow(survey_respondents) == 6515, sum(survey_respondents$names_arm) == 4947)
+# Should be 6515 respondents, 3257 of them in the names arm
+stopifnot(nrow(survey_respondents) == 6515, sum(survey_respondents$names_arm) == 3257)
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Recode the demographics into the summary-table display categories
@@ -142,11 +141,11 @@ demographic_table_sections <- list(
 
 # Specifications for the five demographic tables: sample split, column labels, sections kept, header rows, export name
 demographic_table_specifications <- list(
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = names(demographic_table_sections), include_section_headers = TRUE, export_name = "summary_prob_conv.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = c("Gender", "Race", "Hispanic", "Age", "Marital Status"), include_section_headers = FALSE, export_name = "summary_prob_conv_demographics.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = "Education", include_section_headers = TRUE, export_name = "summary_prob_conv_education.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = c("Employment", "Income"), include_section_headers = TRUE, export_name = "summary_prob_conv_work_income.tex"),
-    list(split_variable = "names_arm", column_labels = c("Names", "Conduct"), sections_kept = names(demographic_table_sections), include_section_headers = TRUE, export_name = "summary_cond_names.tex")
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = names(demographic_table_sections), include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_probability_convenience.tex"),
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = c("Gender", "Race", "Hispanic", "Age", "Marital Status"), include_section_headers = FALSE, export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_demographics.tex"),
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = "Education", include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_education.tex"),
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections_kept = c("Employment", "Income"), include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_work_income.tex"),
+    list(split_variable = "names_arm", column_labels = c("Names", "Conduct"), sections_kept = names(demographic_table_sections), include_section_headers = TRUE, export_name = "summary_statistics_tables_demographics_by_names_conduct.tex")
 )
 
 # Loop over the demographic table specifications
@@ -261,4 +260,4 @@ stopifnot(nrow(confidence_table_rows) == 5, !anyNA(confidence_table_rows))
 confidence_table_text <- knitr::kable(confidence_table_rows, format = "latex", booktabs = TRUE, align = c("l", rep("c", 6)), col.names = c("Measure", confidence_display_order), linesep = "")
 
 # Write the table
-writeLines(confidence_table_text, file.path(tables, "confidence_conf_table.tex"))
+writeLines(confidence_table_text, file.path(tables, "summary_statistics_tables_rating_confidence_shares.tex"))

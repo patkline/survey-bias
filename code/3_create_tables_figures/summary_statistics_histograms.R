@@ -37,10 +37,10 @@ survey_respondents <- survey_respondents |> dplyr::mutate(response_duration_minu
 response_duration_histogram <- ggplot(survey_respondents, aes(x = response_duration_minutes)) +
 
     # One-minute duration bins as a share of respondents
-    geom_histogram(aes(y = after_stat(count / sum(count))), binwidth = 1, boundary = 0, closed = "left", fill = "#c7dceb", color = "#6b7d8a", alpha = 0.7) +
+    geom_histogram(aes(y = after_stat(count / sum(count))), binwidth = 1, boundary = 0, closed = "left", fill = "steelblue", color = "black", linewidth = 0.2) +
 
     # Axis labels
-    labs(x = "Duration (in minutes)", y = "Share of responses") +
+    labs(x = "Duration (in minutes)", y = "Share of Respondents") +
 
     # Median and interquartile annotation in the top-left corner
     annotate("text", x = -Inf, y = Inf, hjust = -0.02, vjust = 1.6, label = sprintf("Median: %.3f | P25: %.3f | P75: %.3f", median(survey_respondents$response_duration_minutes), quantile(survey_respondents$response_duration_minutes, 0.25), quantile(survey_respondents$response_duration_minutes, 0.75))) +
@@ -56,9 +56,9 @@ response_duration_histogram <- ggplot(survey_respondents, aes(x = response_durat
         # No grid lines
         panel.grid = element_blank(),
 
-        # Panel border instead of axis spines
-        axis.line = element_blank(),
-        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+        # Bottom and left axis spines, no ticks
+        axis.line = element_line(color = "black"),
+        axis.ticks = element_blank()
     )
 
 # Export the histogram
