@@ -97,9 +97,6 @@ source(file.path(create_tables_figures, "summary_variance_within_between.R"))
 
 # Rating figure scripts
 source(file.path(create_tables_figures, "top_bottom_firm_ratings_dual_axis_figures.R"))
-source(file.path(create_tables_figures, "eiv_table_panels.R"))
-source(file.path(create_tables_figures, "eiv_table_discretion.R"))
-source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
 if (!nzchar(Sys.getenv("CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS"))) {
   Sys.setenv(CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS = "499")
 }
@@ -128,11 +125,6 @@ source(file.path(create_tables_figures, "eiv_table_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between_selectivity.R"))
-source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
-# Skipping Revelio tables for this branch run because the Revelio data build and
-# section-2 Revelio EIV outputs are intentionally not run.
-# source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
-# source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 
 # ------------------------------------------------------------------------------
 # EIV tables with external data

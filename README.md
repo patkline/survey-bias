@@ -221,7 +221,7 @@ for the lightweight firm-name match step.
 
 ### 3. Tables and figures --- `code/3_create_tables_figures/`
 
-**Input:** `output/intermediate/*/*.parquet`
+**Input:** `output/intermediate/*/*.parquet`; the Revelio/EEO-1 scripts also read `data/processed/long_survey_final.csv`, `data/external/*.csv` (git-lfs — run `git lfs pull` first), and `data/dump/*.csv`
 **Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
 
 - `!metafile.R` --- sources each table/figure script in order
