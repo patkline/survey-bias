@@ -243,7 +243,7 @@ write_variance_table <- function(dir_path,
   cmid_parts <- character(0)
   hdr_groups <- character(0)
   hdr_cols   <- character(0)
-  col_idx <- 2L
+  col_idx <- 1L
 
   for (mdl in present_models) {
     n <- model_n_cols(mdl)
