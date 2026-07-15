@@ -1,8 +1,8 @@
 # -------------------------------------------------------------------
 # Cross-outcome SD / bias-corrected variance table.
 # Reads the `variance` parquet sheet, auto-detects which models are
-# present, and writes one CSV + one LaTeX table containing the columns
-# for every model found (Borda + OLS today; PL / OL / OLSC if added).
+# present, and writes LaTeX tables containing the columns
+# for every model found (OLS + Borda today; PL / OL / OLSC if added).
 #
 # Two variants are written for each call:
 #   1) "unweighted": full firm sample (subset == "all"), no reweighting
@@ -113,7 +113,6 @@ write_variance_table <- function(dir_path,
                                  outcomes,
                                  tables_dir,
                                  label_mapping = NULL,
-                                 csv_name = "variance_biascorrected.csv",
                                  tex_name = "variance_biascorrected.tex",
                                  latex_decimals = 3,
                                  borda_mult = 1,
@@ -157,7 +156,7 @@ write_variance_table <- function(dir_path,
   }
 
   # Models to emit columns for (sourced from summary_outcomes_config.R)
-  display_order <- c("PL", "Borda", "OL", "OLS", "OLSC")
+  display_order <- c("OLS", "Borda", "PL", "OL", "OLSC")
   present_models <- intersect(display_order, models)
   if (!length(present_models)) {
     stop("No recognized models in `models` config: ",
@@ -214,28 +213,6 @@ write_variance_table <- function(dir_path,
 
   tab$Outcome_display <- map_label(tab$outcome, label_mapping)
   tab <- tab %>% dplyr::arrange(.data$Outcome_display, .data$outcome)
-
-  # ---- CSV ----
-  csv_cols <- list(Outcome = tab$Outcome_display)
-  for (mdl in present_models) {
-    disp <- if (mdl == "OLS") "Likert"
-            else if (mdl == "OLSC") "Likert Centered"
-            else if (mdl == "OL") "OL"
-            else if (mdl == "PL") "PL"
-            else mdl
-    csv_cols[[paste0(disp, ": sd")]]                 <- tab[[paste0(mdl, "_sd")]]
-    csv_cols[[paste0(disp, ": bias corrected sd")]]  <- tab[[paste0(mdl, "_sd_bias_corrected")]]
-    csv_cols[[paste0(disp, ": t-stat")]]             <- tab[[paste0(mdl, "_t_stat")]]
-    if (mdl == "PL"    && "PL_reliability" %in% names(tab)) {
-      csv_cols[["PL: reliability"]] <- tab$PL_reliability
-    }
-    if (mdl == "Borda" && "Borda_var_norm" %in% names(tab)) {
-      csv_cols[["Borda: normed variance"]] <- tab$Borda_var_norm
-    }
-  }
-  csv_out_path <- file.path(tables_dir, csv_name)
-  utils::write.csv(as.data.frame(csv_cols, check.names = FALSE),
-                   csv_out_path, row.names = FALSE)
 
   # ---- LaTeX ----
   latex_cols <- list(Outcome = tab$Outcome_display)
@@ -296,22 +273,20 @@ write_variance_table <- function(dir_path,
     floating = FALSE,
     comment = FALSE
   )
-  cat("Variance / SD table saved:",
-      basename(csv_out_path), "and", basename(tex_out_path), "\n")
+  cat("Variance / SD table saved:", basename(tex_out_path), "\n")
 
-  invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+  invisible(list(tex = tex_out_path, data = tab))
 }
 
 # Helper: emit both unweighted and njobs-weighted variants of one table.
 write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapping,
-                                      csv_base, tex_base,
+                                      tex_base,
                                       latex_decimals = 3, borda_mult = 1) {
   write_variance_table(
     dir_path      = dir_path,
     outcomes      = outcomes,
     tables_dir    = tables_dir,
     label_mapping = label_mapping,
-    csv_name      = paste0(csv_base, ".csv"),
     tex_name      = paste0(tex_base, ".tex"),
     latex_decimals = latex_decimals,
     borda_mult    = borda_mult,
@@ -322,23 +297,11 @@ write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapp
     outcomes      = outcomes,
     tables_dir    = tables_dir,
     label_mapping = label_mapping,
-    csv_name      = paste0(csv_base, "_njobs_weighted.csv"),
     tex_name      = paste0(tex_base, "_njobs_weighted.tex"),
     latex_decimals = latex_decimals,
     borda_mult    = borda_mult,
     variant       = "njobs_weighted"
   )
-}
-
-write_csv_checked <- function(x, out_path, label = "CSV output") {
-  tmp_path <- tempfile(
-    pattern = paste0(tools::file_path_sans_ext(basename(out_path)), "_"),
-    fileext = ".csv"
-  )
-  on.exit(unlink(tmp_path), add = TRUE)
-
-  utils::write.csv(x, tmp_path, row.names = FALSE)
-  copy_checked_output(tmp_path, out_path, label = label)
 }
 
 latex_escape_text <- function(x) {
@@ -357,13 +320,9 @@ format_count <- function(x) {
   out
 }
 
-write_belief_summary_ols_borda <- function(dir_path,
-                                           outcomes,
-                                           tables_dir,
-                                           label_mapping = NULL,
-                                           csv_name = "belief_summary_ols_borda.csv",
-                                           tex_name = "belief_summary_ols_borda.tex",
-                                           latex_decimals = 3) {
+build_belief_summary_ols_borda_data <- function(dir_path,
+                                                outcomes,
+                                                label_mapping = NULL) {
   coef_df <- read_parquet_sheet(dir_path, "Coefficients")
 
   required_cols <- c("subset", "model", "outcome", "entity_type", "estimate", "rse")
@@ -433,6 +392,7 @@ write_belief_summary_ols_borda <- function(dir_path,
     dplyr::mutate(Outcome = map_label(.data$outcome, label_mapping)) %>%
     dplyr::arrange(.data$Outcome, .data$outcome) %>%
     dplyr::transmute(
+      outcome,
       Outcome,
       Responses,
       Respondents,
@@ -441,10 +401,19 @@ write_belief_summary_ols_borda <- function(dir_path,
       `Borda: mean`        = .data$mean_Borda,
       `Borda: Average SE`  = .data$avg_se_Borda
     )
+}
 
-  csv_out_path <- file.path(tables_dir, csv_name)
-  write_csv_checked(as.data.frame(tab, check.names = FALSE), csv_out_path,
-                    label = "belief summary CSV")
+write_belief_summary_ols_borda <- function(dir_path,
+                                           outcomes,
+                                           tables_dir,
+                                           label_mapping = NULL,
+                                           tex_name = "belief_summary_ols_borda.tex",
+                                           latex_decimals = 3) {
+  tab <- build_belief_summary_ols_borda_data(
+    dir_path = dir_path,
+    outcomes = outcomes,
+    label_mapping = label_mapping
+  )
 
   latex_df <- data.frame(
     Outcome     = latex_escape_text(tab$Outcome),
@@ -485,10 +454,110 @@ write_belief_summary_ols_borda <- function(dir_path,
     label = "belief summary LaTeX"
   )
 
-  cat("Belief summary table saved:",
-      basename(csv_out_path), "and", basename(tex_out_path), "\n")
+  cat("Belief summary table saved:", basename(tex_out_path), "\n")
 
-  invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+  invisible(list(tex = tex_out_path, data = tab))
+}
+
+write_belief_mean_signal_sd_ols_borda <- function(dir_path,
+                                                  outcomes,
+                                                  tables_dir,
+                                                  label_mapping = NULL,
+                                                  tex_name = "belief_mean_signal_sd_ols_borda.tex",
+                                                  latex_decimals = 3) {
+  belief_summary <- build_belief_summary_ols_borda_data(
+    dir_path = dir_path,
+    outcomes = outcomes,
+    label_mapping = label_mapping
+  )
+
+  var_df <- read_parquet_sheet(dir_path, "variance")
+
+  required_cols <- c("subset", "model", "outcome", "variance", "signal")
+  missing_cols <- setdiff(required_cols, names(var_df))
+  if (length(missing_cols)) {
+    stop("variance sheet missing columns: ", paste(missing_cols, collapse = ", "))
+  }
+
+  variance_stats <- var_df |>
+    dplyr::filter(
+      .data$subset == "all",
+      .data$model %in% c("OLS", "Borda"),
+      .data$outcome %in% outcomes
+    ) |>
+    dplyr::mutate(
+      sample_sd = sqrt(pmax(suppressWarnings(as.numeric(.data$variance)), 0)),
+      signal_sd = sqrt(pmax(suppressWarnings(as.numeric(.data$signal)), 0))
+    ) |>
+    dplyr::select(outcome, model, sample_sd, signal_sd) |>
+    tidyr::pivot_wider(
+      names_from = model,
+      values_from = c(sample_sd, signal_sd)
+    )
+
+  missing_stat_cols <- setdiff(
+    c("sample_sd_OLS", "sample_sd_Borda", "signal_sd_OLS", "signal_sd_Borda"),
+    names(variance_stats)
+  )
+  if (length(missing_stat_cols)) {
+    stop("Missing OLS/Borda variance statistic columns: ", paste(missing_stat_cols, collapse = ", "))
+  }
+
+  tab <- data.frame(outcome = outcomes, stringsAsFactors = FALSE) |>
+    dplyr::left_join(
+      belief_summary |>
+        dplyr::transmute(
+          outcome,
+          Outcome,
+          Responses,
+          mean_OLS = .data$`Likert: mean`,
+          mean_Borda = .data$`Borda: mean`
+        ),
+      by = "outcome"
+    ) |>
+    dplyr::left_join(variance_stats, by = "outcome") |>
+    dplyr::arrange(.data$Outcome, .data$outcome)
+
+  latex_df <- data.frame(
+    Outcome = latex_escape_text(tab$Outcome),
+    Responses = format_count(tab$Responses),
+    `Likert Mean` = fmt_dec(tab$mean_OLS, latex_decimals),
+    `Likert Sample SD` = fmt_dec(tab$sample_sd_OLS, latex_decimals),
+    `Likert Signal SD` = fmt_dec(tab$signal_sd_OLS, latex_decimals),
+    `Borda Mean` = fmt_dec(tab$mean_Borda, latex_decimals),
+    `Borda Sample SD` = fmt_dec(tab$sample_sd_Borda, latex_decimals),
+    `Borda Signal SD` = fmt_dec(tab$signal_sd_Borda, latex_decimals),
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+
+  xt <- xtable::xtable(latex_df, align = c("l", "l", rep("c", 7)))
+  header <- paste0(
+    "\\toprule\n",
+    " & \\multicolumn{1}{c}{Sample} & \\multicolumn{3}{c}{Likert} & \\multicolumn{3}{c}{Borda} \\\\\n",
+    "\\cmidrule(lr){2-2} \\cmidrule(lr){3-5} \\cmidrule(lr){6-8}\n",
+    "Outcome & Responses & Mean & \\shortstack{Sample\\\\Std Dev} & \\shortstack{Signal\\\\Std Dev} & Mean & \\shortstack{Sample\\\\Std Dev} & \\shortstack{Signal\\\\Std Dev} \\\\\n",
+    "\\midrule\n"
+  )
+
+  tex_out_path <- file.path(tables_dir, tex_name)
+  write_xtable_checked(
+    xt,
+    tex_out_path,
+    include.rownames = FALSE,
+    include.colnames = FALSE,
+    add.to.row = list(pos = list(0), command = header),
+    sanitize.text.function = identity,
+    booktabs = TRUE,
+    floating = FALSE,
+    comment = FALSE,
+    label = "belief mean, sample standard deviation, and signal standard deviation LaTeX"
+  )
+
+  cat("Belief mean / sample standard deviation / signal standard deviation table saved:",
+      basename(tex_out_path), "\n")
+
+  invisible(list(tex = tex_out_path, data = tab))
 }
 
 # -------------------------------
@@ -499,11 +568,17 @@ write_variance_table_both(
   outcomes      = outs,
   tables_dir    = tables,
   label_mapping = label_mapping,
-  csv_base      = "variance_biascorrected",
   tex_base      = "variance_biascorrected"
 )
 
 write_belief_summary_ols_borda(
+  dir_path      = dir_path,
+  outcomes      = outs,
+  tables_dir    = tables,
+  label_mapping = label_mapping
+)
+
+write_belief_mean_signal_sd_ols_borda(
   dir_path      = dir_path,
   outcomes      = outs,
   tables_dir    = tables,
@@ -518,6 +593,5 @@ write_variance_table_both(
   outcomes      = alternate_framings,
   tables_dir    = tables,
   label_mapping = alternate_label_mapping,
-  csv_base      = "variance_biascorrected_alternate",
   tex_base      = "variance_biascorrected_alternate"
 )

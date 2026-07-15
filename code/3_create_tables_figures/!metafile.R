@@ -125,6 +125,7 @@ source(file.path(create_tables_figures, "eiv_table_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between.R"))
 source(file.path(create_tables_figures, "eiv_table_within_between_selectivity.R"))
+source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix.R"))
 
 # ------------------------------------------------------------------------------
 # EIV tables with external data

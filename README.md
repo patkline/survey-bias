@@ -230,7 +230,7 @@ for the lightweight firm-name match step.
   - `summary_statistics_histograms.R` --- response duration histogram
   - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
     - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
-    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
+    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings), OLS/Borda belief-summary table, and OLS/Borda responses/mean/sample-SD/signal-SD table
     - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
   - `top_bottom_firm_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
   - `firm_ratings_signal_correlation_heatmaps.R` --- across-measure signal-correlation heatmaps (Likert lower / Borda upper), full-sample + between/within-industry + purple highlight variants
@@ -239,6 +239,7 @@ for the lightweight firm-name match step.
   - `eiv_table_selectivity_discretion.R` --- univariate selectivity/discretion EIV tables (`EIV_univariate_wt_ols_borda*.tex`)
   - `eiv_table_within_between.R` --- within/between-industry EIV decomposition
   - `eiv_table_within_between_selectivity.R` --- same, for selectivity (`EIV_race_within_between_selectivity_ols_borda.tex`)
+  - `eiv_contact_conduct_subsamples_appendix.R` --- contact vs. conduct EIV appendix table (`EIV_contact_conduct_subsamples_appendix.tex`)
   - `cross_sample_signal_corr.R` --- signal correlation across paired subsamples + Wald test
   - `cross_sample_signal_corr_raw.R` --- same, no noise correction
   - `cross_sample_signal_corr_placebo.R` --- same, random-split placebo
