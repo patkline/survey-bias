@@ -90,6 +90,7 @@ source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 # Variance table scripts
 source(file.path(create_tables_figures, "summary_variance_table.R"))
 source(file.path(create_tables_figures, "summary_variance_within_between.R"))
+source(file.path(create_tables_figures, "firm_average_likert_histograms.R"))
 
 # ------------------------------------------------------------------------------
 # Firm and industry rating figures

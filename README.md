@@ -232,6 +232,7 @@ for the lightweight firm-name match step.
     - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
     - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings), OLS/Borda belief-summary table, and OLS/Borda responses/mean/sample-SD/signal-SD table
     - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
+    - `firm_average_likert_histograms.R` --- firm-level average Likert-score histograms for pooled Black- and gender-discrimination beliefs, annotated with the mean, sample SD, and signal SD
   - `top_bottom_firm_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
   - `firm_ratings_signal_correlation_heatmaps.R` --- across-measure signal-correlation heatmaps (Likert lower / Borda upper), full-sample + between/within-industry + purple highlight variants
   - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.) + bivariate EIV (favor-x + control)
