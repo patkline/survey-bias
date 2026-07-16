@@ -180,3 +180,9 @@ for (subdir in default_eeo1_eiv_filemap$subdir) {
           " | size=", check_info$size,
           " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
 }
+
+# ------------------------------------------------------------------------------
+# NAICS3 beliefs and EEO-1 workforce shares
+# ------------------------------------------------------------------------------
+
+source(file.path(analysis, "regress_beliefs_on_eeo1_naics3_shares.R"))

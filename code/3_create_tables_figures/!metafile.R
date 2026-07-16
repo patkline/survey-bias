@@ -140,6 +140,9 @@ source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
 source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
 
+# NAICS3 belief-share regressions
+source(file.path(create_tables_figures, "naics3_beliefs_on_eeo1_shares_table.R"))
+
 # ------------------------------------------------------------------------------
 # EIV figures
 # ------------------------------------------------------------------------------
