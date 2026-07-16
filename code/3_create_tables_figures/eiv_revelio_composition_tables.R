@@ -508,7 +508,7 @@ appendix_sections <- make_subsample_appendix_sections(
 
 write_latex_sections(
   appendix_sections,
-  "EIV_revelio_contact_conduct_subsamples_appendix.tex"
+  "EIV_contact_conduct_subsamples_appendix.tex"
 )
 
 message("Revelio EIV composition tables complete.")
