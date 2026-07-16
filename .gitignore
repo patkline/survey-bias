@@ -46,3 +46,4 @@ code/scratch_nico/**/*.parquet
 
 # Temporary table-preview folder (fully ignored, including the .tex)
 code/scratch_nico/temp_tex/
+tmp.md

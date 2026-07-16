@@ -58,6 +58,16 @@ for (correlation_sheet in c("correlation", "correlation_between_industry", "corr
     sheet_correlations$lhs <- sub(paste0(measure_suffix, "$"), "", sheet_correlations$lhs)
     sheet_correlations$rhs <- sub(paste0(measure_suffix, "$"), "", sheet_correlations$rhs)
 
+    # Split out the cross-model rows i.e., the Likert x Borda signal correlation of each survey measure, shown on the diagonal
+    sheet_diagonal_correlations <- sheet_correlations[sheet_correlations$model == "OLS_x_Borda", ]
+    sheet_correlations <- sheet_correlations[sheet_correlations$model != "OLS_x_Borda", ]
+
+    # Should be cross-model rows present, each pairing one survey measure with itself
+    stopifnot(nrow(sheet_diagonal_correlations) > 0, all(sheet_diagonal_correlations$lhs == sheet_diagonal_correlations$rhs))
+
+    # Should be the same estimation sample behind both aggregation methods of each survey measure
+    stopifnot(all(sheet_diagonal_correlations$Ncommon == sheet_diagonal_correlations$N1), all(sheet_diagonal_correlations$Ncommon == sheet_diagonal_correlations$N2))
+
     # Keep necessary variables, renamed to be clearer
     sheet_correlations <- sheet_correlations |>
         dplyr::select(survey_measure_1 = lhs, survey_measure_2 = rhs, aggregation_method = model,
@@ -89,6 +99,26 @@ for (correlation_sheet in c("correlation", "correlation_between_industry", "corr
 
     # Assert one cell per off-diagonal axis position
     stopifnot(nrow(sheet_correlations) == 10 * 9, !anyDuplicated(sheet_correlations[c("row_position", "column_position")]), !anyNA(sheet_correlations[c("row_position", "column_position")]))
+
+    # Keep necessary diagonal variables, renamed to match the off-diagonal cells
+    sheet_diagonal_correlations <- sheet_diagonal_correlations |>
+        dplyr::select(survey_measure_1 = lhs, survey_measure_2 = rhs, aggregation_method = model, signal_correlation = corr_c)
+
+    # Keep the set of survey measures shown on the heatmaps
+    sheet_diagonal_correlations <- sheet_diagonal_correlations[sheet_diagonal_correlations$survey_measure_1 %in% names(survey_measure_display_names), ]
+
+    # Should be one diagonal cell per displayed survey measure, none missing
+    stopifnot(nrow(sheet_diagonal_correlations) == 10, !anyNA(sheet_diagonal_correlations$signal_correlation))
+
+    # Map each diagonal cell to its axis position i.e., row equals column
+    sheet_diagonal_correlations$column_position <- match(survey_measure_display_names[sheet_diagonal_correlations$survey_measure_1], survey_measure_display_order)
+    sheet_diagonal_correlations$row_position <- sheet_diagonal_correlations$column_position
+
+    # Append the diagonal cells to the off-diagonal cells
+    sheet_correlations <- dplyr::bind_rows(sheet_correlations, sheet_diagonal_correlations)
+
+    # Assert one cell per axis position: 90 off-diagonal plus 10 diagonal
+    stopifnot(nrow(sheet_correlations) == 10 * 9 + 10, !anyDuplicated(sheet_correlations[c("row_position", "column_position")]), !anyNA(sheet_correlations[c("row_position", "column_position")]))
 
     # Store the dataframe under the figure-family name
     assign(paste0("heatmap_cells_", c("correlation" = "full_sample", "correlation_between_industry" = "between_industry", "correlation_within_industry" = "within_industry")[[correlation_sheet]]), sheet_correlations)

@@ -198,6 +198,47 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
     }
   }
   
+  # ---------- CROSS-MODEL: OLS x Borda on the same outcome, for the heatmap diagonal ----------
+  if (all(c("OLS", "Borda") %in% models)) {
+
+    for (level_name in c("all", "subset97")) {
+
+      level_results <- results[[level_name]]
+      if (is.null(level_results) || is.null(level_results[["OLS"]]) || is.null(level_results[["Borda"]])) next
+
+      for (outcome_name in unique(survey_vars[!is.na(survey_vars) & nzchar(survey_vars)])) {
+
+        if (!is.null(level_results[["OLS"]][[outcome_name]]) && !is.null(level_results[["Borda"]][[outcome_name]])) {
+          message("Covariance Calculation for model = OLS_x_Borda, subset = ", sub("^subset", "", level_name), ", outcome = ", outcome_name)
+
+          # The two aggregation methods must cover identical firm sets; the pairwise machinery silently intersects otherwise
+          stopifnot(identical(
+            sort(grep("^entity\\d+$", names(level_results[["OLS"]][[outcome_name]]$mats$S), value = TRUE)),
+            sort(grep("^entity\\d+$", names(level_results[["Borda"]][[outcome_name]]$mats$S), value = TRUE))
+          ))
+
+          out <- compute_pairwise_cov_and_noise(level_results[["OLS"]][[outcome_name]], level_results[["Borda"]][[outcome_name]])
+          rows[[k]] <- data.frame(
+            lhs = outcome_name,
+            rhs = outcome_name,
+            subset = level_name,
+            model = "OLS_x_Borda",
+            J = out$J,
+            N1 = out$N1,
+            N2 = out$N2,
+            Ncommon = out$Ncommon,
+            covariance = out$covariance,
+            noise = out$noise,
+            covariance_njobs_weighted = out$covariance_njobs_weighted,
+            noise_njobs_weighted = out$noise_njobs_weighted,
+            stringsAsFactors = FALSE
+          )
+          k <- k + 1L
+        }
+      }
+    }
+  }
+
   cov_df <- dplyr::bind_rows(rows)
 
   write_parquet_sheet(output_dir, sheet_name, cov_df)
