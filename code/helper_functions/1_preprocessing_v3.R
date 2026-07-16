@@ -25,28 +25,12 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
   # Step 5: Create ID Map
   id_map <- data %>% select(firm_id, firm) %>% distinct()
   
-  # Step 6: Filter data to respondents with rankings for 5 firms
-  # data <- data %>%
-  #   filter(!is.na(.data[[rank_col]])) %>%
-  #   group_by(resp_id) %>%
-  #   filter(n() > 2) %>%
-  #   mutate(
-  #     min_rank = min(.data[[rank_col]], na.rm = TRUE),
-  #     max_rank = max(.data[[rank_col]], na.rm = TRUE)
-  #   ) %>%
-  #   filter(min_rank != max_rank) %>%
-  #   ungroup()
-  
+  # Step 6: Keep respondents with 3+ valid firm responses for this outcome.
   rank_sym <- rlang::sym(rank_col)
   data <- data %>%
     dplyr::filter(!is.na(!!rank_sym)) %>%
     group_by(resp_id) %>%
     dplyr::filter(n() > 2) %>%
-    dplyr::mutate(
-      min_rank = min(!!rank_sym, na.rm = TRUE),
-      max_rank = max(!!rank_sym, na.rm = TRUE)
-    ) %>%
-    dplyr::filter(min_rank != max_rank) %>%
     ungroup()
 
   # Step 7: Assign Ranks from Ratings

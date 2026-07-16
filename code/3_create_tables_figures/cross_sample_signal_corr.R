@@ -10,6 +10,48 @@
 # Run globals
 source("code/globals.R")
 
+# Load the lightweight analysis helpers needed to recompute firm estimates in
+# respondent-level bootstrap draws.
+source(file.path(analysis, "leave_in_connected.R"))
+source(file.path(analysis, "create_wide_rankings.R"))
+source(file.path(analysis, "borda_score.R"))
+
+# Number of respondent bootstrap draws used to calibrate the Wald and CMD
+# reference distributions. Set CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS=0 to
+# recover the original chi-squared p-values while testing code paths.
+cross_sample_signal_corr_bootstrap_reps <- as.integer(Sys.getenv(
+  "CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS",
+  "499"
+))
+cross_sample_signal_corr_bootstrap_seed <- as.integer(Sys.getenv(
+  "CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_SEED",
+  "123"
+))
+cross_sample_signal_corr_bootstrap_max_attempt_multiplier <- as.integer(Sys.getenv(
+  "CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_MAX_ATTEMPT_MULTIPLIER",
+  "5"
+))
+cross_sample_signal_corr_bootstrap_progress_interval <- as.integer(Sys.getenv(
+  "CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_PROGRESS_INTERVAL",
+  "25"
+))
+
+stopifnot(
+  length(cross_sample_signal_corr_bootstrap_reps) == 1,
+  !is.na(cross_sample_signal_corr_bootstrap_reps),
+  cross_sample_signal_corr_bootstrap_reps >= 0,
+  length(cross_sample_signal_corr_bootstrap_seed) == 1,
+  !is.na(cross_sample_signal_corr_bootstrap_seed),
+  length(cross_sample_signal_corr_bootstrap_max_attempt_multiplier) == 1,
+  !is.na(cross_sample_signal_corr_bootstrap_max_attempt_multiplier),
+  cross_sample_signal_corr_bootstrap_max_attempt_multiplier >= 1,
+  length(cross_sample_signal_corr_bootstrap_progress_interval) == 1,
+  !is.na(cross_sample_signal_corr_bootstrap_progress_interval),
+  cross_sample_signal_corr_bootstrap_progress_interval >= 0
+)
+
+set.seed(cross_sample_signal_corr_bootstrap_seed)
+
 # -----------------------------------------------------------------------------------------------------------------------------
 # Define the respondent splits compared in the table, each with its two file-suffix sample names and its
 # display label, in table-row order
@@ -32,6 +74,424 @@ sample_vector <- character(0)
 # Loop over each sample pair, and append the two sample names to the vector
 for (sample_pair in sample_pair_list) {
     sample_vector <- c(sample_vector, sample_pair$sample_1, sample_pair$sample_2)
+}
+
+# Map each output-subdirectory sample name to the processed-data variable used
+# to define the respondent subgroup.
+sample_definition_table <- data.frame(
+  sample = c(
+    "Black", "White",
+    "Female", "Male",
+    "Looking", "Not_Looking",
+    "Feared_Discrimination_1", "Feared_Discrimination_0",
+    "Age_gte40", "Age_lt40",
+    "College", "No_College",
+    "Convenience", "Probability",
+    "Conf_Gender_Y", "Conf_Gender_N",
+    "Conf_Race_Y", "Conf_Race_N"
+  ),
+  subset_var = c(
+    "race", "race",
+    "gender", "gender",
+    "looking_job", "looking_job",
+    "fear", "fear",
+    "age", "age",
+    "educ", "educ",
+    "sample", "sample",
+    "confidence_gend", "confidence_gend",
+    "confidence_race", "confidence_race"
+  ),
+  subset_value = c(
+    1, 0,
+    1, 0,
+    1, 0,
+    1, 0,
+    1, 0,
+    1, 0,
+    0, 1,
+    1, 0,
+    1, 0
+  ),
+  stringsAsFactors = FALSE
+)
+
+stopifnot(
+  setequal(sample_vector, sample_definition_table$sample),
+  !anyDuplicated(sample_definition_table$sample)
+)
+
+# Invert a covariance matrix only when it is numerically full rank.
+safe_solve <- function(matrix_value) {
+  matrix_value <- as.matrix(matrix_value)
+  if (qr(matrix_value)$rank < nrow(matrix_value)) return(NULL)
+  tryCatch(solve(matrix_value), error = function(e) NULL)
+}
+
+# Wald quadratic form for a supplied difference vector and covariance matrix.
+compute_wald_statistic <- function(difference_vector, covariance_matrix) {
+  covariance_inverse <- safe_solve(covariance_matrix)
+  if (is.null(covariance_inverse)) return(NA_real_)
+  as.numeric(t(difference_vector) %*% covariance_inverse %*% difference_vector)
+}
+
+# Minimum-distance fit of the perfect-correlation null, allowing an intercept
+# and positive slope between the two firm-level belief vectors.
+compute_minimum_distance_fit <- function(
+    belief_sample_1,
+    belief_sample_2,
+    robust_covariance_sample_1,
+    robust_covariance_sample_2,
+    starting_intercept_and_slope = NULL
+) {
+  weight_matrix_sample_1 <- safe_solve(robust_covariance_sample_1)
+  weight_matrix_sample_2 <- safe_solve(robust_covariance_sample_2)
+  if (is.null(weight_matrix_sample_1) || is.null(weight_matrix_sample_2)) return(NULL)
+
+  if (is.null(starting_intercept_and_slope)) {
+    starting_intercept_and_slope <- unname(coef(lm(belief_sample_1 ~ belief_sample_2)))
+  }
+  if (length(starting_intercept_and_slope) != 2 ||
+      any(!is.finite(starting_intercept_and_slope))) {
+    starting_intercept_and_slope <- c(mean(belief_sample_1) - mean(belief_sample_2), 1)
+  }
+  if (!is.finite(starting_intercept_and_slope[2]) ||
+      starting_intercept_and_slope[2] <= 0) {
+    starting_intercept_and_slope[2] <- 1
+  }
+
+  compute_distance <- function(intercept_and_slope) {
+    perfect_fit_intercept <- intercept_and_slope[1]
+    perfect_fit_slope <- intercept_and_slope[2]
+    if (!is.finite(perfect_fit_intercept) ||
+        !is.finite(perfect_fit_slope) ||
+        perfect_fit_slope <= 0) {
+      return(.Machine$double.xmax)
+    }
+
+    perfect_fit_belief_sample_2 <- tryCatch(
+      solve(
+        perfect_fit_slope^2 * weight_matrix_sample_1 + weight_matrix_sample_2,
+        perfect_fit_slope * weight_matrix_sample_1 %*%
+          (belief_sample_1 - perfect_fit_intercept) +
+          weight_matrix_sample_2 %*% belief_sample_2
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(perfect_fit_belief_sample_2)) return(.Machine$double.xmax)
+
+    perfect_fit_belief_sample_2 <- as.numeric(perfect_fit_belief_sample_2)
+    perfect_fit_belief_sample_1 <- perfect_fit_intercept +
+      perfect_fit_slope * perfect_fit_belief_sample_2
+
+    diff_sample_1 <- belief_sample_1 - perfect_fit_belief_sample_1
+    diff_sample_2 <- belief_sample_2 - perfect_fit_belief_sample_2
+
+    as.numeric(
+      t(diff_sample_1) %*% weight_matrix_sample_1 %*% diff_sample_1 +
+        t(diff_sample_2) %*% weight_matrix_sample_2 %*% diff_sample_2
+    )
+  }
+
+  fit <- optim(
+    par = starting_intercept_and_slope,
+    fn = compute_distance,
+    method = "BFGS"
+  )
+  if (fit$convergence != 0 || !is.finite(fit$value) || fit$par[2] <= 0) {
+    fit <- optim(
+      par = starting_intercept_and_slope,
+      fn = compute_distance,
+      method = "Nelder-Mead"
+    )
+  }
+  if (fit$convergence != 0 || !is.finite(fit$value) || fit$par[2] <= 0) return(NULL)
+
+  fitted_belief_sample_2 <- solve(
+    fit$par[2]^2 * weight_matrix_sample_1 + weight_matrix_sample_2,
+    fit$par[2] * weight_matrix_sample_1 %*% (belief_sample_1 - fit$par[1]) +
+      weight_matrix_sample_2 %*% belief_sample_2
+  )
+  fitted_belief_sample_2 <- as.numeric(fitted_belief_sample_2)
+  fitted_belief_sample_1 <- fit$par[1] + fit$par[2] * fitted_belief_sample_2
+
+  list(
+    statistic = as.numeric(fit$value),
+    intercept = as.numeric(fit$par[1]),
+    slope = as.numeric(fit$par[2]),
+    fitted_belief_sample_1 = fitted_belief_sample_1,
+    fitted_belief_sample_2 = fitted_belief_sample_2
+  )
+}
+
+# Build a respondent-by-firm score matrix for one subgroup, outcome, and
+# aggregation method. Bootstrap draws are then just respondent weights on this
+# fixed matrix.
+prepare_bootstrap_score_input <- function(sample_data, outcome, aggregation_method, firm_id_vector) {
+  method_without_suffix <- sub("_not_recentered$", "", aggregation_method)
+  stopifnot(method_without_suffix %in% c("OLS", "Borda"))
+
+  prep <- suppressWarnings(prepare_pltree_data(
+    data = sample_data,
+    rank_col = outcome,
+    subgroup_var = NULL,
+    subgroup_filter = NULL
+  ))
+
+  if (method_without_suffix == "OLS") {
+    scores <- prep$data_rating_long |>
+      dplyr::mutate(score = 6 - .data$rating) |>
+      dplyr::select(resp_id, firm_id, score)
+  } else {
+    scores <- compute_borda_individual_wide(
+      data_wide = prep$data_wide_pltree,
+      id_map = prep$id_map,
+      ref_firm_ids = c(38, 76, 90)
+    ) |>
+      dplyr::transmute(resp_id, firm_id, score = B)
+  }
+
+  scores <- scores |>
+    dplyr::mutate(
+      resp_id = as.character(.data$resp_id),
+      firm_id = as.integer(.data$firm_id),
+      score = as.numeric(.data$score)
+    ) |>
+    dplyr::filter(.data$firm_id %in% firm_id_vector, is.finite(.data$score))
+
+  if (anyDuplicated(scores[c("resp_id", "firm_id")])) {
+    stop("Bootstrap score input has duplicated respondent-firm scores for ",
+         outcome, " / ", aggregation_method)
+  }
+
+  respondent_ids <- sort(unique(scores$resp_id))
+  score_matrix <- matrix(
+    NA_real_,
+    nrow = length(respondent_ids),
+    ncol = length(firm_id_vector),
+    dimnames = list(respondent_ids, as.character(firm_id_vector))
+  )
+
+  score_matrix[cbind(
+    match(scores$resp_id, respondent_ids),
+    match(scores$firm_id, firm_id_vector)
+  )] <- scores$score
+
+  if (any(colSums(is.finite(score_matrix)) == 0)) {
+    stop("Bootstrap score input is missing at least one firm for ",
+         outcome, " / ", aggregation_method)
+  }
+
+  list(
+    respondent_ids = respondent_ids,
+    score_matrix = score_matrix
+  )
+}
+
+# Recompute non-recentered firm means and robust VCVs from respondent bootstrap
+# weights. This is algebraically equivalent to expanding the data by the
+# respondent resample, but much faster.
+compute_weighted_firm_mean_result <- function(bootstrap_score_input, respondent_weights) {
+  score_matrix <- bootstrap_score_input$score_matrix
+  observed_score <- is.finite(score_matrix)
+  respondent_weights <- as.numeric(respondent_weights)
+  stopifnot(length(respondent_weights) == nrow(score_matrix))
+
+  firm_weighted_counts <- colSums(observed_score * respondent_weights)
+  if (any(!is.finite(firm_weighted_counts)) || any(firm_weighted_counts <= 0)) {
+    return(NULL)
+  }
+
+  score_matrix_zero <- score_matrix
+  score_matrix_zero[!observed_score] <- 0
+
+  firm_estimates <- colSums(score_matrix_zero * respondent_weights) / firm_weighted_counts
+
+  residual_matrix <- sweep(score_matrix_zero, 2, firm_estimates, "-")
+  residual_matrix[!observed_score] <- 0
+  weighted_residual_matrix <- residual_matrix * sqrt(respondent_weights)
+
+  robust_covariance_matrix <- crossprod(weighted_residual_matrix) /
+    outer(firm_weighted_counts, firm_weighted_counts)
+
+  dimnames(robust_covariance_matrix) <- list(
+    colnames(score_matrix),
+    colnames(score_matrix)
+  )
+
+  list(
+    firm_estimates = as.numeric(firm_estimates),
+    robust_covariance_matrix = robust_covariance_matrix
+  )
+}
+
+# Cache bootstrap score inputs so each sample/outcome/method matrix is prepared
+# only once per table run.
+bootstrap_score_input_cache <- new.env(parent = emptyenv())
+
+get_bootstrap_score_input <- function(sample_name, outcome, aggregation_method, firm_id_vector) {
+  cache_key <- paste(sample_name, outcome, aggregation_method, sep = "||")
+  if (exists(cache_key, envir = bootstrap_score_input_cache, inherits = FALSE)) {
+    return(get(cache_key, envir = bootstrap_score_input_cache, inherits = FALSE))
+  }
+
+  sample_definition <- sample_definition_table |>
+    dplyr::filter(.data$sample == sample_name)
+  stopifnot(nrow(sample_definition) == 1)
+
+  sample_data <- bootstrap_survey_data |>
+    dplyr::filter(.data[[sample_definition$subset_var]] == sample_definition$subset_value)
+
+  score_input <- prepare_bootstrap_score_input(
+    sample_data = sample_data,
+    outcome = outcome,
+    aggregation_method = aggregation_method,
+    firm_id_vector = firm_id_vector
+  )
+
+  assign(cache_key, score_input, envir = bootstrap_score_input_cache)
+  score_input
+}
+
+# Bootstrap both null distributions for one table cell.
+compute_bootstrap_null_p_values <- function(
+    sample_1,
+    sample_2,
+    outcome,
+    aggregation_method,
+    observed_belief_sample_1,
+    observed_belief_sample_2,
+    observed_wald_statistic,
+    observed_cmd_statistic,
+    cmd_fitted_belief_sample_1,
+    cmd_fitted_belief_sample_2,
+    firm_id_vector,
+    bootstrap_reps,
+    max_attempt_multiplier,
+    progress_label = "",
+    progress_interval = 25L
+) {
+  if (bootstrap_reps == 0) {
+    return(list(
+      wald_p_value = NA_real_,
+      cmd_p_value = NA_real_,
+      wald_reps_used = 0L,
+      cmd_reps_used = 0L,
+      attempts = 0L
+    ))
+  }
+
+  score_input_sample_1 <- get_bootstrap_score_input(
+    sample_1, outcome, aggregation_method, firm_id_vector
+  )
+  score_input_sample_2 <- get_bootstrap_score_input(
+    sample_2, outcome, aggregation_method, firm_id_vector
+  )
+
+  null_residual_sample_1 <- observed_belief_sample_1 - cmd_fitted_belief_sample_1
+  null_residual_sample_2 <- observed_belief_sample_2 - cmd_fitted_belief_sample_2
+
+  wald_statistics <- numeric(0)
+  cmd_statistics <- numeric(0)
+  attempts <- 0L
+  max_attempts <- max(bootstrap_reps, bootstrap_reps * max_attempt_multiplier)
+  last_progress_rep <- 0L
+
+  while ((length(wald_statistics) < bootstrap_reps ||
+          length(cmd_statistics) < bootstrap_reps) &&
+         attempts < max_attempts) {
+    attempts <- attempts + 1L
+
+    weights_sample_1 <- tabulate(
+      sample.int(
+        nrow(score_input_sample_1$score_matrix),
+        size = nrow(score_input_sample_1$score_matrix),
+        replace = TRUE
+      ),
+      nbins = nrow(score_input_sample_1$score_matrix)
+    )
+    weights_sample_2 <- tabulate(
+      sample.int(
+        nrow(score_input_sample_2$score_matrix),
+        size = nrow(score_input_sample_2$score_matrix),
+        replace = TRUE
+      ),
+      nbins = nrow(score_input_sample_2$score_matrix)
+    )
+
+    bootstrap_result_sample_1 <- compute_weighted_firm_mean_result(
+      score_input_sample_1, weights_sample_1
+    )
+    bootstrap_result_sample_2 <- compute_weighted_firm_mean_result(
+      score_input_sample_2, weights_sample_2
+    )
+    if (is.null(bootstrap_result_sample_1) || is.null(bootstrap_result_sample_2)) next
+
+    if (length(wald_statistics) < bootstrap_reps) {
+      bootstrap_wald_difference <-
+        (bootstrap_result_sample_1$firm_estimates - observed_belief_sample_1) -
+        (bootstrap_result_sample_2$firm_estimates - observed_belief_sample_2)
+      bootstrap_wald_statistic <- compute_wald_statistic(
+        bootstrap_wald_difference,
+        bootstrap_result_sample_1$robust_covariance_matrix +
+          bootstrap_result_sample_2$robust_covariance_matrix
+      )
+      if (is.finite(bootstrap_wald_statistic)) {
+        wald_statistics <- c(wald_statistics, bootstrap_wald_statistic)
+      }
+    }
+
+    if (length(cmd_statistics) < bootstrap_reps) {
+      bootstrap_cmd_belief_sample_1 <-
+        bootstrap_result_sample_1$firm_estimates - null_residual_sample_1
+      bootstrap_cmd_belief_sample_2 <-
+        bootstrap_result_sample_2$firm_estimates - null_residual_sample_2
+      bootstrap_cmd_fit <- compute_minimum_distance_fit(
+        belief_sample_1 = bootstrap_cmd_belief_sample_1,
+        belief_sample_2 = bootstrap_cmd_belief_sample_2,
+        robust_covariance_sample_1 = bootstrap_result_sample_1$robust_covariance_matrix,
+        robust_covariance_sample_2 = bootstrap_result_sample_2$robust_covariance_matrix
+      )
+      if (!is.null(bootstrap_cmd_fit) && is.finite(bootstrap_cmd_fit$statistic)) {
+        cmd_statistics <- c(cmd_statistics, bootstrap_cmd_fit$statistic)
+      }
+    }
+
+    usable_reps <- min(length(wald_statistics), length(cmd_statistics))
+    should_print_progress <- progress_interval > 0 &&
+      usable_reps > last_progress_rep &&
+      (usable_reps %% progress_interval == 0 || usable_reps == bootstrap_reps)
+    if (should_print_progress) {
+      message(
+        "🎃 Bootstrap progress",
+        if (nzchar(progress_label)) paste0(" [", progress_label, "]") else "",
+        ": usable draw ", usable_reps, "/", bootstrap_reps,
+        " (attempt ", attempts, ")"
+      )
+      last_progress_rep <- usable_reps
+    }
+  }
+
+  if (length(wald_statistics) < bootstrap_reps ||
+      length(cmd_statistics) < bootstrap_reps) {
+    warning(
+      "Bootstrap completed with fewer usable draws than requested for ",
+      sample_1, " vs ", sample_2, " / ", outcome, " / ", aggregation_method,
+      ". Wald draws: ", length(wald_statistics),
+      "; CMD draws: ", length(cmd_statistics),
+      "; attempts: ", attempts,
+      call. = FALSE
+    )
+  }
+
+  list(
+    wald_p_value = (1 + sum(wald_statistics >= observed_wald_statistic)) /
+      (1 + length(wald_statistics)),
+    cmd_p_value = (1 + sum(cmd_statistics >= observed_cmd_statistic)) /
+      (1 + length(cmd_statistics)),
+    wald_reps_used = length(wald_statistics),
+    cmd_reps_used = length(cmd_statistics),
+    attempts = attempts
+  )
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -134,6 +594,22 @@ firm_id_vector <- sort(unique(aggregated_sample_beliefs$firm_id))
 
 # Should be the 164 firms
 stopifnot(length(firm_id_vector) == 164)
+
+if (cross_sample_signal_corr_bootstrap_reps > 0) {
+  bootstrap_survey_path <- file.path(processed, "long_survey_final.csv")
+  if (!file.exists(bootstrap_survey_path)) {
+    stop("Cannot run cross-sample bootstrap because processed data is missing: ",
+         bootstrap_survey_path)
+  }
+  bootstrap_survey_data <- read.csv(bootstrap_survey_path, stringsAsFactors = FALSE)
+  message(
+    "🎃 Cross-sample signal-correlation bootstrap reps: ",
+    cross_sample_signal_corr_bootstrap_reps
+  )
+} else {
+  bootstrap_survey_data <- NULL
+  message("🎃 Cross-sample signal-correlation bootstrap disabled; using chi-squared p-values.")
+}
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # For each split, aggregation method, and belief measure, compute the debiased signal correlation, the Wald
@@ -256,85 +732,88 @@ for (sample_pair in sample_pair_list) {
             # Summed robust covariance under independence of the two samples
             summed_robust_covariance_matrix <- robust_covariance_matrix_by_subsample[[sample_pair$sample_1]] + robust_covariance_matrix_by_subsample[[sample_pair$sample_2]]
 
-            # Require the summed covariance to be full rank so the Wald statistic has J degrees of freedom
-            stopifnot(qr(summed_robust_covariance_matrix)$rank == length(firm_id_vector))
-
-            # Wald statistic, chi-square with J degrees of freedom
-            wald_statistic <- as.numeric(t(belief_difference) %*% solve(summed_robust_covariance_matrix) %*% belief_difference)
+            # Wald statistic and the original large-sample chi-squared p-value
+            wald_statistic <- compute_wald_statistic(
+              belief_difference,
+              summed_robust_covariance_matrix
+            )
+            stopifnot(is.finite(wald_statistic))
             wald_degrees_of_freedom <- length(firm_id_vector)
-            wald_p_value <- pchisq(wald_statistic, df = wald_degrees_of_freedom, lower.tail = FALSE)
+            wald_p_value_chisq <- pchisq(wald_statistic, df = wald_degrees_of_freedom, lower.tail = FALSE)
 
             #### Classical minimum distance test of perfect correlation
-            # Require each subsample's robust covariance to be full rank so its inverse is a valid minimum distance weight matrix
-            stopifnot(qr(robust_covariance_matrix_by_subsample[[sample_pair$sample_1]])$rank == length(firm_id_vector))
-            stopifnot(qr(robust_covariance_matrix_by_subsample[[sample_pair$sample_2]])$rank == length(firm_id_vector))
-
-            # Compute minimum distance weight matrix for each subsample --- inverse of the robust covariance
-            minimum_distance_weight_matrix_sample_1 <- solve(robust_covariance_matrix_by_subsample[[sample_pair$sample_1]])
-            minimum_distance_weight_matrix_sample_2 <- solve(robust_covariance_matrix_by_subsample[[sample_pair$sample_2]])
-
-            # Run and store OLS intercept and slope to initialize the minimum distance search
-            minimum_distance_starting_intercept_and_slope <- coef(lm(belief_vector_by_subsample[[sample_pair$sample_1]] ~ belief_vector_by_subsample[[sample_pair$sample_2]]))
-
-            # Remove names from the starting intercept and slope
-            minimum_distance_starting_intercept_and_slope <- unname(minimum_distance_starting_intercept_and_slope)
-            
-            # Define a function that computes distance between observed beliefs and perfect-fit beliefs for a trial intercept and slope
-            compute_observed_to_perfect_fit_belief_distance <- function(intercept_and_slope) {
-              # Assign the intercept 
-              perfect_fit_intercept <- intercept_and_slope[1]
-              
-              # Assign the slope
-              perfect_fit_slope <- intercept_and_slope[2]
-
-              # Estimate latent sample_2 beliefs conditional on the trial intercept and slope
-              perfect_fit_belief_sample_2 <- solve(perfect_fit_slope^2 * minimum_distance_weight_matrix_sample_1 +
-              minimum_distance_weight_matrix_sample_2) %*% (
-                perfect_fit_slope * minimum_distance_weight_matrix_sample_1 %*%
-                (belief_vector_by_subsample[[sample_pair$sample_1]] - perfect_fit_intercept) +
-                minimum_distance_weight_matrix_sample_2 %*% belief_vector_by_subsample[[sample_pair$sample_2]]
-              )
-
-              # Convert one-column matrix to a vector
-              perfect_fit_belief_sample_2 <- as.numeric(perfect_fit_belief_sample_2)
-
-              # Estimate latent sample_1 beliefs implied by the trial intercept and slope
-              perfect_fit_belief_sample_1 <- perfect_fit_intercept + perfect_fit_slope * perfect_fit_belief_sample_2
-
-              # Compute the difference between observed and estimated sample_1 beliefs
-              diff_observed_perfect_fit_belief_sample_1 <- belief_vector_by_subsample[[sample_pair$sample_1]] - perfect_fit_belief_sample_1
-
-              # Compute the difference between observed and estimated sample_2 beliefs
-              diff_observed_perfect_fit_belief_sample_2 <- belief_vector_by_subsample[[sample_pair$sample_2]] - perfect_fit_belief_sample_2
-
-              # Store the minimum distance criterion value for the trial intercept and slope
-              as.numeric(
-                t(diff_observed_perfect_fit_belief_sample_1) %*% minimum_distance_weight_matrix_sample_1 %*% diff_observed_perfect_fit_belief_sample_1 +
-                t(diff_observed_perfect_fit_belief_sample_2) %*% minimum_distance_weight_matrix_sample_2 %*% diff_observed_perfect_fit_belief_sample_2
-              )
-            }
-
-            # Estimate the perfect-fit line by minimizing observed-to-perfect-fit belief distance
-            minimum_distance_perfect_fit_intercept_and_slope <- optim(
-              par = minimum_distance_starting_intercept_and_slope,
-              fn = compute_observed_to_perfect_fit_belief_distance,
-              method = "BFGS"
+            minimum_distance_fit <- compute_minimum_distance_fit(
+              belief_sample_1 = belief_vector_by_subsample[[sample_pair$sample_1]],
+              belief_sample_2 = belief_vector_by_subsample[[sample_pair$sample_2]],
+              robust_covariance_sample_1 = robust_covariance_matrix_by_subsample[[sample_pair$sample_1]],
+              robust_covariance_sample_2 = robust_covariance_matrix_by_subsample[[sample_pair$sample_2]]
             )
-
-            # Require the minimization to have converged
-            stopifnot(minimum_distance_perfect_fit_intercept_and_slope$convergence == 0)
-
-            # Require a positive fitted slope, so the perfect-fit line tests rho = +1 rather than rho = -1
-            stopifnot(minimum_distance_perfect_fit_intercept_and_slope$par[2] > 0)
+            stopifnot(!is.null(minimum_distance_fit))
 
             # Store the minimum observed-to-perfect-fit belief distance
-            minimum_distance_statistic <- minimum_distance_perfect_fit_intercept_and_slope$value
+            minimum_distance_statistic <- minimum_distance_fit$statistic
 
-            # Store degrees of freedom for the perfect-correlation test
+            # Store degrees of freedom for the original chi-squared perfect-correlation test
             minimum_distance_degrees_of_freedom <- length(firm_id_vector) - 2
 
-            # Compute p-value for the perfect-correlation test
-            minimum_distance_p_value <- pchisq(minimum_distance_statistic, df = minimum_distance_degrees_of_freedom, lower.tail = FALSE)
+            # Original large-sample chi-squared p-value for the perfect-correlation test
+            minimum_distance_p_value_chisq <- pchisq(
+              minimum_distance_statistic,
+              df = minimum_distance_degrees_of_freedom,
+              lower.tail = FALSE
+            )
+
+            #### Minimum distance scatterplot data
+            # Store the minimum distance intercept and slope
+            minimum_distance_intercept <- minimum_distance_fit$intercept
+            minimum_distance_slope <- minimum_distance_fit$slope
+
+            # Back out the sample beliefs implied by the final minimum distance intercept and slope
+            minimum_distance_implied_belief_sample_1 <- minimum_distance_fit$fitted_belief_sample_1
+            minimum_distance_implied_belief_sample_2 <- minimum_distance_fit$fitted_belief_sample_2
+
+            #### Bootstrap null p-values
+            if (cross_sample_signal_corr_bootstrap_reps > 0) {
+              message(
+                "🎃 Bootstrapping Table 4 cell: ",
+                sample_pair$row_label, " / ",
+                aggregation_method_value, " / ",
+                belief_measure_value
+              )
+            }
+            bootstrap_p_values <- compute_bootstrap_null_p_values(
+              sample_1 = sample_pair$sample_1,
+              sample_2 = sample_pair$sample_2,
+              outcome = belief_measure_value,
+              aggregation_method = aggregation_method_value,
+              observed_belief_sample_1 = belief_vector_by_subsample[[sample_pair$sample_1]],
+              observed_belief_sample_2 = belief_vector_by_subsample[[sample_pair$sample_2]],
+              observed_wald_statistic = wald_statistic,
+              observed_cmd_statistic = minimum_distance_statistic,
+              cmd_fitted_belief_sample_1 = minimum_distance_implied_belief_sample_1,
+              cmd_fitted_belief_sample_2 = minimum_distance_implied_belief_sample_2,
+              firm_id_vector = firm_id_vector,
+              bootstrap_reps = cross_sample_signal_corr_bootstrap_reps,
+              max_attempt_multiplier = cross_sample_signal_corr_bootstrap_max_attempt_multiplier,
+              progress_label = paste(
+                sample_pair$row_label,
+                aggregation_method_value,
+                belief_measure_value,
+                sep = " / "
+              ),
+              progress_interval = cross_sample_signal_corr_bootstrap_progress_interval
+            )
+
+            wald_p_value <- if (is.finite(bootstrap_p_values$wald_p_value)) {
+              bootstrap_p_values$wald_p_value
+            } else {
+              wald_p_value_chisq
+            }
+            minimum_distance_p_value <- if (is.finite(bootstrap_p_values$cmd_p_value)) {
+              bootstrap_p_values$cmd_p_value
+            } else {
+              minimum_distance_p_value_chisq
+            }
 
             # Append this cell's cross sample correlation results
             aggregated_correlation_results <- rbind(aggregated_correlation_results, data.frame(
@@ -342,30 +821,21 @@ for (sample_pair in sample_pair_list) {
               aggregation_method = tolower(aggregation_method_value),
               belief_measure = belief_measure_value,
               signal_correlation = signal_correlation,
+              wald_statistic = wald_statistic,
+              wald_degrees_of_freedom = wald_degrees_of_freedom,
+              wald_p_value_chisq = wald_p_value_chisq,
+              wald_p_value_bootstrap = bootstrap_p_values$wald_p_value,
               wald_p_value = wald_p_value,
-              minimum_distance_p_value = minimum_distance_p_value
+              minimum_distance_statistic = minimum_distance_statistic,
+              minimum_distance_degrees_of_freedom = minimum_distance_degrees_of_freedom,
+              minimum_distance_p_value_chisq = minimum_distance_p_value_chisq,
+              minimum_distance_p_value_bootstrap = bootstrap_p_values$cmd_p_value,
+              minimum_distance_p_value = minimum_distance_p_value,
+              bootstrap_reps_requested = cross_sample_signal_corr_bootstrap_reps,
+              wald_bootstrap_reps_used = bootstrap_p_values$wald_reps_used,
+              minimum_distance_bootstrap_reps_used = bootstrap_p_values$cmd_reps_used,
+              bootstrap_attempts = bootstrap_p_values$attempts
             ))
-
-            #### Minimum distance scatterplot data
-            # Store the minimum distance intercept
-            minimum_distance_intercept <- minimum_distance_perfect_fit_intercept_and_slope$par[1]
-
-            # Store the minimum distance slope
-            minimum_distance_slope <- minimum_distance_perfect_fit_intercept_and_slope$par[2]
-
-            # Back out sample_2 beliefs implied by the final minimum distance intercept and slope
-            minimum_distance_implied_belief_sample_2 <- solve(minimum_distance_slope^2 * minimum_distance_weight_matrix_sample_1 +
-            minimum_distance_weight_matrix_sample_2) %*% (
-              minimum_distance_slope * minimum_distance_weight_matrix_sample_1 %*%
-              (belief_vector_by_subsample[[sample_pair$sample_1]] - minimum_distance_intercept) +
-              minimum_distance_weight_matrix_sample_2 %*% belief_vector_by_subsample[[sample_pair$sample_2]]
-            )
-
-            # Convert one-column matrix to a vector
-            minimum_distance_implied_belief_sample_2 <- as.numeric(minimum_distance_implied_belief_sample_2)
-
-            # Back out sample_1 beliefs implied by the final minimum distance intercept and slope
-            minimum_distance_implied_belief_sample_1 <- minimum_distance_intercept + minimum_distance_slope * minimum_distance_implied_belief_sample_2
 
             # Append this cell's observed beliefs and minimum-distance estimates
             minimum_distance_observed_belief_data <- rbind(minimum_distance_observed_belief_data, data.frame(
@@ -422,11 +892,20 @@ number_of_firms_in_table <- unique(number_of_firms_by_sample_cell$number_of_firm
 # There should be a single number of firms across all table cells
 stopifnot(length(number_of_firms_in_table) == 1)
 
+# Save diagnostics with both the original chi-squared p-values and the
+# bootstrap-calibrated p-values used in the LaTeX table.
+write.csv(
+  aggregated_correlation_results,
+  file.path(tables, "cross_sample_signal_corr_ols_borda_not_recentered.csv"),
+  row.names = FALSE
+)
+
 # -----------------------------------------------------------------------------------------------------------------------------
 # Build and write the cross-sample correlation table, with an OLS/Likert panel and a Borda panel
 # -----------------------------------------------------------------------------------------------------------------------------
 # Format a p-value to three decimals, printing values below 0.001 as $<$0.001
 format_p_value <- function(p_value) {
+  if (is.na(p_value) || !is.finite(p_value)) return("")
   if (p_value < 0.001) "$<$0.001" else formatC(p_value, digits = 3, format = "f")
 }
 
@@ -437,8 +916,8 @@ latex_lines <- c(
     "    \\toprule",
     "    & \\multicolumn{3}{c}{Discrimination Black (Pooled)} & \\multicolumn{3}{c}{Discrimination Female (Pooled)} \\\\",
     "    \\cmidrule(lr){2-4} \\cmidrule(lr){5-7}",
-    "    & Corr & Wald p-value & CMD p-value & Corr & Wald p-value & CMD p-value \\\\",
-    "    & & $H_0: \\theta_1 = \\theta_2$ & $H_0: \\rho = 1$ & & $H_0: \\theta_1 = \\theta_2$ & $H_0: \\rho = 1$ \\\\",
+    "    & Corr & CMD p-value & Wald p-value & Corr & CMD p-value & Wald p-value \\\\",
+    "    & & $H_0: \\rho = 1$ & $H_0: \\theta_1 = \\theta_2$ & & $H_0: \\rho = 1$ & $H_0: \\theta_1 = \\theta_2$ \\\\",
     "    \\midrule"
 )
 
@@ -469,7 +948,7 @@ for (panel in list(list(aggregation_method = "ols_not_recentered", panel_label =
         stopifnot(nrow(gender_results) == 1)
 
         # Table row: split label, race correlation and p-values, gender correlation and p-values
-        latex_lines <- c(latex_lines, paste0("    ", sample_pair$row_label, " & ", formatC(race_results$signal_correlation, digits = 3, format = "f"), " & ", format_p_value(race_results$wald_p_value), " & ", format_p_value(race_results$minimum_distance_p_value), " & ", formatC(gender_results$signal_correlation, digits = 3, format = "f"), " & ", format_p_value(gender_results$wald_p_value), " & ", format_p_value(gender_results$minimum_distance_p_value), " \\\\"))
+        latex_lines <- c(latex_lines, paste0("    ", sample_pair$row_label, " & ", formatC(race_results$signal_correlation, digits = 3, format = "f"), " & ", format_p_value(race_results$minimum_distance_p_value), " & ", format_p_value(race_results$wald_p_value), " & ", formatC(gender_results$signal_correlation, digits = 3, format = "f"), " & ", format_p_value(gender_results$minimum_distance_p_value), " & ", format_p_value(gender_results$wald_p_value), " \\\\"))
     }
 }
 

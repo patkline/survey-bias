@@ -412,15 +412,7 @@ dflong['FirmHire_favor_male'] = np.where(
 # ------------------------------------------------------------------
 # Conduct variables
 # ------------------------------------------------------------------
-dflong['conduct_favor_white'] = np.where(
-    dflong['conduct_black'].isin([1,2,3,4,5]),
-    dflong['conduct_black'],
-    np.where(
-        dflong['conduct_white'].isin([1,2,3,4,5]),
-        6 - dflong['conduct_white'],
-        dflong['conduct_white']
-    )
-)
+dflong['conduct_favor_white'] = dflong['conduct_black']
 
 dflong['conduct_favor_male'] = np.where(
     dflong['conduct_female'].isin([1,2,3,4,5]),

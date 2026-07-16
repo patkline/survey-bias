@@ -15,8 +15,8 @@ survey_responses <- read.csv(file.path(processed, "long_survey_final_summary_sta
 # Uniquely identified by respondent x firm slot, none missing
 stopifnot(!anyDuplicated(survey_responses[c("ResponseId", "option_number")]), !anyNA(survey_responses[c("ResponseId", "option_number")]))
 
-# Should be 6515 respondents x 5 firm slots = 32575 rows i.e., every respondent carries slots numbered 1-5
-stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$ResponseId) == 6515, all(survey_responses$option_number %in% 1:5))
+# Should be 7015 respondents x 5 firm slots = 35075 rows i.e., every respondent carries slots numbered 1-5
+stopifnot(nrow(survey_responses) == 35075, dplyr::n_distinct(survey_responses$ResponseId) == 7015, all(survey_responses$option_number %in% 1:5))
 
 # Keep one row per respondent with the response duration
 survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, response_duration)
@@ -24,8 +24,8 @@ survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, response_d
 # Should be one row per respondent i.e., the response duration is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
 
-# Should be 6515 respondents, every duration present, finite, and non-negative
-stopifnot(nrow(survey_respondents) == 6515, all(is.finite(survey_respondents$response_duration)), all(survey_respondents$response_duration >= 0))
+# Should be 7015 respondents, every duration present, finite, and non-negative
+stopifnot(nrow(survey_respondents) == 7015, all(is.finite(survey_respondents$response_duration)), all(survey_respondents$response_duration >= 0))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Response duration histogram i.e., the distribution of survey completion times

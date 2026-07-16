@@ -32,9 +32,10 @@ build_correlation_from_varcov <- function(
   
   var_keep <- var_df |>
     dplyr::select(dplyr::all_of(c(subset_col, model_col, outcome_col, variance_col, signal_col)))
-  
+
   # Join variance/signal for lhs
-  out <- cov_df |>
+  within_model_out <- cov_df |>
+    dplyr::filter(.data[[model_col]] != "OLS_x_Borda") |>
     dplyr::left_join(
       var_keep |>
         dplyr::rename(
@@ -54,6 +55,39 @@ build_correlation_from_varcov <- function(
         ),
       by = c(subset_col, model_col, rhs_col)
     )
+
+  # Cross-model rows pair the OLS and Borda estimates of one outcome
+  cross_model_out <- cov_df |>
+    dplyr::filter(.data[[model_col]] == "OLS_x_Borda") |>
+    # Join OLS variance/signal for lhs
+    dplyr::left_join(
+      var_keep |>
+        dplyr::filter(.data[[model_col]] == "OLS") |>
+        dplyr::select(-dplyr::all_of(model_col)) |>
+        dplyr::rename(
+          lhs       = !!rlang::sym(outcome_col),
+          variance1 = !!rlang::sym(variance_col),
+          signal1   = !!rlang::sym(signal_col)
+        ),
+      by = c(subset_col, lhs_col)
+    ) |>
+    # Join Borda variance/signal for rhs
+    dplyr::left_join(
+      var_keep |>
+        dplyr::filter(.data[[model_col]] == "Borda") |>
+        dplyr::select(-dplyr::all_of(model_col)) |>
+        dplyr::rename(
+          rhs       = !!rlang::sym(outcome_col),
+          variance2 = !!rlang::sym(variance_col),
+          signal2   = !!rlang::sym(signal_col)
+        ),
+      by = c(subset_col, rhs_col)
+    )
+
+  out <- dplyr::bind_rows(within_model_out, cross_model_out)
+
+  # Every covariance row must survive the model split and the joins exactly once
+  stopifnot(nrow(out) == nrow(cov_df))
   
   out |>
     dplyr::mutate(
