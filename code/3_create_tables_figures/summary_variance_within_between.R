@@ -5,7 +5,9 @@
 #   1) "unweighted": full firm sample. Reads the `variance` parquet
 #      sheet at subset == "all" for the *_dm (within) and *_im
 #      (between) outcomes (deviations / means computed with equal
-#      weights across firms). No further reweighting.
+#      weights across firms). The between-industry variance components
+#      weight each industry by its number of underlying firms so they
+#      decompose the full firm-level variance.
 #   2) "njobs_weighted": selected firm sample (firms with valid
 #      njobs). Reads subset == "subset97" for *_dm_w / *_im_w
 #      outcomes, then reweights variance / noise / Vhat / signal /
@@ -92,27 +94,37 @@ write_variance_within_between <- function(dir_path,
     return(invisible(NULL))
   }
 
-  # ---- njobs reweighting using the rcov sheet (weighted variant only) ----
-  if (variant == "njobs_weighted") {
+  # Reweight the between-industry rows so each industry receives weight equal
+  # to the number of underlying firms. For the unweighted table, njobs on an
+  # *_im industry row stores that firm count (set in make_industry_means.R).
+  # The njobs-weighted table continues to use job counts for both panels.
+  if (variant %in% c("unweighted", "njobs_weighted")) {
     coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
                         error = function(e) NULL)
     rcov_df <- tryCatch(read_parquet_sheet(dir_path, "rcov"),
                         error = function(e) NULL)
+    if (is.null(coef_df) || is.null(rcov_df)) {
+      stop("Firm-weighted within/between table requires Coefficients and rcov sheets.")
+    }
 
     if (!is.null(coef_df) && !is.null(rcov_df)) {
-      dm_w_outcomes <- paste0(outcomes, suffix_dm)
-      im_w_outcomes <- paste0(outcomes, suffix_im)
+      dm_outcomes <- paste0(outcomes, suffix_dm)
+      im_outcomes <- paste0(outcomes, suffix_im)
 
       for (i in seq_len(nrow(var_df))) {
         mdl <- var_df$model[i]
         out <- var_df$outcome[i]
 
-        etype <- if (out %in% dm_w_outcomes) "Firm"
-                 else if (out %in% im_w_outcomes) "Industry"
+        # In the unweighted table, retain the ordinary firm-level calculation
+        # for Panel A and reweight only Panel B by industry firm counts.
+        if (variant == "unweighted" && !out %in% im_outcomes) next
+
+        etype <- if (out %in% dm_outcomes) "Firm"
+                 else if (out %in% im_outcomes) "Industry"
                  else next
 
         ent_rows <- coef_df %>%
-          dplyr::filter(.data$subset == "subset97",
+          dplyr::filter(.data$subset == subset_keep,
                         .data$entity_type == etype,
                         .data$model == mdl,
                         .data$outcome == out) %>%
@@ -121,18 +133,24 @@ write_variance_within_between <- function(dir_path,
                         entity_id = as.integer(entity_id)) %>%
           dplyr::arrange(entity_id)
 
-        if (nrow(ent_rows) == 0 || all(is.na(ent_rows$njobs))) next
+        if (nrow(ent_rows) == 0 || all(is.na(ent_rows$njobs))) {
+          stop(sprintf("No usable weights for model=%s outcome=%s subset=%s",
+                       mdl, out, subset_keep))
+        }
 
         ok <- is.finite(ent_rows$njobs) & ent_rows$njobs > 0
         ent_rows <- ent_rows[ok, , drop = FALSE]
-        if (nrow(ent_rows) < 2L) next
+        if (nrow(ent_rows) < 2L) {
+          stop(sprintf("Fewer than 2 weighted entities for model=%s outcome=%s",
+                       mdl, out))
+        }
 
         ids  <- ent_rows$entity_id
         beta <- ent_rows$estimate
         w    <- ent_rows$njobs / sum(ent_rows$njobs)
 
         rcov_sub <- rcov_df %>%
-          dplyr::filter(.data$subset == "subset97",
+          dplyr::filter(.data$subset == subset_keep,
                         .data$model == mdl,
                         .data$outcome == out,
                         .data$entity_id_i %in% ids,
@@ -148,10 +166,13 @@ write_variance_within_between <- function(dir_path,
         Sigma[cbind(match(rcov_sub$entity_id_i, ids),
                     match(rcov_sub$entity_id_j, ids))] <- as.numeric(rcov_sub$rcov)
 
-        wb <- w * beta
+        # Center at the weighted mean. For *_im this makes the statistic the
+        # between component of the corresponding firm-level variance.
+        beta_c <- beta - sum(w * beta)
+        wb <- w * beta_c
         DSigmaD <- (w %o% w) * Sigma
 
-        var_df$variance[i]   <- sum(w * beta^2, na.rm = TRUE)
+        var_df$variance[i]   <- sum(w * beta_c^2, na.rm = TRUE)
         var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE)
         var_df$sigma2_hat[i] <- var_df$variance[i] - var_df$noise[i]
         var_df$Vhat[i]       <- 4 * as.numeric(t(wb) %*% Sigma %*% wb) -
@@ -167,8 +188,7 @@ write_variance_within_between <- function(dir_path,
   }
 
   # ---- Build per-model column blocks (uses `models` from config) ----
-  display_order <- c("PL", "Borda", "OL", "OLS", "OLSC")
-  present_models <- intersect(display_order, models)
+  present_models <- intersect(summary_model_display_order, models)
   if (!length(present_models)) {
     message("No recognized models in `models` config: ",
             paste(models, collapse = ", "))
@@ -341,7 +361,8 @@ write_variance_within_between <- function(dir_path,
   invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
 }
 
-# Unweighted (full firm sample, _dm / _im outcomes at subset == "all")
+# Full firm sample: unweighted firm residuals in Panel A and industry means
+# weighted by their firm counts in Panel B.
 write_variance_within_between(
   dir_path      = dir_path,
   outcomes      = outs,

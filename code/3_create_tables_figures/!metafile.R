@@ -90,6 +90,7 @@ source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 # Variance table scripts
 source(file.path(create_tables_figures, "summary_variance_table.R"))
 source(file.path(create_tables_figures, "summary_variance_within_between.R"))
+source(file.path(create_tables_figures, "firm_average_likert_histograms.R"))
 
 # ------------------------------------------------------------------------------
 # Firm and industry rating figures
@@ -138,6 +139,9 @@ source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix
 # source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
 source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
+
+# NAICS3 belief-share regressions
+source(file.path(create_tables_figures, "naics3_beliefs_on_eeo1_shares_table.R"))
 
 # ------------------------------------------------------------------------------
 # EIV figures
