@@ -23,13 +23,6 @@ user <- tolower(Sys.info()[["user"]])
 # Assign Dropbox root for current user
 dropbox_survey_bias_root <- unname(dropbox_roots_by_user[user])
 
-# Branch-specific Dropbox data/output sandbox. This folder lives inside the
-# canonical mirror so runs on this branch cannot overwrite existing outputs.
-dropbox_data_output_mirror_relative_path <- file.path(
-  "github_data_and_output_mirrors",
-  "github_data_and_output_mirrors_loosen_sample_filters"
-)
-
 # ------------------------------------------------------------------------------
 # Define project paths (no need to modify these)
 # ------------------------------------------------------------------------------
@@ -80,10 +73,7 @@ if (data_and_output_storage_location == "github") {
   }
 
   # Path to the data and output mirror on Dropbox
-  db_survey_bias_data_and_output_mirror <- file.path(
-    dropbox_survey_bias_root,
-    dropbox_data_output_mirror_relative_path
-  )
+  db_survey_bias_data_and_output_mirror <- file.path(dropbox_survey_bias_root, "github_data_and_output_mirrors")
 
   # Data and output paths on Dropbox mirror
   data <- file.path(db_survey_bias_data_and_output_mirror, "data")
