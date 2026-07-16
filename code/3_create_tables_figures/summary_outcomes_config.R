@@ -10,11 +10,11 @@ dir_path <- file.path(intermediate, "Full_Sample")
 
 # -------------------------------------------------------------------
 # Models the summary scripts emit columns / plots for.
-# Mirrors the convention in cross_model_corr.R. Adding "PL" (or "OL",
-# "OLSC") here is the single switch that turns those models back on
-# across every summary script.
 # -------------------------------------------------------------------
 models <- c("Borda", "OLS")
+
+# Canonical left-to-right model order for all summary variance tables.
+summary_model_display_order <- c("OLS", "Borda")
 
 # Standard outcomes set
 outs <- c(
@@ -37,6 +37,20 @@ label_mapping <- c(
   "FirmCont_favor_white"  = "Discrimination Black (Contact)",
   "pooled_favor_white"    = "Discrimination Black (Pooled)",
   "pooled_favor_male"     = "Discrimination Female (Pooled)"
+)
+
+# Add outcome group headers
+standard_outcome_groups <- list(
+  Race = c(
+    "conduct_favor_white", "FirmCont_favor_white",
+    "FirmHire_favor_white", "pooled_favor_white"
+  ),
+  Gender = c(
+    "conduct_favor_male", "FirmCont_favor_male",
+    "FirmHire_favor_male", "pooled_favor_male"
+  ),
+  Age = "conduct_favor_younger",
+  `Firm characteristics` = c("FirmDesire", "FirmSelective", "discretion")
 )
 
 # Alternate framings outcomes set (separate variance table only)

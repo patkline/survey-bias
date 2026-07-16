@@ -116,6 +116,7 @@ write_variance_table <- function(dir_path,
                                  tex_name = "variance_biascorrected.tex",
                                  latex_decimals = 3,
                                  borda_mult = 1,
+                                 outcome_groups = NULL,
                                  variant = c("unweighted", "njobs_weighted")) {
 
   variant <- match.arg(variant)
@@ -156,8 +157,7 @@ write_variance_table <- function(dir_path,
   }
 
   # Models to emit columns for (sourced from summary_outcomes_config.R)
-  display_order <- c("OLS", "Borda", "PL", "OL", "OLSC")
-  present_models <- intersect(display_order, models)
+  present_models <- intersect(summary_model_display_order, models)
   if (!length(present_models)) {
     stop("No recognized models in `models` config: ",
          paste(models, collapse = ", "))
@@ -262,17 +262,38 @@ write_variance_table <- function(dir_path,
   )
 
   tex_out_path <- file.path(tables_dir, tex_name)
-  print(
-    xt,
-    include.rownames = FALSE,
-    include.colnames = FALSE,
-    file = tex_out_path,
-    add.to.row = list(pos = list(0), command = header),
-    sanitize.text.function = identity,
-    booktabs = TRUE,
-    floating = FALSE,
-    comment = FALSE
-  )
+  if (is.null(outcome_groups)) {
+    print(
+      xt,
+      include.rownames = FALSE,
+      include.colnames = FALSE,
+      file = tex_out_path,
+      add.to.row = list(pos = list(0), command = header),
+      sanitize.text.function = identity,
+      booktabs = TRUE,
+      floating = FALSE,
+      comment = FALSE
+    )
+  } else {
+    body_lines <- grouped_summary_table_rows(
+      outcomes       = tab$outcome,
+      display_labels = tab$Outcome_display,
+      formatted_data = latex_df[, -1, drop = FALSE],
+      outcome_groups = outcome_groups
+    )
+    latex_lines <- c(
+      sprintf("\\begin{tabular}{%s}", paste(align_str[-1], collapse = "")),
+      "  \\toprule",
+      paste0(" & ", paste(hdr_groups, collapse = " & "), " \\\\"),
+      paste(cmid_parts, collapse = " "),
+      paste0("Outcome & ", paste(hdr_cols, collapse = " & "), " \\\\"),
+      " \\midrule",
+      body_lines,
+      "   \\bottomrule",
+      "\\end{tabular}"
+    )
+    writeLines(latex_lines, tex_out_path)
+  }
   cat("Variance / SD table saved:", basename(tex_out_path), "\n")
 
   invisible(list(tex = tex_out_path, data = tab))
@@ -281,7 +302,8 @@ write_variance_table <- function(dir_path,
 # Helper: emit both unweighted and njobs-weighted variants of one table.
 write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapping,
                                       tex_base,
-                                      latex_decimals = 3, borda_mult = 1) {
+                                      latex_decimals = 3, borda_mult = 1,
+                                      outcome_groups = NULL) {
   write_variance_table(
     dir_path      = dir_path,
     outcomes      = outcomes,
@@ -290,6 +312,7 @@ write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapp
     tex_name      = paste0(tex_base, ".tex"),
     latex_decimals = latex_decimals,
     borda_mult    = borda_mult,
+    outcome_groups = outcome_groups,
     variant       = "unweighted"
   )
   write_variance_table(
@@ -300,6 +323,7 @@ write_variance_table_both <- function(dir_path, outcomes, tables_dir, label_mapp
     tex_name      = paste0(tex_base, "_njobs_weighted.tex"),
     latex_decimals = latex_decimals,
     borda_mult    = borda_mult,
+    outcome_groups = outcome_groups,
     variant       = "njobs_weighted"
   )
 }
@@ -318,6 +342,46 @@ format_count <- function(x) {
   ok <- !is.na(z)
   out[ok] <- formatC(z[ok], format = "d", big.mark = ",")
   out
+}
+
+# Build grouped LaTeX rows shared by Table 3 and Table 4. The first cell is
+# indented and a small vertical gap follows every group except the last.
+grouped_summary_table_rows <- function(outcomes,
+                                       display_labels,
+                                       formatted_data,
+                                       outcome_groups) {
+  grouped_outcomes <- unname(unlist(outcome_groups, use.names = FALSE))
+  missing_outcomes <- setdiff(grouped_outcomes, outcomes)
+  extra_outcomes   <- setdiff(outcomes, grouped_outcomes)
+  if (length(missing_outcomes) || length(extra_outcomes)) {
+    stop(
+      "Grouped summary-table outcomes do not match table outcomes. Missing: ",
+      paste(missing_outcomes, collapse = ", "),
+      "; extra: ", paste(extra_outcomes, collapse = ", ")
+    )
+  }
+
+  lines <- character(0)
+  group_names <- names(outcome_groups)
+  for (g in seq_along(outcome_groups)) {
+    group_outcomes <- outcome_groups[[g]]
+    idx <- match(group_outcomes, outcomes)
+    lines <- c(lines, paste0("\\textbf{", group_names[g], "} \\\\"))
+    for (j in seq_along(idx)) {
+      i <- idx[j]
+      cells <- c(
+        paste0("\\quad ", latex_escape_text(display_labels[i])),
+        as.character(formatted_data[i, , drop = TRUE])
+      )
+      row_end <- if (j == length(idx) && g < length(outcome_groups)) {
+        " \\\\[0.5em]"
+      } else {
+        " \\\\"
+      }
+      lines <- c(lines, paste0(paste(cells, collapse = " & "), row_end))
+    }
+  }
+  lines
 }
 
 build_belief_summary_ols_borda_data <- function(dir_path,
@@ -427,32 +491,27 @@ write_belief_summary_ols_borda <- function(dir_path,
     stringsAsFactors = FALSE
   )
 
-  xt <- xtable::xtable(latex_df, align = c("l", "l", rep("c", 6)))
-  header <- paste0(
-    "  \\toprule\n",
-    "  \\toprule\n",
-    " & \\multicolumn{2}{c}{Sample} & \\multicolumn{4}{c}{Aggregate Firm Scores} \\\\\n",
-    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-7}\n",
-    " & & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\\n",
-    "\\cmidrule(lr){4-5} \\cmidrule(lr){6-7}\n",
-    "Outcome & Responses & Respondents & Mean & Average SE & Mean & Average SE \\\\\n",
-    "\\midrule\n",
-    " \\midrule\n"
-  )
-
   tex_out_path <- file.path(tables_dir, tex_name)
-  write_xtable_checked(
-    xt,
-    tex_out_path,
-    include.rownames = FALSE,
-    include.colnames = FALSE,
-    add.to.row = list(pos = list(0), command = header),
-    sanitize.text.function = identity,
-    booktabs = TRUE,
-    floating = FALSE,
-    comment = FALSE,
-    label = "belief summary LaTeX"
+  body_lines <- grouped_summary_table_rows(
+    outcomes       = tab$outcome,
+    display_labels = tab$Outcome,
+    formatted_data = latex_df[, -1, drop = FALSE],
+    outcome_groups = standard_outcome_groups
   )
+  latex_lines <- c(
+    "\\begin{tabular}{lcccccc}",
+    "  \\toprule",
+    " & \\multicolumn{2}{c}{Sample} & \\multicolumn{4}{c}{Aggregate Firm Scores} \\\\",
+    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-7}",
+    " & & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
+    "\\cmidrule(lr){4-5} \\cmidrule(lr){6-7}",
+    "Outcome & Responses & Respondents & Mean & Average SE & Mean & Average SE \\\\",
+    "\\midrule",
+    body_lines,
+    "   \\bottomrule",
+    "\\end{tabular}"
+  )
+  writeLines(latex_lines, tex_out_path)
 
   cat("Belief summary table saved:", basename(tex_out_path), "\n")
 
@@ -568,7 +627,8 @@ write_variance_table_both(
   outcomes      = outs,
   tables_dir    = tables,
   label_mapping = label_mapping,
-  tex_base      = "variance_biascorrected"
+  tex_base      = "variance_biascorrected",
+  outcome_groups = standard_outcome_groups
 )
 
 write_belief_summary_ols_borda(
