@@ -244,13 +244,13 @@ stopifnot(all(survey_respondents$gender %in% c(0, 1)), all(survey_respondents$lo
 # Stack one row per bar: the overall mean, then the means by race, sex, and job-search status
 subsample_shares <- dplyr::bind_rows(
     survey_respondents |> dplyr::summarise(subsample = "Overall", respondent_count = dplyr::n(), fear_share = mean(fear)),
-    survey_respondents |> dplyr::group_by(subsample = race_recode) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"),
+    survey_respondents |> dplyr::filter(race_recode != "Other") |> dplyr::group_by(subsample = race_recode) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"),
     survey_respondents |> dplyr::group_by(subsample = c("0" = "Male", "1" = "Female")[as.character(gender)]) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"),
     survey_respondents |> dplyr::group_by(subsample = c("0" = "Not Looking", "1" = "Looking for Job")[as.character(looking_job)]) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop")
 )
 
-# Should be 1 overall + 3 race + 2 sex + 2 job-search = 8 bars, each split's counts covering every respondent, none missing
-stopifnot(nrow(subsample_shares) == 8, sum(subsample_shares$respondent_count) == 4 * nrow(survey_respondents), !anyNA(subsample_shares))
+# Should be 1 overall + 2 race + 2 sex + 2 job-search = 7 bars; every split covers all respondents except the race pair, which drops Other
+stopifnot(nrow(subsample_shares) == 7, sum(subsample_shares$respondent_count) == 4 * nrow(survey_respondents) - sum(survey_respondents$race_recode == "Other"), !anyNA(subsample_shares))
 
 # Binomial standard error of each share
 subsample_shares <- subsample_shares |> dplyr::mutate(share_standard_error = sqrt(fear_share * (1 - fear_share) / respondent_count))
@@ -259,7 +259,7 @@ subsample_shares <- subsample_shares |> dplyr::mutate(share_standard_error = sqr
 subsample_shares <- subsample_shares |> dplyr::mutate(share_lower_bound = pmax(0, fear_share - 1.96 * share_standard_error), share_upper_bound = pmin(1, fear_share + 1.96 * share_standard_error))
 
 # Order the bars: overall, then the race, sex, and job-search segments
-subsample_shares <- subsample_shares |> dplyr::mutate(subsample = factor(subsample, levels = c("Overall", "Black", "White", "Other", "Female", "Male", "Looking for Job", "Not Looking")))
+subsample_shares <- subsample_shares |> dplyr::mutate(subsample = factor(subsample, levels = c("Overall", "Black", "White", "Female", "Male", "Looking for Job", "Not Looking")))
 
 # Define the subsample-means bar graph
 subsample_bar_graph <- ggplot(subsample_shares, aes(x = subsample, y = fear_share)) +
@@ -271,7 +271,7 @@ subsample_bar_graph <- ggplot(subsample_shares, aes(x = subsample, y = fear_shar
     geom_errorbar(aes(ymin = share_lower_bound, ymax = share_upper_bound), width = 0.15, linewidth = 0.6) +
 
     # Dashed separators between the overall, race, sex, and job-search segments; grey44 matches Stata gs7
-    geom_vline(xintercept = c(1.5, 4.5, 6.5), linetype = "dashed", color = "grey44") +
+    geom_vline(xintercept = c(1.5, 3.5, 5.5), linetype = "dashed", color = "grey44") +
 
     # Fix the share axis to 0-100%
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1), labels = scales::percent_format(accuracy = 1), expand = c(0, 0)) +
