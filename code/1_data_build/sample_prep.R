@@ -167,15 +167,13 @@ all_outcome_straightline_resp_ids <- data %>%
     .groups = "drop"
   ) %>%
   dplyr::filter(
-    n_eligible_outcomes == length(survey_vars),
-    n_straightlined_outcomes == length(survey_vars)
+    n_eligible_outcomes > 0,
+    n_straightlined_outcomes == n_eligible_outcomes
   ) %>%
   dplyr::pull(resp_id)
 
 message(
-  "Dropping respondents who straightlined all ",
-  length(survey_vars),
-  " firm-specific outcomes: ",
+  "Dropping respondents who straightlined every eligible firm-specific outcome: ",
   length(all_outcome_straightline_resp_ids)
 )
 
