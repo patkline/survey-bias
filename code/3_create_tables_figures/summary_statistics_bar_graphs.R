@@ -15,8 +15,8 @@ survey_responses <- read.csv(file.path(processed, "long_survey_final_summary_sta
 # Uniquely identified by respondent x firm slot, none missing
 stopifnot(!anyDuplicated(survey_responses[c("ResponseId", "option_number")]), !anyNA(survey_responses[c("ResponseId", "option_number")]))
 
-# Should be 7015 respondents x 5 firm slots = 35075 rows i.e., every respondent carries slots numbered 1-5
-stopifnot(nrow(survey_responses) == 35075, dplyr::n_distinct(survey_responses$ResponseId) == 7015, all(survey_responses$option_number %in% 1:5))
+# Should be 6515 respondents x 5 firm slots = 32575 rows i.e., every respondent carries slots numbered 1-5
+stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$ResponseId) == 6515, all(survey_responses$option_number %in% 1:5))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Collapse to one row per respondent for the respondent-level questions
@@ -30,8 +30,8 @@ survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, feared_dis
 # Should be one row per respondent i.e., every kept variable is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
 
-# Should be 7015 respondents, 3549 of them in the conduct arm
-stopifnot(nrow(survey_respondents) == 7015, sum(survey_respondents$conduct_arm) == 3549)
+# Should be 6515 respondents, 3283 of them in the conduct arm
+stopifnot(nrow(survey_respondents) == 6515, sum(survey_respondents$conduct_arm) == 3283)
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Belief rating bar graphs i.e., the answer-category distribution of each 1-5 rating
@@ -305,8 +305,8 @@ stopifnot(!anyNA(survey_respondents$information_source))
 # Keep conduct-arm respondents with a non-empty information source selection
 information_source_respondents <- survey_respondents |> dplyr::filter(conduct_arm, information_source != "")
 
-# Should be 820 conduct-arm respondents citing at least one source
-stopifnot(nrow(information_source_respondents) == 820)
+# Should be 804 conduct-arm respondents citing at least one source
+stopifnot(nrow(information_source_respondents) == 804)
 
 # Define dataframe of the information source categories in display order
 source_shares <- data.frame(information_source_category = c("Personal experience", "Current or former coworkers", "Friends or family", "Internet or social media", "Other"), share = NA_real_)

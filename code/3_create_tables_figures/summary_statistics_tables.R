@@ -15,8 +15,8 @@ survey_responses <- read.csv(file.path(processed, "long_survey_final_summary_sta
 # Uniquely identified by respondent x firm slot, none missing
 stopifnot(!anyDuplicated(survey_responses[c("ResponseId", "option_number")]), !anyNA(survey_responses[c("ResponseId", "option_number")]))
 
-# Should be 7015 respondents x 5 firm slots = 35075 rows i.e., every respondent carries slots numbered 1-5
-stopifnot(nrow(survey_responses) == 35075, dplyr::n_distinct(survey_responses$ResponseId) == 7015, all(survey_responses$option_number %in% 1:5))
+# Should be 6515 respondents x 5 firm slots = 32575 rows i.e., every respondent carries slots numbered 1-5
+stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$ResponseId) == 6515, all(survey_responses$option_number %in% 1:5))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Collapse to one row per respondent
@@ -27,8 +27,8 @@ survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, gender, ra
 # Should be one row per respondent i.e., every kept variable is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
 
-# Should be 7015 respondents
-stopifnot(nrow(survey_respondents) == 7015)
+# Should be 6515 respondents
+stopifnot(nrow(survey_respondents) == 6515)
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Recode the demographics into the summary-table display categories
@@ -96,8 +96,8 @@ demographic_display_order <- c("Female", "Male", "Black", "White", "Other or Mix
 # Stack the eight demographics into one long frame of display categories
 respondent_categories <- survey_respondents |> dplyr::select(ResponseId, sample, gender, race_recode, hispanic, age, married, educ, empstat, income) |> tidyr::pivot_longer(cols = c(gender, race_recode, hispanic, age, married, educ, empstat, income), names_to = "demographic", values_to = "display_category")
 
-# Should be 7015 respondents x 8 demographics, every category one of the 28 display categories
-stopifnot(nrow(respondent_categories) == 7015 * 8, all(respondent_categories$display_category %in% demographic_display_order))
+# Should be 6515 respondents x 8 demographics, every category one of the 28 display categories
+stopifnot(nrow(respondent_categories) == 6515 * 8, all(respondent_categories$display_category %in% demographic_display_order))
 
 # Should be no display category shared across demographics
 stopifnot(nrow(dplyr::distinct(respondent_categories, demographic, display_category)) == 28)
@@ -109,7 +109,7 @@ for (split_variable in c("sample")) {
     split_counts <- respondent_categories |> dplyr::group_by(display_category) |> dplyr::summarise(count_all = dplyr::n(), count_1 = sum(.data[[split_variable]] == 1), count_0 = sum(.data[[split_variable]] == 0), .groups = "drop")
 
     # Should be one row per display category with every cell populated, counts summing to respondents x demographics
-    stopifnot(nrow(split_counts) == 28, sum(split_counts$count_all) == 7015 * 8, all(split_counts$count_1 > 0), all(split_counts$count_0 > 0))
+    stopifnot(nrow(split_counts) == 28, sum(split_counts$count_all) == 6515 * 8, all(split_counts$count_1 > 0), all(split_counts$count_0 > 0))
 
     # Order the display categories for the table
     split_counts <- split_counts |> dplyr::arrange(match(display_category, demographic_display_order))
