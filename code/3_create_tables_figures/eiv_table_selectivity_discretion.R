@@ -120,60 +120,147 @@ write_lines_checked(tex_code_table8, out_tex_table8, label = "EIV LaTeX table")
 message("✓ LaTeX Table 8 saved to: ", out_tex_table8)
 
 # ------------------------------------------------------------------------------
-# Build extended Table 8 with race_sq and gender_sq columns:
-#   EIV_univariate_wt_ols_borda_w_gender_sq.tex
-# Adds Squared / Squared+FE columns for both race and gender rows
+# Build Table: EIV_univariate_wt_ols_borda_w_gender_sq.tex
+# Purpose: Selectivity / Discretion univariate regressions, Likert and Borda
+# side by side, one panel for Race and one panel for Gender, coefficient over
+# standard error --- matching the regression-table layout used in
+# eiv_eeo1_share_tables.R's write_selectivity_controls_table(). No squared
+# regressors (kept the original output filename since it's what's referenced
+# downstream; flag if you'd like it renamed to drop the now-inaccurate "sq").
 # ------------------------------------------------------------------------------
 
-# Build squared-spec rows
-build_sq_row <- function(lhs, model_filter) {
-  build_table8_row(list(root = root_dir, lhs = lhs, model_filter = model_filter))
+reg8_n_cols <- 4L  # Likert (No FE, Industry FE), Borda (No FE, Industry FE)
+
+reg8_fmt3 <- function(x) {
+  ifelse(is.na(x), "", sprintf("%.3f", as.numeric(x)))
 }
 
-df_ls_race_sq      <- build_sq_row("log_dif_sq",        "OLS")
-df_ls_gender_sq    <- build_sq_row("log_dif_gender_sq", "OLS")
-df_borda_race_sq   <- build_sq_row("log_dif_sq",        "Borda")
-df_borda_gender_sq <- build_sq_row("log_dif_gender_sq", "Borda")
-
-# Assemble panel: each row gets its own squared columns
-assemble_sq_panel <- function(race, gender, race_sq, gender_sq) {
-  race_lines <- paste0(
-    "    ", race$Regressor, " & ",
-    race$`Separate Models`, " & ", race$`Separate Models (Industry FEs)`, " & ",
-    race_sq$`Separate Models`, " & ", race_sq$`Separate Models (Industry FEs)`, " \\\\"
-  )
-  gender_lines <- paste0(
-    "    ", gender$Regressor, " & ",
-    gender$`Separate Models`, " & ", gender$`Separate Models (Industry FEs)`, " & ",
-    gender_sq$`Separate Models`, " & ", gender_sq$`Separate Models (Industry FEs)`, " \\\\"
-  )
-  list(race = race_lines, gender = gender_lines)
+reg8_fmt_se <- function(x) {
+  x <- as.numeric(x)
+  if (any(x < -sqrt(.Machine$double.eps), na.rm = TRUE)) {
+    stop("Negative standard error found in EIV table inputs.", call. = FALSE)
+  }
+  ifelse(is.na(x), "", paste0("(", sprintf("%.3f", abs(x)), ")"))
 }
 
-ls_sq_panel    <- assemble_sq_panel(df_ls_race, df_ls_gender, df_ls_race_sq, df_ls_gender_sq)
-borda_sq_panel <- assemble_sq_panel(df_borda_race, df_borda_gender, df_borda_race_sq, df_borda_gender_sq)
+reg8_latex_escape <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\\\", "\\\\textbackslash{}", x)
+  x <- gsub("([#$%&_{}])", "\\\\\\1", x, perl = TRUE)
+  x
+}
 
-latex_lines_sq <- c(
-  "  \\centering",
-  "  \\begin{tabular}{lcccc}",
-  "    \\toprule",
-  "    & \\shortstack{Separate\\\\Models} & \\shortstack{Separate Models\\\\(Industry FEs)} & \\shortstack{Separate Models\\\\(Squared)} & \\shortstack{Separate Models\\\\(Squared, Ind FEs)} \\\\",
-  "    \\midrule",
-  "    \\multicolumn{5}{l}{\\textbf{Panel A: Likert}}\\\\",
-  "    \\multicolumn{5}{l}{\\textit{Race}}\\\\",
-  ls_sq_panel$race,
-  "    \\multicolumn{5}{l}{\\textit{Gender}}\\\\",
-  ls_sq_panel$gender,
-  "    \\addlinespace",
-  "    \\multicolumn{5}{l}{\\textbf{Panel B: Borda}}\\\\",
-  "    \\multicolumn{5}{l}{\\textit{Race}}\\\\",
-  borda_sq_panel$race,
-  "    \\multicolumn{5}{l}{\\textit{Gender}}\\\\",
-  borda_sq_panel$gender,
-  "    \\bottomrule",
-  "  \\end{tabular}"
+reg8_empty_row <- function(label = "", n_cols = reg8_n_cols) {
+  as.list(stats::setNames(
+    c(label, rep("", n_cols)),
+    c("row_label", paste0("col", seq_len(n_cols)))
+  ))
+}
+
+reg8_value_row <- function(label, values, formatter) {
+  as.list(stats::setNames(
+    c(label, formatter(values)),
+    c("row_label", paste0("col", seq_along(values)))
+  ))
+}
+
+# Single (model, coef) EIV_firm sheet lookup, returning a raw numeric estimate or SE
+reg8_pull_stat <- function(lhs_var, rhs_var, coef_num, model_filter,
+                           statistic = c("estimate", "se")) {
+  statistic <- match.arg(statistic)
+  dat <- tryCatch(read_parquet_sheet(file.path(root_dir, table8_subdir), "EIV_firm"),
+                  error = function(e) tibble())
+  if (!nrow(dat)) return(NA_real_)
+
+  dat$coef <- suppressWarnings(as.numeric(dat$coef))
+
+  out <- dat[
+    dat$model == model_filter &
+      dat$lhs == lhs_var &
+      dat$rhs == rhs_var &
+      dat$formula == rhs_var &
+      dat$coef == coef_num, ]
+
+  if (!nrow(out)) return(NA_real_)
+
+  if (statistic == "estimate") {
+    suppressWarnings(as.numeric(out$sample_est[1]))
+  } else {
+    suppressWarnings(as.numeric(out$sample_se[1]))
+  }
+}
+
+# One regressor's row of 4 cells: Likert No-FE, Likert Industry-FE, Borda No-FE, Borda Industry-FE
+reg8_row_cells <- function(lhs, rhs_var, statistic = c("estimate", "se")) {
+  statistic <- match.arg(statistic)
+  specs <- list(
+    c(model = "OLS",   coef = "1"),
+    c(model = "OLS",   coef = "2"),
+    c(model = "Borda", coef = "1"),
+    c(model = "Borda", coef = "2")
+  )
+  vapply(specs, function(spec) {
+    reg8_pull_stat(lhs, rhs_var, coef_num = as.integer(spec[["coef"]]),
+                   model_filter = spec[["model"]], statistic = statistic)
+  }, numeric(1))
+}
+
+reg8_panel_rows <- function(panel_label, lhs) {
+  selectivity_est <- reg8_row_cells(lhs, "FirmSelective", "estimate")
+  selectivity_se  <- reg8_row_cells(lhs, "FirmSelective", "se")
+  discretion_est  <- reg8_row_cells(lhs, "discretion", "estimate")
+  discretion_se   <- reg8_row_cells(lhs, "discretion", "se")
+
+  tibble::as_tibble(dplyr::bind_rows(
+    reg8_empty_row(panel_label),
+    reg8_value_row("Selectivity", selectivity_est, reg8_fmt3),
+    reg8_value_row("", selectivity_se, reg8_fmt_se),
+    reg8_value_row("Discretion", discretion_est, reg8_fmt3),
+    reg8_value_row("", discretion_se, reg8_fmt_se),
+    reg8_empty_row("")
+  ))
+}
+
+table8_panel_df <- dplyr::bind_rows(
+  reg8_panel_rows("Panel A: Race", "log_dif"),
+  reg8_panel_rows("Panel B: Gender", "log_dif_gender"),
+  tibble::as_tibble(dplyr::bind_rows(
+    reg8_value_row("Industry FE", c("", "X", "", "X"), identity)
+  ))
 )
 
+latex_lines_sq <- c(
+  "\\begin{tabular}{lcccc}",
+  "\\toprule",
+  " & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
+  "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5}",
+  paste(reg8_latex_escape(c("", paste0("(", seq_len(reg8_n_cols), ")"))), collapse = " & "),
+  "\\\\",
+  "\\midrule"
+)
+
+for (i in seq_len(nrow(table8_panel_df))) {
+  row_label <- table8_panel_df$row_label[i]
+  cells <- unname(unlist(table8_panel_df[i, paste0("col", seq_len(reg8_n_cols))], use.names = FALSE))
+
+  if (grepl("^Panel ", row_label)) {
+    latex_lines_sq <- c(
+      latex_lines_sq,
+      paste0("\\multicolumn{5}{l}{\\textbf{", reg8_latex_escape(row_label), "}} \\\\")
+    )
+  } else if (!nzchar(row_label) && all(!nzchar(cells))) {
+    latex_lines_sq <- c(latex_lines_sq, "\\addlinespace")
+  } else {
+    latex_lines_sq <- c(
+      latex_lines_sq,
+      paste(reg8_latex_escape(c(row_label, cells)), collapse = " & "),
+      "\\\\"
+    )
+  }
+}
+
+latex_lines_sq <- c(latex_lines_sq, "\\bottomrule", "\\end{tabular}")
+
 out_tex_sq <- file.path(tables, "EIV_univariate_wt_ols_borda_w_gender_sq.tex")
-write_lines_checked(latex_lines_sq, out_tex_sq, label = "EIV squared-specs LaTeX table")
-message("✓ LaTeX squared-specs table saved to: ", out_tex_sq)
+write_lines_checked(latex_lines_sq, out_tex_sq, label = "EIV selectivity/discretion regression table")
+message("✓ LaTeX Table 8 (Likert/Borda panels) saved to: ", out_tex_sq)
