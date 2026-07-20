@@ -127,9 +127,12 @@ message("✓ LaTeX Table 8 saved to: ", out_tex_table8)
 # eiv_eeo1_share_tables.R's write_selectivity_controls_table(). No squared
 # regressors (kept the original output filename since it's what's referenced
 # downstream; flag if you'd like it renamed to drop the now-inaccurate "sq").
+# Selectivity and Discretion each get their own column (rather than sharing a
+# row's worth of columns), since each is estimated as a fully separate
+# univariate model --- one column per model makes that unambiguous.
 # ------------------------------------------------------------------------------
 
-reg8_n_cols <- 4L  # Likert (No FE, Industry FE), Borda (No FE, Industry FE)
+reg8_n_cols <- 8L  # (Likert, Borda) x (Selectivity, Discretion) x (No FE, Industry FE)
 
 reg8_fmt3 <- function(x) {
   ifelse(is.na(x), "", sprintf("%.3f", as.numeric(x)))
@@ -190,7 +193,15 @@ reg8_pull_stat <- function(lhs_var, rhs_var, coef_num, model_filter,
   }
 }
 
-# One regressor's row of 4 cells: Likert No-FE, Likert Industry-FE, Borda No-FE, Borda Industry-FE
+# Column layout (8 separate univariate models per panel):
+# 1: Likert Selectivity No-FE   2: Likert Selectivity Industry-FE
+# 3: Likert Discretion No-FE    4: Likert Discretion Industry-FE
+# 5: Borda Selectivity No-FE    6: Borda Selectivity Industry-FE
+# 7: Borda Discretion No-FE     8: Borda Discretion Industry-FE
+reg8_selectivity_cols <- c(1L, 2L, 5L, 6L)
+reg8_discretion_cols  <- c(3L, 4L, 7L, 8L)
+
+# One regressor's 4 values (Likert No-FE, Likert Industry-FE, Borda No-FE, Borda Industry-FE)
 reg8_row_cells <- function(lhs, rhs_var, statistic = c("estimate", "se")) {
   statistic <- match.arg(statistic)
   specs <- list(
@@ -205,11 +216,19 @@ reg8_row_cells <- function(lhs, rhs_var, statistic = c("estimate", "se")) {
   }, numeric(1))
 }
 
+# Place a regressor's 4 values into its own 4 columns (Likert x Borda, No-FE x FE), NA elsewhere ---
+# this is what leaves the other regressor's columns blank in that row, since each is a separate model.
+reg8_sparse_row <- function(values, cols) {
+  out <- rep(NA_real_, reg8_n_cols)
+  out[cols] <- values
+  out
+}
+
 reg8_panel_rows <- function(panel_label, lhs) {
-  selectivity_est <- reg8_row_cells(lhs, "FirmSelective", "estimate")
-  selectivity_se  <- reg8_row_cells(lhs, "FirmSelective", "se")
-  discretion_est  <- reg8_row_cells(lhs, "discretion", "estimate")
-  discretion_se   <- reg8_row_cells(lhs, "discretion", "se")
+  selectivity_est <- reg8_sparse_row(reg8_row_cells(lhs, "FirmSelective", "estimate"), reg8_selectivity_cols)
+  selectivity_se  <- reg8_sparse_row(reg8_row_cells(lhs, "FirmSelective", "se"),       reg8_selectivity_cols)
+  discretion_est  <- reg8_sparse_row(reg8_row_cells(lhs, "discretion", "estimate"),    reg8_discretion_cols)
+  discretion_se   <- reg8_sparse_row(reg8_row_cells(lhs, "discretion", "se"),          reg8_discretion_cols)
 
   tibble::as_tibble(dplyr::bind_rows(
     reg8_empty_row(panel_label),
@@ -225,15 +244,15 @@ table8_panel_df <- dplyr::bind_rows(
   reg8_panel_rows("Panel A: Race", "log_dif"),
   reg8_panel_rows("Panel B: Gender", "log_dif_gender"),
   tibble::as_tibble(dplyr::bind_rows(
-    reg8_value_row("Industry FE", c("", "X", "", "X"), identity)
+    reg8_value_row("Industry FE", c("", "X", "", "X", "", "X", "", "X"), identity)
   ))
 )
 
 latex_lines_sq <- c(
-  "\\begin{tabular}{lcccc}",
+  "\\begin{tabular}{lcccccccc}",
   "\\toprule",
-  " & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
-  "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5}",
+  " & \\multicolumn{4}{c}{Likert} & \\multicolumn{4}{c}{Borda} \\\\",
+  "\\cmidrule(lr){2-5} \\cmidrule(lr){6-9}",
   paste(reg8_latex_escape(c("", paste0("(", seq_len(reg8_n_cols), ")"))), collapse = " & "),
   "\\\\",
   "\\midrule"
@@ -246,7 +265,7 @@ for (i in seq_len(nrow(table8_panel_df))) {
   if (grepl("^Panel ", row_label)) {
     latex_lines_sq <- c(
       latex_lines_sq,
-      paste0("\\multicolumn{5}{l}{\\textbf{", reg8_latex_escape(row_label), "}} \\\\")
+      paste0("\\multicolumn{9}{l}{\\textbf{", reg8_latex_escape(row_label), "}} \\\\")
     )
   } else if (!nzchar(row_label) && all(!nzchar(cells))) {
     latex_lines_sq <- c(latex_lines_sq, "\\addlinespace")
