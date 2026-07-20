@@ -142,10 +142,14 @@ survey_vars <- c(
   "FirmDesire"
 )
 
+# Include the raw white-framed race-conduct outcome only when checking for
+# straightlining; it remains excluded from the analysis outcome list above.
+straightline_vars <- c(survey_vars, "conduct_white")
+
 all_outcome_straightline_resp_ids <- data %>%
-  dplyr::select(resp_id, dplyr::all_of(survey_vars)) %>%
+  dplyr::select(resp_id, dplyr::all_of(straightline_vars)) %>%
   tidyr::pivot_longer(
-    cols = dplyr::all_of(survey_vars),
+    cols = dplyr::all_of(straightline_vars),
     names_to = "outcome",
     values_to = "response"
   ) %>%

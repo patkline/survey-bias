@@ -73,9 +73,8 @@ if "${data_and_output_storage_location}" == "github" {
     global qje_2022_data_and_outputs "${git_survey_bias_root}/qje_2022_replication_data_and_outputs"
 }
 else if "${data_and_output_storage_location}" == "dropbox" {
-    * Branch-specific Dropbox data/output sandbox. This folder lives inside the
-    * canonical mirror so runs on this branch cannot overwrite existing outputs.
-    global db_data_output_mirror "${dropbox_survey_bias_root}/github_data_and_output_mirrors/github_data_and_output_mirrors_loosen_sample_filters"
+    * Canonical Dropbox data/output mirror, matching globals.R and globals.py.
+    global db_data_output_mirror "${dropbox_survey_bias_root}/github_data_and_output_mirrors"
     global data "${db_data_output_mirror}/data"
     global output "${db_data_output_mirror}/output"
     global qje_2022_data_and_outputs "${db_data_output_mirror}/qje_2022_replication_data_and_outputs"
