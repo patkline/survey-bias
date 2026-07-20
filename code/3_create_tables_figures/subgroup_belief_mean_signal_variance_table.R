@@ -1,8 +1,9 @@
 # -----------------------------------------------------------------------------------------------------------------------------
 # Purpose: Standalone table of the overall mean and (Katz bias-corrected) signal standard deviation of the
-# two pooled discrimination measures --- pooled_favor_white (Race) and pooled_favor_male (Gender) --- for
-# the Full Sample and for each of the demographic subgroups used in the cross-sample signal correlation
-# table (Table 4), in both Likert and Borda units. One row per subgroup, grouped by comparison pair.
+# three key discrimination measures --- pooled_favor_white (Race), pooled_favor_male (Gender), and
+# conduct_favor_younger (Age) --- for the Full Sample and for each of the demographic subgroups used in the
+# cross-sample signal correlation table (Table 4), in both Likert and Borda units. One row per subgroup,
+# grouped by comparison pair. Wide (16 columns) --- intended for a landscape page.
 #
 # Created: Nico Rotundo 2026-07-20
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -39,7 +40,8 @@ format_count <- function(x) {
 grouped_summary_table_rows <- function(row_keys,
                                        display_labels,
                                        formatted_data,
-                                       row_groups) {
+                                       row_groups,
+                                       group_gap = "0.15em") {
   grouped_keys <- unname(unlist(row_groups, use.names = FALSE))
   missing_keys <- setdiff(grouped_keys, row_keys)
   extra_keys   <- setdiff(row_keys, grouped_keys)
@@ -64,7 +66,7 @@ grouped_summary_table_rows <- function(row_keys,
         as.character(formatted_data[i, , drop = TRUE])
       )
       row_end <- if (j == length(idx) && g < length(row_groups)) {
-        " \\\\[0.5em]"
+        paste0(" \\\\[", group_gap, "]")
       } else {
         " \\\\"
       }
@@ -76,11 +78,11 @@ grouped_summary_table_rows <- function(row_keys,
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Define the subgroups --- same 18 demographic subsamples (9 comparison pairs) used by the cross-sample
-# signal correlation table (Table 4), plus the Full Sample --- and their display labels / pair groupings.
+# signal correlation table (Table 4) --- and their display labels / pair groupings. The Full Sample row is
+# intentionally omitted; it is already reported elsewhere.
 # -----------------------------------------------------------------------------------------------------------------------------
 sample_definition_table <- data.frame(
   sample = c(
-    "Full_Sample",
     "Black", "White",
     "Female", "Male",
     "Looking", "Not_Looking",
@@ -92,12 +94,11 @@ sample_definition_table <- data.frame(
     "Conf_Race_Y", "Conf_Race_N"
   ),
   display_label = c(
-    "Full Sample",
     "Black", "White",
     "Female", "Male",
     "Looking for a Job", "Not Looking for a Job",
     "Feared Discrimination", "Did Not Fear Discrimination",
-    "Age $>=$ 40", "Age $<$ 40",
+    "Age \\(\\geq\\) 40", "Age \\(<\\) 40",
     "At Least Some College", "HS Diploma or Less",
     "Convenience Sample", "Probability Sample",
     "Confident (Gender)", "Not Confident (Gender)",
@@ -105,7 +106,6 @@ sample_definition_table <- data.frame(
   ),
   # Intermediate output directory holding this subgroup's Coefficients/variance sheets
   output_dir_name = c(
-    "Full_Sample",
     "Subset_Black", "Subset_White",
     "Subset_Female", "Subset_Male",
     "Subset_Looking", "Subset_Not_Looking",
@@ -119,12 +119,11 @@ sample_definition_table <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# Should be 19 rows (Full Sample + 18 individual subsamples), none missing, no duplicated sample names
-stopifnot(nrow(sample_definition_table) == 19, !anyDuplicated(sample_definition_table$sample), !anyNA(sample_definition_table))
+# Should be 18 rows (9 comparison pairs), none missing, no duplicated sample names
+stopifnot(nrow(sample_definition_table) == 18, !anyDuplicated(sample_definition_table$sample), !anyNA(sample_definition_table))
 
 # Row grouping, mirroring the comparison pairs in cross_sample_signal_corr.R's sample_pair_list
 subgroup_row_groups <- list(
-  Overall                 = "Full_Sample",
   Race                    = c("Black", "White"),
   Gender                  = c("Female", "Male"),
   `Job Search`            = c("Looking", "Not_Looking"),
@@ -140,13 +139,14 @@ subgroup_row_groups <- list(
 stopifnot(setequal(unlist(subgroup_row_groups, use.names = FALSE), sample_definition_table$sample))
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# The two key discrimination measures
+# The three key discrimination measures
 # -----------------------------------------------------------------------------------------------------------------------------
-key_outcomes <- c("pooled_favor_white", "pooled_favor_male")
+key_outcomes <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")
 
 outcome_display_names <- c(
-  pooled_favor_white = "Race: Discrimination Black (Pooled)",
-  pooled_favor_male   = "Gender: Discrimination Female (Pooled)"
+  pooled_favor_white    = "Race: Discrimination Black (Pooled)",
+  pooled_favor_male     = "Gender: Discrimination Female (Pooled)",
+  conduct_favor_younger = "Age: Discrimination Older (Conduct)"
 )
 
 # -----------------------------------------------------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ model_preference <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# Compute one subgroup's mean + signal SD for the two key outcomes, in both units
+# Compute one subgroup's mean + signal SD for the three key outcomes, in both units
 compute_subgroup_stats <- function(dir_path, outcomes) {
   coef_df <- read_parquet_sheet(dir_path, "Coefficients")
 
@@ -238,8 +238,8 @@ for (i in seq_len(nrow(sample_definition_table))) {
   aggregated_subgroup_stats <- rbind(aggregated_subgroup_stats, subgroup_tab)
 }
 
-# Should be 19 subgroups x 2 outcomes x 2 aggregation methods = 76 rows, none missing
-stopifnot(nrow(aggregated_subgroup_stats) == 19 * 2 * 2, !anyNA(aggregated_subgroup_stats))
+# Should be 18 subgroups x 3 outcomes x 2 aggregation methods = 108 rows, none missing
+stopifnot(nrow(aggregated_subgroup_stats) == 18 * 3 * 2, !anyNA(aggregated_subgroup_stats))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Reshape to one row per subgroup, columns for each outcome x aggregation method x {mean, signal SD}
@@ -271,7 +271,7 @@ subgroup_wide <- subgroup_wide %>%
   dplyr::left_join(sample_definition_table %>% dplyr::select(sample, display_label), by = "sample")
 
 # One row per subgroup, none missing
-stopifnot(nrow(subgroup_wide) == 19, !anyNA(subgroup_wide))
+stopifnot(nrow(subgroup_wide) == 18, !anyNA(subgroup_wide))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Export machine-readable CSV (raw numeric values, unformatted)
@@ -289,7 +289,12 @@ csv_out <- subgroup_wide %>%
     gender_likert_mean       = .data$mean_pooled_favor_male_Likert,
     gender_likert_signal_sd  = .data$signal_sd_pooled_favor_male_Likert,
     gender_borda_mean        = .data$mean_pooled_favor_male_Borda,
-    gender_borda_signal_sd   = .data$signal_sd_pooled_favor_male_Borda
+    gender_borda_signal_sd   = .data$signal_sd_pooled_favor_male_Borda,
+    age_respondents           = .data$respondents_conduct_favor_younger,
+    age_likert_mean           = .data$mean_conduct_favor_younger_Likert,
+    age_likert_signal_sd      = .data$signal_sd_conduct_favor_younger_Likert,
+    age_borda_mean            = .data$mean_conduct_favor_younger_Borda,
+    age_borda_signal_sd       = .data$signal_sd_conduct_favor_younger_Borda
   )
 
 write.csv(csv_out, file.path(tables, "subgroup_belief_mean_signal_variance.csv"), row.names = FALSE)
@@ -310,6 +315,11 @@ latex_df <- data.frame(
   `Gender Likert Sig. SD`  = fmt_dec(subgroup_wide$signal_sd_pooled_favor_male_Likert, latex_decimals),
   `Gender Borda Mean`      = fmt_dec(subgroup_wide$mean_pooled_favor_male_Borda, latex_decimals),
   `Gender Borda Sig. SD`   = fmt_dec(subgroup_wide$signal_sd_pooled_favor_male_Borda, latex_decimals),
+  `Age Respondents`     = format_count(subgroup_wide$respondents_conduct_favor_younger),
+  `Age Likert Mean`     = fmt_dec(subgroup_wide$mean_conduct_favor_younger_Likert, latex_decimals),
+  `Age Likert Sig. SD`  = fmt_dec(subgroup_wide$signal_sd_conduct_favor_younger_Likert, latex_decimals),
+  `Age Borda Mean`      = fmt_dec(subgroup_wide$mean_conduct_favor_younger_Borda, latex_decimals),
+  `Age Borda Sig. SD`   = fmt_dec(subgroup_wide$signal_sd_conduct_favor_younger_Borda, latex_decimals),
   check.names = FALSE,
   stringsAsFactors = FALSE
 )
@@ -321,17 +331,50 @@ body_lines <- grouped_summary_table_rows(
   row_groups     = subgroup_row_groups
 )
 
+# Build the column layout generically over key_outcomes, so adding/removing an outcome only
+# requires updating key_outcomes / outcome_display_names above --- not hand-recounted column indices.
+cols_per_outcome <- 5L  # N resp., Likert Mean, Likert Sig. SD, Borda Mean, Borda Sig. SD
+n_outcomes <- length(key_outcomes)
+
+align_str <- paste0("l", strrep("c", cols_per_outcome * n_outcomes))
+
+top_header_parts   <- character(0)
+top_cmidrule_parts <- character(0)
+sub_header_parts   <- character(0)
+sub_cmidrule_parts <- character(0)
+col_start <- 2L
+for (oc in key_outcomes) {
+  col_end <- col_start + cols_per_outcome - 1L
+  top_header_parts   <- c(top_header_parts, sprintf("\\multicolumn{%d}{c}{%s}", cols_per_outcome, outcome_display_names[[oc]]))
+  top_cmidrule_parts <- c(top_cmidrule_parts, sprintf("\\cmidrule(lr){%d-%d}", col_start, col_end))
+
+  likert_start <- col_start + 1L
+  likert_end   <- likert_start + 1L
+  borda_start  <- likert_end + 1L
+  borda_end    <- borda_start + 1L
+  sub_header_parts   <- c(sub_header_parts, "", "\\multicolumn{2}{c}{Likert}", "\\multicolumn{2}{c}{Borda}")
+  sub_cmidrule_parts <- c(
+    sub_cmidrule_parts,
+    sprintf("\\cmidrule(lr){%d-%d}", likert_start, likert_end),
+    sprintf("\\cmidrule(lr){%d-%d}", borda_start, borda_end)
+  )
+
+  col_start <- col_end + 1L
+}
+
+colname_parts <- rep(c("N resp.", "Mean", "\\shortstack{Signal\\\\Std Dev}", "Mean", "\\shortstack{Signal\\\\Std Dev}"), n_outcomes)
+
+# Every latex_df column should map to exactly one of the generated column-name cells
+stopifnot(ncol(latex_df) == length(colname_parts), ncol(latex_df) == cols_per_outcome * n_outcomes)
+
 latex_lines <- c(
-  "\\begin{tabular}{lcccccccccc}",
+  sprintf("\\begin{tabular}{%s}", align_str),
   "  \\toprule",
-  paste0(
-    " & \\multicolumn{5}{c}{", outcome_display_names[["pooled_favor_white"]], "} & ",
-    "\\multicolumn{5}{c}{", outcome_display_names[["pooled_favor_male"]], "} \\\\"
-  ),
-  "\\cmidrule(lr){2-6} \\cmidrule(lr){7-11}",
-  " & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
-  "\\cmidrule(lr){3-4} \\cmidrule(lr){5-6} \\cmidrule(lr){8-9} \\cmidrule(lr){10-11}",
-  "Subgroup & Respondents & Mean & \\shortstack{Signal\\\\Std Dev} & Mean & \\shortstack{Signal\\\\Std Dev} & Respondents & Mean & \\shortstack{Signal\\\\Std Dev} & Mean & \\shortstack{Signal\\\\Std Dev} \\\\",
+  paste0(" & ", paste(top_header_parts, collapse = " & "), " \\\\"),
+  paste(top_cmidrule_parts, collapse = " "),
+  paste0(" & ", paste(sub_header_parts, collapse = " & "), " \\\\"),
+  paste(sub_cmidrule_parts, collapse = " "),
+  paste0("Subgroup & ", paste(colname_parts, collapse = " & "), " \\\\"),
   "\\midrule",
   body_lines,
   "   \\bottomrule",
