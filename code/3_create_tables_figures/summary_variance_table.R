@@ -27,12 +27,12 @@ MODEL_DISPLAY_NAMES <- c(
 )
 
 # How many trailing columns each model contributes to the LaTeX table.
-# PL gets an ICC; Borda gets a Normed Variance; everything else gets the
-# 3-column SD / Signal SD / T-stat block.
+# Likert and Borda include reliability, defined as
+# (Signal SD / naive SD)^2; PL keeps its ICC column.
 model_n_cols <- function(model) {
-  if (model == "PL")    return(4L)  # SD, Signal SD, T-stat, ICC
-  if (model == "Borda") return(4L)  # SD, Signal SD, T-stat, Normed Variance
-  3L                                # SD, Signal SD, T-stat
+  if (model == "PL")                 return(4L)  # SD, Signal SD, T-stat, ICC
+  if (model %in% c("OLS", "Borda")) return(4L)  # SD, Signal SD, Reliability, T-stat
+  3L                                             # SD, Signal SD, T-stat
 }
 
 # -------------------------------------------------------------------
@@ -175,6 +175,11 @@ write_variance_table <- function(dir_path,
       outcome,
       !!paste0(mdl, "_sd")                := sqrt(pmax(variance, 0)) * mult,
       !!paste0(mdl, "_sd_bias_corrected") := sqrt(pmax(signal, 0)) * mult,
+      !!paste0(mdl, "_reliability")       := ifelse(
+        is.finite(variance) & variance > 0 & is.finite(signal),
+        pmax(signal, 0) / variance,
+        NA_real_
+      ),
       !!paste0(mdl, "_t_stat")            := as.numeric(t_stat)
     )
   }
@@ -196,11 +201,6 @@ write_variance_table <- function(dir_path,
         mdl_df$PL_reliability <- rel
       }
     }
-    if (mdl == "Borda") {
-      borda_raw <- var_df %>% dplyr::filter(.data$model == "Borda")
-      mdl_df$Borda_var_norm <- as.numeric(pmax(borda_raw$signal, 0)) / 0.0844
-    }
-
     tab <- if (is.null(tab)) mdl_df else dplyr::full_join(tab, mdl_df, by = "outcome")
   }
 
@@ -231,19 +231,22 @@ write_variance_table <- function(dir_path,
 
     latex_cols[[paste0(mdl, " SD")]]      <- fmt_dec(tab[[paste0(mdl, "_sd")]], latex_decimals)
     latex_cols[[paste0(mdl, " Sig SD")]]  <- fmt_dec(tab[[paste0(mdl, "_sd_bias_corrected")]], latex_decimals)
-    latex_cols[[paste0(mdl, " t")]]       <- fmt_dec(tab[[paste0(mdl, "_t_stat")]], latex_decimals)
     hdr_cols <- c(hdr_cols,
                   "Std Dev",
-                  "\\shortstack{Signal\\\\Std Dev}",
-                  "\\shortstack{T-stat\\\\no signal}")
+                  "\\shortstack{Signal\\\\Std Dev}")
+
+    if (mdl %in% c("OLS", "Borda")) {
+      latex_cols[[paste0(mdl, " Reliability")]] <-
+        fmt_dec(tab[[paste0(mdl, "_reliability")]], latex_decimals)
+      hdr_cols <- c(hdr_cols, "Reliability")
+    }
+
+    latex_cols[[paste0(mdl, " t")]] <- fmt_dec(tab[[paste0(mdl, "_t_stat")]], latex_decimals)
+    hdr_cols <- c(hdr_cols, "\\shortstack{T-stat\\\\no signal}")
 
     if (mdl == "PL") {
       latex_cols[["PL ICC"]] <- fmt_dec(tab$PL_reliability, latex_decimals)
       hdr_cols <- c(hdr_cols, "ICC")
-    }
-    if (mdl == "Borda") {
-      latex_cols[["Borda NV"]] <- fmt_dec(tab$Borda_var_norm, latex_decimals)
-      hdr_cols <- c(hdr_cols, "\\shortstack{Normed\\\\Variance}")
     }
 
     align_str <- c(align_str, rep("c", n))
@@ -344,6 +347,128 @@ format_count <- function(x) {
   out
 }
 
+# Sum |x_i - x_i'| over unordered pairs without materializing the pairwise
+# distance matrix. For sorted x, each value's net coefficient is 2i - n - 1.
+unordered_pairwise_abs_sum <- function(x) {
+  x <- sort(suppressWarnings(as.numeric(x)))
+  x <- x[is.finite(x)]
+  n <- length(x)
+  if (n < 2L) return(0)
+  sum((2 * seq_len(n) - n - 1) * x)
+}
+
+# Average the within-firm Gini mean differences in raw Likert points, weighting
+# every firm equally as in the Table 3 definition.
+compute_average_likert_gmd <- function(data_rating_long,
+                                       expected_firm_count = 164L) {
+  firm_stats <- data_rating_long %>%
+    dplyr::transmute(
+      firm_id = suppressWarnings(as.integer(.data$firm_id)),
+      rating  = suppressWarnings(as.numeric(.data$rating))
+    ) %>%
+    dplyr::filter(!is.na(.data$firm_id), is.finite(.data$rating)) %>%
+    dplyr::group_by(.data$firm_id) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      abs_diff_sum = unordered_pairwise_abs_sum(.data$rating),
+      .groups = "drop"
+    )
+
+  if (nrow(firm_stats) != expected_firm_count) {
+    stop("Likert GMD expected ", expected_firm_count,
+         " firms but found ", nrow(firm_stats))
+  }
+  if (any(firm_stats$n < 2L)) {
+    stop("Likert GMD is undefined for a firm with fewer than two responses")
+  }
+
+  mean(2 * firm_stats$abs_diff_sum /
+         (firm_stats$n * (firm_stats$n - 1)))
+}
+
+# For each ordered (j, k), w_ijk is 1 when respondent i ranks j above k,
+# 1/2 for a tie, and 0 when j is below k. For each j, pool the absolute
+# differences and respondent-pair counts over non-anchor k, then average the
+# resulting GMD equally across all firms j.
+compute_average_borda_gmd <- function(data_wide,
+                                      anchor_firm_ids = c(38L, 76L, 90L),
+                                      expected_firm_count = 164L) {
+  if (!"resp_id" %in% names(data_wide)) {
+    stop("Borda GMD requires a resp_id column in the wide ranking data")
+  }
+
+  rankings <- data_wide %>%
+    tidyr::pivot_longer(
+      cols = dplyr::starts_with("firm"),
+      names_to = "firm_column",
+      values_to = "rank"
+    ) %>%
+    dplyr::transmute(
+      resp_id,
+      firm_id = suppressWarnings(as.integer(sub("^firm", "", .data$firm_column))),
+      rank = suppressWarnings(as.numeric(.data$rank))
+    ) %>%
+    dplyr::filter(!is.na(.data$firm_id), is.finite(.data$rank), .data$rank > 0)
+
+  firm_ids <- sort(unique(rankings$firm_id))
+  if (length(firm_ids) != expected_firm_count) {
+    stop("Borda GMD expected ", expected_firm_count,
+         " firms but found ", length(firm_ids))
+  }
+  missing_anchors <- setdiff(anchor_firm_ids, firm_ids)
+  if (length(missing_anchors)) {
+    stop("Borda GMD anchor firm IDs missing from ranking data: ",
+         paste(missing_anchors, collapse = ", "))
+  }
+
+  # A respondent contributes w_ijk only when both firms are in their choice set.
+  comparisons <- merge(
+    rankings,
+    rankings,
+    by = "resp_id",
+    suffixes = c("_j", "_k"),
+    sort = FALSE
+  ) %>%
+    dplyr::filter(
+      .data$firm_id_j != .data$firm_id_k,
+      !.data$firm_id_k %in% anchor_firm_ids
+    ) %>%
+    dplyr::mutate(
+      w = dplyr::case_when(
+        .data$rank_j < .data$rank_k ~ 1,
+        .data$rank_j == .data$rank_k ~ 0.5,
+        TRUE ~ 0
+      )
+    )
+
+  comparison_pair_stats <- comparisons %>%
+    dplyr::group_by(.data$firm_id_j, .data$firm_id_k) %>%
+    dplyr::summarise(
+      n_jk = dplyr::n(),
+      abs_diff_sum = unordered_pairwise_abs_sum(.data$w),
+      .groups = "drop"
+    )
+
+  firm_stats <- comparison_pair_stats %>%
+    dplyr::group_by(.data$firm_id_j) %>%
+    dplyr::summarise(
+      abs_diff_sum = sum(.data$abs_diff_sum),
+      respondent_pair_count = sum(.data$n_jk * (.data$n_jk - 1) / 2),
+      .groups = "drop"
+    ) %>%
+    dplyr::right_join(
+      data.frame(firm_id_j = firm_ids),
+      by = "firm_id_j"
+    )
+
+  if (any(!is.finite(firm_stats$respondent_pair_count)) ||
+      any(firm_stats$respondent_pair_count <= 0)) {
+    stop("Borda GMD is undefined for a firm without respondent pairs")
+  }
+
+  mean(firm_stats$abs_diff_sum / firm_stats$respondent_pair_count)
+}
+
 # Build grouped LaTeX rows shared by Table 3 and Table 4. The first cell is
 # indented and a small vertical gap follows every group except the last.
 grouped_summary_table_rows <- function(outcomes,
@@ -389,7 +514,7 @@ build_belief_summary_ols_borda_data <- function(dir_path,
                                                 label_mapping = NULL) {
   coef_df <- read_parquet_sheet(dir_path, "Coefficients")
 
-  required_cols <- c("subset", "model", "outcome", "entity_type", "estimate", "rse")
+  required_cols <- c("subset", "model", "outcome", "entity_type", "estimate")
   missing_cols <- setdiff(required_cols, names(coef_df))
   if (length(missing_cols)) {
     stop("Coefficients sheet missing columns: ", paste(missing_cols, collapse = ", "))
@@ -401,7 +526,7 @@ build_belief_summary_ols_borda_data <- function(dir_path,
   }
   survey_data <- utils::read.csv(survey_path, stringsAsFactors = FALSE)
 
-  counts <- dplyr::bind_rows(lapply(outcomes, function(outcome) {
+  response_stats <- dplyr::bind_rows(lapply(outcomes, function(outcome) {
     prep <- prepare_pltree_data(
       data            = survey_data,
       rank_col        = outcome,
@@ -414,6 +539,8 @@ build_belief_summary_ols_borda_data <- function(dir_path,
       outcome     = outcome,
       Responses   = nrow(data_long),
       Respondents = dplyr::n_distinct(data_long$resp_id),
+      Likert_GMD  = compute_average_likert_gmd(data_long),
+      Borda_GMD   = compute_average_borda_gmd(prep$data_wide_pltree),
       stringsAsFactors = FALSE
     )
   }))
@@ -436,22 +563,21 @@ build_belief_summary_ols_borda_data <- function(dir_path,
     dplyr::filter(.data$preference == min(.data$preference, na.rm = TRUE)) %>%
     dplyr::ungroup() %>%
     dplyr::mutate(
-      estimate = suppressWarnings(as.numeric(.data$estimate)),
-      rse      = suppressWarnings(as.numeric(.data$rse))
+      estimate = suppressWarnings(as.numeric(.data$estimate))
     ) %>%
     dplyr::group_by(.data$outcome, .data$table_model) %>%
     dplyr::summarise(
-      mean   = mean(.data$estimate, na.rm = TRUE),
-      avg_se = mean(.data$rse, na.rm = TRUE),
+      mean = mean(.data$estimate, na.rm = TRUE),
       .groups = "drop"
     ) %>%
     tidyr::pivot_wider(
       names_from  = "table_model",
-      values_from = c("mean", "avg_se")
+      values_from = "mean",
+      names_prefix = "mean_"
     )
 
   tab <- data.frame(outcome = outcomes, stringsAsFactors = FALSE) %>%
-    dplyr::left_join(counts, by = "outcome") %>%
+    dplyr::left_join(response_stats, by = "outcome") %>%
     dplyr::left_join(metrics, by = "outcome") %>%
     dplyr::mutate(Outcome = map_label(.data$outcome, label_mapping)) %>%
     dplyr::arrange(.data$Outcome, .data$outcome) %>%
@@ -460,10 +586,10 @@ build_belief_summary_ols_borda_data <- function(dir_path,
       Outcome,
       Responses,
       Respondents,
-      `Likert: mean`       = .data$mean_OLS,
-      `Likert: Average SE` = .data$avg_se_OLS,
-      `Borda: mean`        = .data$mean_Borda,
-      `Borda: Average SE`  = .data$avg_se_Borda
+      `Likert: mean`        = .data$mean_OLS,
+      `Likert: Average GMD` = .data$Likert_GMD,
+      `Borda: mean`         = .data$mean_Borda,
+      `Borda: Average GMD`  = .data$Borda_GMD
     )
 }
 
@@ -484,9 +610,9 @@ write_belief_summary_ols_borda <- function(dir_path,
     Responses   = format_count(tab$Responses),
     Respondents = format_count(tab$Respondents),
     `Likert Mean` = fmt_dec(tab$`Likert: mean`, latex_decimals),
-    `Likert SE`   = fmt_dec(tab$`Likert: Average SE`, latex_decimals),
+    `Likert GMD`  = fmt_dec(tab$`Likert: Average GMD`, latex_decimals),
     `Borda Mean`  = fmt_dec(tab$`Borda: mean`, latex_decimals),
-    `Borda SE`    = fmt_dec(tab$`Borda: Average SE`, latex_decimals),
+    `Borda GMD`   = fmt_dec(tab$`Borda: Average GMD`, latex_decimals),
     check.names = FALSE,
     stringsAsFactors = FALSE
   )
@@ -505,7 +631,7 @@ write_belief_summary_ols_borda <- function(dir_path,
     "\\cmidrule(lr){2-3} \\cmidrule(lr){4-7}",
     " & & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
     "\\cmidrule(lr){4-5} \\cmidrule(lr){6-7}",
-    "Outcome & Responses & Respondents & Mean & Average SE & Mean & Average SE \\\\",
+    "Outcome & Responses & Respondents & Mean & Average GMD & Mean & Average GMD \\\\",
     "\\midrule",
     body_lines,
     "   \\bottomrule",
