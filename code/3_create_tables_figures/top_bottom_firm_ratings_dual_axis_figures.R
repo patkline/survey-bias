@@ -26,11 +26,11 @@ firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(subs
 # Keep the non-recentered OLS and Borda observations i.e., the raw firm-level ratings
 firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(model %in% c("OLS_not_recentered", "Borda_not_recentered"))
 
-# Keep the survey measures plotted
-firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger", "FirmSelective", "discretion"))
+# Keep the survey measures plotted i.e., the three pooled discrimination measures, their contact and conduct arm versions, and the two firm characteristics
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(outcome %in% c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger", "FirmSelective", "discretion"))
 
-# Should be 164 firms x 2 aggregation methods x 5 survey measures = 1640 observations remaining
-stopifnot(nrow(firm_level_rating_estimates) == 164 * 2 * 5)
+# Should be 164 firms x 2 aggregation methods x 9 survey measures = 2952 observations remaining
+stopifnot(nrow(firm_level_rating_estimates) == 164 * 2 * 9)
 
 # Empirical Bayes ratings should be non-missing
 stopifnot(!anyNA(firm_level_rating_estimates$eb))
@@ -57,7 +57,7 @@ stopifnot(all(sapply(firm_level_rating_estimates |> dplyr::select(dplyr::ends_wi
 # Compute the common y axis shared by the discrimination figures
 # -----------------------------------------------------------------------------------------------------------------------------
 # Discrimination survey measures i.e., the figures drawn on one common y axis
-discrimination_survey_measure_vector <- c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")
+discrimination_survey_measure_vector <- c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")
 
 # Define vector to store every discrimination figure's plotted ratings
 discrimination_plotted_ratings <- c()
@@ -90,7 +90,7 @@ stopifnot(all(dplyr::between(discrimination_plotted_ratings, discrimination_axis
 # Plot figure for each survey measure
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each survey measure, drawing one figure per measure
-for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger", "FirmSelective", "discretion")) {
+for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger", "FirmSelective", "discretion")) {
   # Keep the firm identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
   top_bottom_plot_working_data <- firm_level_rating_estimates |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes")))
 
@@ -102,6 +102,12 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
 
   # Order the firms ascending by Borda rating
   top_bottom_plot_working_data <- top_bottom_plot_working_data |> dplyr::arrange(borda_empirical_bayes_rating)
+
+  # Callout list of the five lowest-rated firms, ascending
+  bottom_five_callout_label <- paste(top_bottom_plot_working_data$firm[1:5], collapse = "\n")
+
+  # Callout list of the five highest-rated firms, descending i.e., rank first
+  top_five_callout_label <- paste(top_bottom_plot_working_data$firm[50:46], collapse = "\n")
 
   # Insert three unplotted spacer rows between the bottom and top firms, hidden from the axis labels
   top_bottom_plot_working_data <- top_bottom_plot_working_data |> tibble::add_row(firm = paste0("__gap", 1:3, "__"), .after = 25)
@@ -198,7 +204,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     # Theme adjustments
     ggplot2::theme(
       # Angled firm names on the x axis
-      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 12),
 
       # Thin tick marks on the two y axes only
       axis.ticks        = ggplot2::element_line(color = "black", linewidth = 0.3),
@@ -230,30 +236,79 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
       axis.line.y.right  = ggplot2::element_line(color = "black"),
 
       # Margins leaving room for the angled firm names and the axis titles
-      plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
+      plot.margin = ggplot2::margin(t = 10, r = 20, b = 130, l = 90)
     ) +
 
     # Blank the spacer rows' x-axis labels and pad the axis ends
     ggplot2::scale_x_discrete(labels = function(firm_name) ifelse(grepl("^__gap\\d+__$", firm_name), "", firm_name), expand = ggplot2::expansion(add = 0.8)) +
 
-    # Allow the angled firm names to render outside the panel; discrimination figures share the common y-axis limits
-    ggplot2::coord_cartesian(ylim = if (survey_measure %in% discrimination_survey_measure_vector) discrimination_axis_limits else NULL, clip = "off")
+    # Allow the angled firm names to render outside the panel; discrimination figures share the common y-axis limits, and the
+    # other figures pin the plotted-data range so the callout annotations cannot stretch the panel between the two exported versions
+    ggplot2::coord_cartesian(ylim = if (survey_measure %in% discrimination_survey_measure_vector) discrimination_axis_limits else range(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), na.rm = TRUE), clip = "off")
 
-  # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
-  top_bottom_figure_layout <- ggplot2::ggplotGrob(top_bottom_figure)
+  # Compute the panel y-axis limits i.e., the shared discrimination limits, or the plotted range with ggplot's 5% expansion
+  panel_axis_limits <- if (survey_measure %in% discrimination_survey_measure_vector) discrimination_axis_limits else range(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), na.rm = TRUE) + c(-1, 1) * 0.05 * diff(range(c(top_bottom_plot_working_data$likert_empirical_bayes_rating, top_bottom_plot_working_data$borda_empirical_bayes_rating_rescaled), na.rm = TRUE))
 
-  # Pin the panel height, so the panel sits identically in every figure regardless of the firm name lengths below it
-  top_bottom_figure_layout$heights[top_bottom_figure_layout$layout$t[top_bottom_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+  # Compute the panel y-axis span, scaling the callout anchor offsets
+  panel_axis_span <- diff(panel_axis_limits)
 
-  # Anchor the layout to the top of the page, so the varying firm-name block below cannot shift the panel vertically
-  top_bottom_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(top_bottom_figure_layout))
+  # Compute the lowest plotted rating among the 25 top firms i.e., the ceiling for the top-five callout below the top block
+  top_block_floor <- min(top_bottom_plot_working_data$rating_segment_lower[29:53], na.rm = TRUE)
 
-  # Open the exported figure file
-  png(file.path(figures, paste0("top_bottom_firm_ratings_dual_axis_figures_", survey_measure, ".png")), width = 16, height = 6.5, units = "in", res = 300, bg = "white")
+  # Anchor the bottom-five callout header just under the panel top, over the bottom firms
+  bottom_callout_header_y <- panel_axis_limits[2] - 0.01 * panel_axis_span
 
-  # Draw the pinned layout into the file
-  grid::grid.draw(top_bottom_figure_layout)
+  # Anchor the bottom-five callout names below their header, clearing the underline
+  bottom_callout_names_y <- bottom_callout_header_y - 0.068 * panel_axis_span
 
-  # Close the exported figure file
-  dev.off()
+  # Anchor the top-five callout header below the top block
+  top_callout_header_y <- top_block_floor - 0.095 * panel_axis_span
+
+  # Flip the top-five callout to the panel top when a low top block would push its names into the legend; the name block extends about 0.26 spans below the header
+  if (top_callout_header_y - 0.26 * panel_axis_span < panel_axis_limits[1] + 0.20 * panel_axis_span) top_callout_header_y <- panel_axis_limits[2] - 0.01 * panel_axis_span
+
+  # Anchor the top-five callout names below their header, clearing the underline
+  top_callout_names_y <- top_callout_header_y - 0.068 * panel_axis_span
+
+  # Loop over the exported figure versions i.e., the base figure and the version with the top/bottom-five callouts
+  for (figure_version_suffix in c("", "_with_callout")) {
+
+    # Start each version from the base figure
+    exported_top_bottom_figure <- top_bottom_figure
+
+    # Add the underlined bottom-five and top-five firm-name callouts
+    if (figure_version_suffix == "_with_callout") {
+      exported_top_bottom_figure <- exported_top_bottom_figure +
+
+        # Underlined bottom-five header over the bottom firms
+        ggplot2::annotate("text", x = 5, y = bottom_callout_header_y, label = "underline('Bottom 5 (ascending)')", parse = TRUE, size = 4.2, vjust = 1) +
+
+        # Bottom-five firm names, ascending
+        ggplot2::annotate("text", x = 5, y = bottom_callout_names_y, label = bottom_five_callout_label, size = 4.2, lineheight = 0.95, vjust = 1) +
+
+        # Underlined top-five header below the top firms
+        ggplot2::annotate("text", x = 48, y = top_callout_header_y, label = "underline('Top 5 (descending)')", parse = TRUE, size = 4.2, vjust = 1) +
+
+        # Top-five firm names, descending
+        ggplot2::annotate("text", x = 48, y = top_callout_names_y, label = top_five_callout_label, size = 4.2, lineheight = 0.95, vjust = 1)
+    }
+
+    # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
+    top_bottom_figure_layout <- ggplot2::ggplotGrob(exported_top_bottom_figure)
+
+    # Pin the panel height, so the panel sits identically in every figure regardless of the firm name lengths below it
+    top_bottom_figure_layout$heights[top_bottom_figure_layout$layout$t[top_bottom_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+
+    # Anchor the layout to the top of the page, so the varying firm-name block below cannot shift the panel vertically
+    top_bottom_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(top_bottom_figure_layout))
+
+    # Open the exported figure file
+    png(file.path(figures, paste0("top_bottom_firm_ratings_dual_axis_figures_", survey_measure, figure_version_suffix, ".png")), width = 16, height = 7.3, units = "in", res = 300, bg = "white")
+
+    # Draw the pinned layout into the file
+    grid::grid.draw(top_bottom_figure_layout)
+
+    # Close the exported figure file
+    dev.off()
+  }
 }

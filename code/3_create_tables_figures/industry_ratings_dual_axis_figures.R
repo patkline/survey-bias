@@ -34,11 +34,11 @@ firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(subs
 # Keep the non-recentered OLS and Borda observations i.e., the raw firm-level ratings
 firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(model %in% c("OLS_not_recentered", "Borda_not_recentered"))
 
-# Keep the survey measures plotted
-firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger"))
+# Keep the survey measures plotted i.e., the three pooled discrimination measures and their contact and conduct arm versions
+firm_level_rating_estimates <- firm_level_rating_estimates |> dplyr::filter(outcome %in% c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger"))
 
-# Should be 164 firms x 2 aggregation methods x 3 survey measures = 984 observations remaining
-stopifnot(nrow(firm_level_rating_estimates) == 164 * 2 * 3)
+# Should be 164 firms x 2 aggregation methods x 7 survey measures = 2296 observations remaining
+stopifnot(nrow(firm_level_rating_estimates) == 164 * 2 * 7)
 
 # Rating estimates should be non-missing
 stopifnot(!anyNA(firm_level_rating_estimates$estimate))
@@ -76,8 +76,8 @@ firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(
 # Keep the non-recentered OLS and Borda observations i.e., the raw firm-level covariances
 firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(model %in% c("OLS_not_recentered", "Borda_not_recentered"))
 
-# Keep the survey measures plotted
-firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger"))
+# Keep the survey measures plotted i.e., the three pooled discrimination measures and their contact and conduct arm versions
+firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(outcome %in% c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger"))
 
 # Keep the covariance entries among the rated firms
 firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(entity_id_i %in% firm_id_vector, entity_id_j %in% firm_id_vector)
@@ -85,8 +85,8 @@ firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::filter(
 # Collect the filtered covariance rows
 firm_level_robust_covariances <- firm_level_robust_covariances |> dplyr::collect()
 
-# Should be 164 firms x 164 firms x 2 aggregation methods x 3 survey measures = 161376 firm pairs remaining
-stopifnot(nrow(firm_level_robust_covariances) == 164 * 164 * 2 * 3)
+# Should be 164 firms x 164 firms x 2 aggregation methods x 7 survey measures = 376544 firm pairs remaining
+stopifnot(nrow(firm_level_robust_covariances) == 164 * 164 * 2 * 7)
 
 # Uniquely identified by aggregation model x survey measure x firm pair, none missing
 stopifnot(!anyDuplicated(firm_level_robust_covariances[c("model", "outcome", "entity_id_i", "entity_id_j")]), !anyNA(firm_level_robust_covariances))
@@ -140,7 +140,7 @@ industry_rating_estimates <- data.frame()
 within_industry_rating_deviations <- data.frame()
 
 # Loop over each survey measure
-for (survey_measure_value in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+for (survey_measure_value in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
     # Loop over each aggregation method
     for (aggregation_method_value in c("OLS_not_recentered", "Borda_not_recentered")) {
 
@@ -194,11 +194,11 @@ for (survey_measure_value in c("pooled_favor_white", "pooled_favor_male", "condu
     }
 }
 
-# Should be 19 industries x 2 aggregation methods x 3 survey measures = 114 industry means, none missing
-stopifnot(nrow(industry_rating_estimates) == 19 * 2 * 3, !anyNA(industry_rating_estimates))
+# Should be 19 industries x 2 aggregation methods x 7 survey measures = 266 industry means, none missing
+stopifnot(nrow(industry_rating_estimates) == 19 * 2 * 7, !anyNA(industry_rating_estimates))
 
-# Should be 164 firms x 2 aggregation methods x 3 survey measures = 984 deviations, none missing
-stopifnot(nrow(within_industry_rating_deviations) == 164 * 2 * 3, !anyNA(within_industry_rating_deviations))
+# Should be 164 firms x 2 aggregation methods x 7 survey measures = 2296 deviations, none missing
+stopifnot(nrow(within_industry_rating_deviations) == 164 * 2 * 7, !anyNA(within_industry_rating_deviations))
 
 # Attach each survey measure x aggregation method's mean rating across the 164 rated firms
 within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::left_join(firm_level_rating_estimates |> dplyr::group_by(survey_measure, aggregation_method) |> dplyr::summarise(mean_rating_across_firms = mean(rating_estimate), .groups = "drop"), by = c("survey_measure", "aggregation_method"))
@@ -249,7 +249,7 @@ discrimination_axis_limits <- c(1.9, 4.1)
 within_industry_plotted_ratings <- c()
 
 # Loop over each survey measure, collecting the ratings its figure plots
-for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
   # Keep this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
   within_industry_working_data <- within_industry_rating_deviations |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_mean_across_firms")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_mean_across_firms")))
 
@@ -270,7 +270,7 @@ stopifnot(all(dplyr::between(within_industry_plotted_ratings, discrimination_axi
 # Plot within-industry figure for each survey measure
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each survey measure, drawing one within-industry figure per measure
-for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
   # Keep the firm identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
   within_industry_plot_working_data <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_mean_across_firms")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_mean_across_firms")))
 
@@ -282,6 +282,12 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
 
   # Order the firms ascending by Borda rating
   within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::arrange(borda_empirical_bayes_rating)
+
+  # Callout list of the five lowest-rated firms, ascending
+  bottom_five_callout_label <- paste(within_industry_plot_working_data$firm[1:5], collapse = "\n")
+
+  # Callout list of the five highest-rated firms, descending i.e., rank first
+  top_five_callout_label <- paste(within_industry_plot_working_data$firm[50:46], collapse = "\n")
 
   # Insert three unplotted spacer rows between the bottom and top firms, hidden from the axis labels
   within_industry_plot_working_data <- within_industry_plot_working_data |> tibble::add_row(firm = paste0("__gap", 1:3, "__"), .after = 25)
@@ -375,7 +381,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     # Theme adjustments
     ggplot2::theme(
       # Angled firm names on the x axis
-      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 12),
 
       # Thin tick marks on the two y axes only
       axis.ticks        = ggplot2::element_line(color = "black", linewidth = 0.3),
@@ -407,7 +413,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
       axis.line.y.right  = ggplot2::element_line(color = "black"),
 
       # Margins leaving room for the angled firm names and the axis titles
-      plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
+      plot.margin = ggplot2::margin(t = 10, r = 20, b = 130, l = 90)
     ) +
 
     # Blank the spacer rows' x-axis labels and pad the axis ends
@@ -416,30 +422,75 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     # Allow the angled firm names to render outside the panel, on the shared y-axis limits
     ggplot2::coord_cartesian(ylim = discrimination_axis_limits, clip = "off")
 
-  # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
-  within_industry_figure_layout <- ggplot2::ggplotGrob(within_industry_figure)
+  # Compute the panel y-axis span, scaling the callout anchor offsets
+  panel_axis_span <- diff(discrimination_axis_limits)
 
-  # Pin the panel height, so the panel sits identically in every figure regardless of the firm name lengths below it
-  within_industry_figure_layout$heights[within_industry_figure_layout$layout$t[within_industry_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+  # Compute the lowest plotted rating among the 25 top firms i.e., the ceiling for the top-five callout below the top block
+  top_block_floor <- min(within_industry_plot_working_data$rating_segment_lower[29:53], na.rm = TRUE)
 
-  # Anchor the layout to the top of the page, so the varying firm-name block below cannot shift the panel vertically
-  within_industry_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(within_industry_figure_layout))
+  # Anchor the bottom-five callout header just under the panel top, over the bottom firms
+  bottom_callout_header_y <- discrimination_axis_limits[2] - 0.01 * panel_axis_span
 
-  # Open the exported figure file
-  png(file.path(figures, paste0("industry_ratings_dual_axis_figures_within_", survey_measure, ".png")), width = 16, height = 6.5, units = "in", res = 300, bg = "white")
+  # Anchor the bottom-five callout names below their header, clearing the underline
+  bottom_callout_names_y <- bottom_callout_header_y - 0.068 * panel_axis_span
 
-  # Draw the pinned layout into the file
-  grid::grid.draw(within_industry_figure_layout)
+  # Anchor the top-five callout header below the top block
+  top_callout_header_y <- top_block_floor - 0.095 * panel_axis_span
 
-  # Close the exported figure file
-  dev.off()
+  # Flip the top-five callout to the panel top when a low top block would push its names into the legend; the name block extends about 0.26 spans below the header
+  if (top_callout_header_y - 0.26 * panel_axis_span < discrimination_axis_limits[1] + 0.20 * panel_axis_span) top_callout_header_y <- discrimination_axis_limits[2] - 0.01 * panel_axis_span
+
+  # Anchor the top-five callout names below their header, clearing the underline
+  top_callout_names_y <- top_callout_header_y - 0.068 * panel_axis_span
+
+  # Loop over the exported figure versions i.e., the base figure and the version with the top/bottom-five callouts
+  for (figure_version_suffix in c("", "_with_callout")) {
+
+    # Start each version from the base figure
+    exported_within_industry_figure <- within_industry_figure
+
+    # Add the underlined bottom-five and top-five firm-name callouts
+    if (figure_version_suffix == "_with_callout") {
+      exported_within_industry_figure <- exported_within_industry_figure +
+
+        # Underlined bottom-five header over the bottom firms
+        ggplot2::annotate("text", x = 5, y = bottom_callout_header_y, label = "underline('Bottom 5 (ascending)')", parse = TRUE, size = 4.2, vjust = 1) +
+
+        # Bottom-five firm names, ascending
+        ggplot2::annotate("text", x = 5, y = bottom_callout_names_y, label = bottom_five_callout_label, size = 4.2, lineheight = 0.95, vjust = 1) +
+
+        # Underlined top-five header below the top firms
+        ggplot2::annotate("text", x = 48, y = top_callout_header_y, label = "underline('Top 5 (descending)')", parse = TRUE, size = 4.2, vjust = 1) +
+
+        # Top-five firm names, descending
+        ggplot2::annotate("text", x = 48, y = top_callout_names_y, label = top_five_callout_label, size = 4.2, lineheight = 0.95, vjust = 1)
+    }
+
+    # Convert the figure to its grid layout i.e., the arrangement of panel, axes, labels, and margins
+    within_industry_figure_layout <- ggplot2::ggplotGrob(exported_within_industry_figure)
+
+    # Pin the panel height, so the panel sits identically in every figure regardless of the firm name lengths below it
+    within_industry_figure_layout$heights[within_industry_figure_layout$layout$t[within_industry_figure_layout$layout$name == "panel"]] <- grid::unit(4.6, "in")
+
+    # Anchor the layout to the top of the page, so the varying firm-name block below cannot shift the panel vertically
+    within_industry_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(within_industry_figure_layout))
+
+    # Open the exported figure file
+    png(file.path(figures, paste0("industry_ratings_dual_axis_figures_within_", survey_measure, figure_version_suffix, ".png")), width = 16, height = 7.3, units = "in", res = 300, bg = "white")
+
+    # Draw the pinned layout into the file
+    grid::grid.draw(within_industry_figure_layout)
+
+    # Close the exported figure file
+    dev.off()
+  }
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Plot between-industry figure for each survey measure
 # -----------------------------------------------------------------------------------------------------------------------------
 # Loop over each survey measure, drawing one between-industry figure per measure
-for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_favor_younger")) {
+for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
   # Keep the industry identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
   between_industry_plot_working_data <- industry_rating_estimates |> dplyr::select(aer_naics2, aer_naics2_name, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes")))
 
@@ -529,7 +580,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     # Theme adjustments
     ggplot2::theme(
       # Angled industry names on the x axis
-      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 12),
 
       # Thin tick marks on the two y axes only
       axis.ticks        = ggplot2::element_line(color = "black", linewidth = 0.3),
@@ -561,7 +612,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
       axis.line.y.right  = ggplot2::element_line(color = "black"),
 
       # Margins leaving room for the angled industry names and the axis titles
-      plot.margin = ggplot2::margin(t = 10, r = 20, b = 80, l = 90)
+      plot.margin = ggplot2::margin(t = 10, r = 20, b = 130, l = 90)
     ) +
 
     # Pad the axis ends
@@ -580,7 +631,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
   between_industry_figure_layout$vp <- grid::viewport(y = grid::unit(1, "npc"), just = "top", height = grid::grobHeight(between_industry_figure_layout))
 
   # Open the exported figure file
-  png(file.path(figures, paste0("industry_ratings_dual_axis_figures_between_", survey_measure, ".png")), width = 16, height = 6.5, units = "in", res = 300, bg = "white")
+  png(file.path(figures, paste0("industry_ratings_dual_axis_figures_between_", survey_measure, ".png")), width = 16, height = 7.3, units = "in", res = 300, bg = "white")
 
   # Draw the pinned layout into the file
   grid::grid.draw(between_industry_figure_layout)
