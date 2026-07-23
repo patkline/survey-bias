@@ -16,24 +16,24 @@ format_estimate <- function(result) {
 }
 
 format_standard_error <- function(result) {
-  paste0("(", sprintf("%.3f", result$effect_per_10pp_se_hc1), ")")
+  paste0("(", sprintf("%.3f", result$effect_per_10pp_se), ")")
 }
 
 table_columns <- tibble::tribble(
-  ~belief_model, ~weighting,
-  "OLS", "number_of_firms",
+  ~belief_model, ~specification,
+  "OLS", "firm_level",
   "OLS", "equal_naics3",
-  "Borda", "number_of_firms",
+  "Borda", "firm_level",
   "Borda", "equal_naics3"
 )
 
-pull_result <- function(outcome, job_scope, belief_model, weighting) {
+pull_result <- function(outcome, job_scope, belief_model, specification) {
   result <- naics3_results |>
     dplyr::filter(
       .data$belief_outcome == .env$outcome,
       .data$eeo1_job_scope == .env$job_scope,
       .data$belief_model == .env$belief_model,
-      .data$weighting == .env$weighting
+      .data$specification == .env$specification
     )
 
   if (nrow(result) != 1L) {
@@ -48,7 +48,7 @@ make_specification_lines <- function(label, outcome, job_scope) {
       outcome = outcome,
       job_scope = job_scope,
       belief_model = table_columns$belief_model[column_index],
-      weighting = table_columns$weighting[column_index]
+      specification = table_columns$specification[column_index]
     )
   })
 
@@ -82,7 +82,7 @@ latex_lines <- c(
   "\\toprule",
   " & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\ ",
   "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5}",
-  " & Firm-weighted & Equal NAICS3 & Firm-weighted & Equal NAICS3 \\\\ ",
+  " & Firm-level & Equal NAICS3 & Firm-level & Equal NAICS3 \\\\ ",
   "\\midrule",
   "\\multicolumn{5}{l}{\\textbf{Panel A: Race}} \\\\ ",
   make_specification_lines(

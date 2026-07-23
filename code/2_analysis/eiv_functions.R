@@ -533,6 +533,12 @@ run_eiv_one <- function(
   # Column name in coef_df_wide that contains regression weights (default: NULL, no weighting is applied)
   weights_col = NULL,
 
+  # Column name in coef_df_wide used to cluster standard errors (default: NULL, no clustering is applied)
+  cluster_col = NULL,
+
+  # Apply the EIV finite-sample degrees-of-freedom adjustment
+  cluster_df_adj = FALSE,
+
   # Option to run with or without fes (default: TRUE)
   use_fe = TRUE
 ) {
@@ -549,6 +555,12 @@ run_eiv_one <- function(
   # Check that the entity identifier column exists in coef_df_wide
   stopifnot(id_col %in% names(coef_df_wide))
 
+  # Validate the optional clustering inputs
+  if (!is.null(cluster_col)) {
+    stopifnot(is.character(cluster_col), length(cluster_col) == 1L, nzchar(cluster_col))
+  }
+  stopifnot(is.logical(cluster_df_adj), length(cluster_df_adj) == 1L, !is.na(cluster_df_adj))
+
   # Check at least one RHS belief measure was passed 
   stopifnot(length(rhs_vars) >= 1)
 
@@ -563,7 +575,14 @@ run_eiv_one <- function(
   }
   
   # Assign required regression variables to a vector 
-  required_columns <- unique(c(id_col, if (use_fe) fe_col, lhs_var, rhs_vars, "weight"))
+  required_columns <- unique(c(
+    id_col,
+    if (use_fe) fe_col,
+    if (!is.null(cluster_col)) cluster_col,
+    lhs_var,
+    rhs_vars,
+    "weight"
+  ))
   
   # Stop execution if any regression columns are missing
   if (!all(required_columns %in% names(coef_df_wide))) {
@@ -583,6 +602,11 @@ run_eiv_one <- function(
   # If using fixed effects, restrict the estimation sample to observations with non-missing FE values
   if (use_fe) {
     estimation_sample <- estimation_sample |> dplyr::filter(!is.na(.data[[fe_col]]))
+  }
+
+  # Restrict the estimation sample to observations with a non-missing cluster
+  if (!is.null(cluster_col)) {
+    estimation_sample <- estimation_sample |> dplyr::filter(!is.na(.data[[cluster_col]]))
   }
   
   # Restrict the estimation sample dataframe to observations with non-missing RHS values
@@ -711,7 +735,11 @@ run_eiv_one <- function(
       Sigma_error = rhs_vars_noise_variance_covariance_matrix,
       
       # Weights for the regression
-      weights = estimation_sample[["weight"]]
+      weights = estimation_sample[["weight"]],
+
+      # Optional clustered variance estimator and finite-sample adjustment
+      cluster_varname = cluster_col,
+      df_adj = cluster_df_adj
     ),
 
     # On any error return NULL so the spec yields no output rows, i.e., NA in tables
@@ -735,7 +763,11 @@ run_eiv_one <- function(
         Sigma_error = rhs_vars_noise_variance_covariance_matrix_fe,
 
         # Weights for the regression
-        weights = estimation_sample[["weight"]]
+        weights = estimation_sample[["weight"]],
+
+        # Optional clustered variance estimator and finite-sample adjustment
+        cluster_varname = cluster_col,
+        df_adj = cluster_df_adj
       ),
 
       # On any error return NULL so the spec yields no output rows, i.e., NA in tables
@@ -839,6 +871,12 @@ run_eiv_suite <- function(
   # Column name in coef_df_wide that contains regression weights; passed through to run_eiv_one()
   weights_col = NULL,
 
+  # Column name in coef_df_wide used to cluster standard errors; passed through to run_eiv_one()
+  cluster_col = NULL,
+
+  # Apply the EIV finite-sample degrees-of-freedom adjustment; passed through to run_eiv_one()
+  cluster_df_adj = FALSE,
+
   # Option to run with or without fes; passed through to run_eiv_one()
   use_fe = TRUE
 ) {
@@ -885,6 +923,8 @@ run_eiv_suite <- function(
         model_col    = model_col,
         fe_col       = fe_col,
         weights_col  = weights_col,
+        cluster_col  = cluster_col,
+        cluster_df_adj = cluster_df_adj,
         use_fe       = use_fe
       )
 
@@ -933,6 +973,12 @@ write_eiv_sheet <- function(
   # Column name in coef_df_wide that contains regression weights; passed through to run_eiv_suite()
   weights_col = NULL,
 
+  # Column name in coef_df_wide used to cluster standard errors; passed through to run_eiv_suite()
+  cluster_col = NULL,
+
+  # Apply the EIV finite-sample degrees-of-freedom adjustment; passed through to run_eiv_suite()
+  cluster_df_adj = FALSE,
+
   # Option to run with or without fes; passed through to run_eiv_suite()
   use_fe = TRUE
 ) {
@@ -947,6 +993,8 @@ write_eiv_sheet <- function(
     model_col    = model_col,
     fe_col       = fe_col,
     weights_col  = weights_col,
+    cluster_col  = cluster_col,
+    cluster_df_adj = cluster_df_adj,
     use_fe       = use_fe
   )
 

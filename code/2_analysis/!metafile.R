@@ -70,6 +70,7 @@ analysis_check_sheets <- c(
   "Coefficients", "rcov", "variance", "covariance", "correlation",
   "covariance_within_industry", "correlation_within_industry",
   "covariance_between_industry", "correlation_between_industry",
+  "belief_amad_summary",
   "EIV_firm", "EIV_within", "EIV_between",
   "EIV_within_selectivity", "EIV_between_selectivity"
 )
@@ -84,6 +85,12 @@ system.time({
     combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
     seed = 123
   )
+})
+
+# Respondent-pair AMAD diagnostics used by the belief summary tables.
+# This is intentionally computed in section 2; section 3 only formats outputs.
+system.time({
+  run_belief_summary_amad_analysis(data, output_dir)
 })
 
 message("🎃 Full_Sample write check:")
@@ -182,7 +189,22 @@ for (subdir in default_eeo1_eiv_filemap$subdir) {
 }
 
 # ------------------------------------------------------------------------------
-# NAICS3 beliefs and EEO-1 workforce shares
+# EEO-1 NAICS3 share controls and belief-share regressions
 # ------------------------------------------------------------------------------
+
+message("Running EEO-1 NAICS3 share-control EIV output")
+eeo1_naics3_eiv <- run_eeo1_naics3_eiv_for_subdir("Full_Sample")
+
+eeo1_naics3_eiv_path <- parquet_sheet_path(
+  file.path(intermediate, "Full_Sample"),
+  eeo1_naics3_eiv_sheet
+)
+eeo1_naics3_eiv_info <- file.info(eeo1_naics3_eiv_path)
+message(
+  "  ", basename(eeo1_naics3_eiv_path),
+  " | exists=", file.exists(eeo1_naics3_eiv_path),
+  " | size=", eeo1_naics3_eiv_info$size,
+  " | mtime=", format(eeo1_naics3_eiv_info$mtime, "%Y-%m-%d %H:%M:%S")
+)
 
 source(file.path(analysis, "regress_beliefs_on_eeo1_naics3_shares.R"))

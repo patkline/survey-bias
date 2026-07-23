@@ -38,7 +38,8 @@ if (length(missing_variance_cols)) {
 # ------------------------------------------------------------------------------
 # Build firm-level Likert scores and per-measure histogram stats
 # ------------------------------------------------------------------------------
-# Dataframe, one row per Likert aggregation model; rank 1 prefers the non-recentered OLS ratings i.e., the specification reported by belief_summary_ols_borda.tex
+# Dataframe, one row per Likert aggregation model; rank 1 prefers the
+# non-recentered OLS ratings used in the belief summary table.
 likert_model_preference <- data.frame(
   model = c("OLS_not_recentered", "OLS"),
   preference = c(1L, 2L),
@@ -77,7 +78,8 @@ if (!setequal(unique(firm_likert_scores$outcome), names(histogram_outcomes))) {
   stop("One or more pooled discrimination outcomes lack firm-level Likert scores")
 }
 
-# Dataframe, one row per pooled measure: sample and signal SDs from the centered-OLS variance rows; recentering changes neither SD
+# Sample and signal standard deviations come directly from the centered OLS
+# variance rows; recentering does not alter either SD.
 histogram_stats <- variance_df |>
   dplyr::filter(
     .data$subset == "all",

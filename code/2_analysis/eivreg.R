@@ -198,7 +198,7 @@ eivreg <- function(formula, data, subset, weights, na.action, method = "qr", mod
     ###############################################################
     if( !is.null(cluster_varname) ){
         z$cluster_varname <- cluster_varname
-        z$cluster_values  <- data[,cluster_varname]
+        z$cluster_values  <- data[[cluster_varname]]
 
         if( !is.null(attr(mf, "na.action")) ){
             z$cluster_values <- z$cluster_values[ setdiff(1:nrow(data), as.vector(attr(mf, "na.action"))) ]

@@ -14,8 +14,6 @@
 source("code/globals.R")
 source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 source(file.path(analysis, "katz_correct.R"))
-source(file.path(analysis, "leave_in_connected.R"))
-source(file.path(analysis, "create_wide_rankings.R"))
 
 # Per-model column display names + recognized label set
 MODEL_DISPLAY_NAMES <- c(
@@ -347,134 +345,13 @@ format_count <- function(x) {
   out
 }
 
-# Sum |x_i - x_i'| over unordered pairs without materializing the pairwise
-# distance matrix. For sorted x, each value's net coefficient is 2i - n - 1.
-unordered_pairwise_abs_sum <- function(x) {
-  x <- sort(suppressWarnings(as.numeric(x)))
-  x <- x[is.finite(x)]
-  n <- length(x)
-  if (n < 2L) return(0)
-  sum((2 * seq_len(n) - n - 1) * x)
-}
-
-# Average the within-firm Gini mean differences in raw Likert points, weighting
-# every firm equally as in the Table 3 definition.
-compute_average_likert_gmd <- function(data_rating_long,
-                                       expected_firm_count = 164L) {
-  firm_stats <- data_rating_long %>%
-    dplyr::transmute(
-      firm_id = suppressWarnings(as.integer(.data$firm_id)),
-      rating  = suppressWarnings(as.numeric(.data$rating))
-    ) %>%
-    dplyr::filter(!is.na(.data$firm_id), is.finite(.data$rating)) %>%
-    dplyr::group_by(.data$firm_id) %>%
-    dplyr::summarise(
-      n = dplyr::n(),
-      abs_diff_sum = unordered_pairwise_abs_sum(.data$rating),
-      .groups = "drop"
-    )
-
-  if (nrow(firm_stats) != expected_firm_count) {
-    stop("Likert GMD expected ", expected_firm_count,
-         " firms but found ", nrow(firm_stats))
-  }
-  if (any(firm_stats$n < 2L)) {
-    stop("Likert GMD is undefined for a firm with fewer than two responses")
-  }
-
-  mean(2 * firm_stats$abs_diff_sum /
-         (firm_stats$n * (firm_stats$n - 1)))
-}
-
-# For each ordered (j, k), w_ijk is 1 when respondent i ranks j above k,
-# 1/2 for a tie, and 0 when j is below k. For each j, pool the absolute
-# differences and respondent-pair counts over non-anchor k, then average the
-# resulting GMD equally across all firms j.
-compute_average_borda_gmd <- function(data_wide,
-                                      anchor_firm_ids = c(38L, 76L, 90L),
-                                      expected_firm_count = 164L) {
-  if (!"resp_id" %in% names(data_wide)) {
-    stop("Borda GMD requires a resp_id column in the wide ranking data")
-  }
-
-  rankings <- data_wide %>%
-    tidyr::pivot_longer(
-      cols = dplyr::starts_with("firm"),
-      names_to = "firm_column",
-      values_to = "rank"
-    ) %>%
-    dplyr::transmute(
-      resp_id,
-      firm_id = suppressWarnings(as.integer(sub("^firm", "", .data$firm_column))),
-      rank = suppressWarnings(as.numeric(.data$rank))
-    ) %>%
-    dplyr::filter(!is.na(.data$firm_id), is.finite(.data$rank), .data$rank > 0)
-
-  firm_ids <- sort(unique(rankings$firm_id))
-  if (length(firm_ids) != expected_firm_count) {
-    stop("Borda GMD expected ", expected_firm_count,
-         " firms but found ", length(firm_ids))
-  }
-  missing_anchors <- setdiff(anchor_firm_ids, firm_ids)
-  if (length(missing_anchors)) {
-    stop("Borda GMD anchor firm IDs missing from ranking data: ",
-         paste(missing_anchors, collapse = ", "))
-  }
-
-  # A respondent contributes w_ijk only when both firms are in their choice set.
-  comparisons <- merge(
-    rankings,
-    rankings,
-    by = "resp_id",
-    suffixes = c("_j", "_k"),
-    sort = FALSE
-  ) %>%
-    dplyr::filter(
-      .data$firm_id_j != .data$firm_id_k,
-      !.data$firm_id_k %in% anchor_firm_ids
-    ) %>%
-    dplyr::mutate(
-      w = dplyr::case_when(
-        .data$rank_j < .data$rank_k ~ 1,
-        .data$rank_j == .data$rank_k ~ 0.5,
-        TRUE ~ 0
-      )
-    )
-
-  comparison_pair_stats <- comparisons %>%
-    dplyr::group_by(.data$firm_id_j, .data$firm_id_k) %>%
-    dplyr::summarise(
-      n_jk = dplyr::n(),
-      abs_diff_sum = unordered_pairwise_abs_sum(.data$w),
-      .groups = "drop"
-    )
-
-  firm_stats <- comparison_pair_stats %>%
-    dplyr::group_by(.data$firm_id_j) %>%
-    dplyr::summarise(
-      abs_diff_sum = sum(.data$abs_diff_sum),
-      respondent_pair_count = sum(.data$n_jk * (.data$n_jk - 1) / 2),
-      .groups = "drop"
-    ) %>%
-    dplyr::right_join(
-      data.frame(firm_id_j = firm_ids),
-      by = "firm_id_j"
-    )
-
-  if (any(!is.finite(firm_stats$respondent_pair_count)) ||
-      any(firm_stats$respondent_pair_count <= 0)) {
-    stop("Borda GMD is undefined for a firm without respondent pairs")
-  }
-
-  mean(firm_stats$abs_diff_sum / firm_stats$respondent_pair_count)
-}
-
 # Build grouped LaTeX rows shared by Table 3 and Table 4. The first cell is
 # indented and a small vertical gap follows every group except the last.
 grouped_summary_table_rows <- function(outcomes,
                                        display_labels,
                                        formatted_data,
-                                       outcome_groups) {
+                                       outcome_groups,
+                                       formatted_se_data = NULL) {
   grouped_outcomes <- unname(unlist(outcome_groups, use.names = FALSE))
   missing_outcomes <- setdiff(grouped_outcomes, outcomes)
   extra_outcomes   <- setdiff(outcomes, grouped_outcomes)
@@ -484,6 +361,11 @@ grouped_summary_table_rows <- function(outcomes,
       paste(missing_outcomes, collapse = ", "),
       "; extra: ", paste(extra_outcomes, collapse = ", ")
     )
+  }
+  if (!is.null(formatted_se_data) &&
+      (nrow(formatted_se_data) != length(outcomes) ||
+       ncol(formatted_se_data) != ncol(formatted_data))) {
+    stop("Grouped summary-table SE data must match formatted point-estimate data")
   }
 
   lines <- character(0)
@@ -498,277 +380,38 @@ grouped_summary_table_rows <- function(outcomes,
         paste0("\\quad ", latex_escape_text(display_labels[i])),
         as.character(formatted_data[i, , drop = TRUE])
       )
-      row_end <- if (j == length(idx) && g < length(outcome_groups)) {
+      group_row_end <- if (j == length(idx) && g < length(outcome_groups)) {
         " \\\\[0.5em]"
       } else {
         " \\\\"
       }
-      lines <- c(lines, paste0(paste(cells, collapse = " & "), row_end))
+      if (is.null(formatted_se_data)) {
+        lines <- c(lines, paste0(paste(cells, collapse = " & "), group_row_end))
+      } else {
+        se_cells <- c("", as.character(formatted_se_data[i, , drop = TRUE]))
+        lines <- c(
+          lines,
+          paste0(paste(cells, collapse = " & "), " \\\\"),
+          paste0(paste(se_cells, collapse = " & "), group_row_end)
+        )
+      }
     }
   }
   lines
 }
 
-build_belief_summary_ols_borda_data <- function(dir_path,
-                                                outcomes,
-                                                label_mapping = NULL) {
-  coef_df <- read_parquet_sheet(dir_path, "Coefficients")
-
-  required_cols <- c("subset", "model", "outcome", "entity_type", "estimate")
-  missing_cols <- setdiff(required_cols, names(coef_df))
-  if (length(missing_cols)) {
-    stop("Coefficients sheet missing columns: ", paste(missing_cols, collapse = ", "))
-  }
-
-  survey_path <- file.path(processed, "long_survey_final.csv")
-  if (!file.exists(survey_path)) {
-    stop("Could not find prepared survey data for belief summary table: ", survey_path)
-  }
-  survey_data <- utils::read.csv(survey_path, stringsAsFactors = FALSE)
-
-  response_stats <- dplyr::bind_rows(lapply(outcomes, function(outcome) {
-    prep <- prepare_pltree_data(
-      data            = survey_data,
-      rank_col        = outcome,
-      subgroup_var    = NULL,
-      subgroup_filter = NULL
-    )
-    data_long <- prep$data_rating_long
-
-    data.frame(
-      outcome     = outcome,
-      Responses   = nrow(data_long),
-      Respondents = dplyr::n_distinct(data_long$resp_id),
-      Likert_GMD  = compute_average_likert_gmd(data_long),
-      Borda_GMD   = compute_average_borda_gmd(prep$data_wide_pltree),
-      stringsAsFactors = FALSE
-    )
-  }))
-
-  model_preference <- data.frame(
-    model = c("OLS_not_recentered", "OLS", "Borda_not_recentered", "Borda"),
-    table_model = c("OLS", "OLS", "Borda", "Borda"),
-    preference = c(1L, 2L, 1L, 2L),
-    stringsAsFactors = FALSE
-  )
-
-  metrics <- coef_df %>%
-    dplyr::inner_join(model_preference, by = "model") %>%
-    dplyr::filter(
-      .data$subset == "all",
-      .data$entity_type == "Firm",
-      .data$outcome %in% outcomes
-    ) %>%
-    dplyr::group_by(.data$outcome, .data$table_model) %>%
-    dplyr::filter(.data$preference == min(.data$preference, na.rm = TRUE)) %>%
-    dplyr::ungroup() %>%
-    dplyr::mutate(
-      estimate = suppressWarnings(as.numeric(.data$estimate))
-    ) %>%
-    dplyr::group_by(.data$outcome, .data$table_model) %>%
-    dplyr::summarise(
-      mean = mean(.data$estimate, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    tidyr::pivot_wider(
-      names_from  = "table_model",
-      values_from = "mean",
-      names_prefix = "mean_"
-    )
-
-  tab <- data.frame(outcome = outcomes, stringsAsFactors = FALSE) %>%
-    dplyr::left_join(response_stats, by = "outcome") %>%
-    dplyr::left_join(metrics, by = "outcome") %>%
-    dplyr::mutate(Outcome = map_label(.data$outcome, label_mapping)) %>%
-    dplyr::arrange(.data$Outcome, .data$outcome) %>%
-    dplyr::transmute(
-      outcome,
-      Outcome,
-      Responses,
-      Respondents,
-      `Likert: mean`        = .data$mean_OLS,
-      `Likert: Average GMD` = .data$Likert_GMD,
-      `Borda: mean`         = .data$mean_Borda,
-      `Borda: Average GMD`  = .data$Borda_GMD
-    )
-}
-
-write_belief_summary_ols_borda <- function(dir_path,
-                                           outcomes,
-                                           tables_dir,
-                                           label_mapping = NULL,
-                                           tex_name = "belief_summary_ols_borda.tex",
-                                           latex_decimals = 3) {
-  tab <- build_belief_summary_ols_borda_data(
-    dir_path = dir_path,
-    outcomes = outcomes,
-    label_mapping = label_mapping
-  )
-
-  latex_df <- data.frame(
-    Outcome     = latex_escape_text(tab$Outcome),
-    Responses   = format_count(tab$Responses),
-    Respondents = format_count(tab$Respondents),
-    `Likert Mean` = fmt_dec(tab$`Likert: mean`, latex_decimals),
-    `Likert GMD`  = fmt_dec(tab$`Likert: Average GMD`, latex_decimals),
-    `Borda Mean`  = fmt_dec(tab$`Borda: mean`, latex_decimals),
-    `Borda GMD`   = fmt_dec(tab$`Borda: Average GMD`, latex_decimals),
-    check.names = FALSE,
-    stringsAsFactors = FALSE
-  )
-
-  tex_out_path <- file.path(tables_dir, tex_name)
-  body_lines <- grouped_summary_table_rows(
-    outcomes       = tab$outcome,
-    display_labels = tab$Outcome,
-    formatted_data = latex_df[, -1, drop = FALSE],
-    outcome_groups = standard_outcome_groups
-  )
-  latex_lines <- c(
-    "\\begin{tabular}{lcccccc}",
-    "  \\toprule",
-    " & \\multicolumn{2}{c}{Sample} & \\multicolumn{4}{c}{Aggregate Firm Scores} \\\\",
-    "\\cmidrule(lr){2-3} \\cmidrule(lr){4-7}",
-    " & & & \\multicolumn{2}{c}{Likert} & \\multicolumn{2}{c}{Borda} \\\\",
-    "\\cmidrule(lr){4-5} \\cmidrule(lr){6-7}",
-    "Outcome & Responses & Respondents & Mean & Average GMD & Mean & Average GMD \\\\",
-    "\\midrule",
-    body_lines,
-    "   \\bottomrule",
-    "\\end{tabular}"
-  )
-  writeLines(latex_lines, tex_out_path)
-
-  cat("Belief summary table saved:", basename(tex_out_path), "\n")
-
-  invisible(list(tex = tex_out_path, data = tab))
-}
-
-write_belief_mean_signal_sd_ols_borda <- function(dir_path,
-                                                  outcomes,
-                                                  tables_dir,
-                                                  label_mapping = NULL,
-                                                  tex_name = "belief_mean_signal_sd_ols_borda.tex",
-                                                  latex_decimals = 3) {
-  belief_summary <- build_belief_summary_ols_borda_data(
-    dir_path = dir_path,
-    outcomes = outcomes,
-    label_mapping = label_mapping
-  )
-
-  var_df <- read_parquet_sheet(dir_path, "variance")
-
-  required_cols <- c("subset", "model", "outcome", "variance", "signal")
-  missing_cols <- setdiff(required_cols, names(var_df))
-  if (length(missing_cols)) {
-    stop("variance sheet missing columns: ", paste(missing_cols, collapse = ", "))
-  }
-
-  variance_stats <- var_df |>
-    dplyr::filter(
-      .data$subset == "all",
-      .data$model %in% c("OLS", "Borda"),
-      .data$outcome %in% outcomes
-    ) |>
-    dplyr::mutate(
-      sample_sd = sqrt(pmax(suppressWarnings(as.numeric(.data$variance)), 0)),
-      signal_sd = sqrt(pmax(suppressWarnings(as.numeric(.data$signal)), 0))
-    ) |>
-    dplyr::select(outcome, model, sample_sd, signal_sd) |>
-    tidyr::pivot_wider(
-      names_from = model,
-      values_from = c(sample_sd, signal_sd)
-    )
-
-  missing_stat_cols <- setdiff(
-    c("sample_sd_OLS", "sample_sd_Borda", "signal_sd_OLS", "signal_sd_Borda"),
-    names(variance_stats)
-  )
-  if (length(missing_stat_cols)) {
-    stop("Missing OLS/Borda variance statistic columns: ", paste(missing_stat_cols, collapse = ", "))
-  }
-
-  tab <- data.frame(outcome = outcomes, stringsAsFactors = FALSE) |>
-    dplyr::left_join(
-      belief_summary |>
-        dplyr::transmute(
-          outcome,
-          Outcome,
-          Responses,
-          mean_OLS = .data$`Likert: mean`,
-          mean_Borda = .data$`Borda: mean`
-        ),
-      by = "outcome"
-    ) |>
-    dplyr::left_join(variance_stats, by = "outcome") |>
-    dplyr::arrange(.data$Outcome, .data$outcome)
-
-  latex_df <- data.frame(
-    Outcome = latex_escape_text(tab$Outcome),
-    Responses = format_count(tab$Responses),
-    `Likert Mean` = fmt_dec(tab$mean_OLS, latex_decimals),
-    `Likert Sample SD` = fmt_dec(tab$sample_sd_OLS, latex_decimals),
-    `Likert Signal SD` = fmt_dec(tab$signal_sd_OLS, latex_decimals),
-    `Borda Mean` = fmt_dec(tab$mean_Borda, latex_decimals),
-    `Borda Sample SD` = fmt_dec(tab$sample_sd_Borda, latex_decimals),
-    `Borda Signal SD` = fmt_dec(tab$signal_sd_Borda, latex_decimals),
-    check.names = FALSE,
-    stringsAsFactors = FALSE
-  )
-
-  xt <- xtable::xtable(latex_df, align = c("l", "l", rep("c", 7)))
-  header <- paste0(
-    "\\toprule\n",
-    " & \\multicolumn{1}{c}{Sample} & \\multicolumn{3}{c}{Likert} & \\multicolumn{3}{c}{Borda} \\\\\n",
-    "\\cmidrule(lr){2-2} \\cmidrule(lr){3-5} \\cmidrule(lr){6-8}\n",
-    "Outcome & Responses & Mean & \\shortstack{Sample\\\\Std Dev} & \\shortstack{Signal\\\\Std Dev} & Mean & \\shortstack{Sample\\\\Std Dev} & \\shortstack{Signal\\\\Std Dev} \\\\\n",
-    "\\midrule\n"
-  )
-
-  tex_out_path <- file.path(tables_dir, tex_name)
-  write_xtable_checked(
-    xt,
-    tex_out_path,
-    include.rownames = FALSE,
-    include.colnames = FALSE,
-    add.to.row = list(pos = list(0), command = header),
-    sanitize.text.function = identity,
-    booktabs = TRUE,
-    floating = FALSE,
-    comment = FALSE,
-    label = "belief mean, sample standard deviation, and signal standard deviation LaTeX"
-  )
-
-  cat("Belief mean / sample standard deviation / signal standard deviation table saved:",
-      basename(tex_out_path), "\n")
-
-  invisible(list(tex = tex_out_path, data = tab))
-}
-
 # -------------------------------
 # Standard outcomes
 # -------------------------------
+variance_tables_dir <- Sys.getenv("VARIANCE_TABLES_DIR", unset = tables)
+
 write_variance_table_both(
   dir_path      = dir_path,
   outcomes      = outs,
-  tables_dir    = tables,
+  tables_dir    = variance_tables_dir,
   label_mapping = label_mapping,
   tex_base      = "variance_biascorrected",
   outcome_groups = standard_outcome_groups
-)
-
-write_belief_summary_ols_borda(
-  dir_path      = dir_path,
-  outcomes      = outs,
-  tables_dir    = tables,
-  label_mapping = label_mapping
-)
-
-write_belief_mean_signal_sd_ols_borda(
-  dir_path      = dir_path,
-  outcomes      = outs,
-  tables_dir    = tables,
-  label_mapping = label_mapping
 )
 
 # -------------------------------
@@ -777,7 +420,7 @@ write_belief_mean_signal_sd_ols_borda(
 write_variance_table_both(
   dir_path      = dir_path,
   outcomes      = alternate_framings,
-  tables_dir    = tables,
+  tables_dir    = variance_tables_dir,
   label_mapping = alternate_label_mapping,
   tex_base      = "variance_biascorrected_alternate"
 )

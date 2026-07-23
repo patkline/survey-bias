@@ -89,6 +89,7 @@ source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 
 # Variance table scripts
 source(file.path(create_tables_figures, "summary_variance_table.R"))
+source(file.path(create_tables_figures, "belief_summary_ols_borda.R"))
 source(file.path(create_tables_figures, "summary_variance_within_between.R"))
 source(file.path(create_tables_figures, "subgroup_belief_mean_signal_variance_table.R"))
 source(file.path(create_tables_figures, "firm_average_likert_histograms.R"))
@@ -139,6 +140,7 @@ source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix
 # source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 # source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
+source(file.path(create_tables_figures, "eiv_eeo1_naics3_share_controls_table.R"))
 source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
 
 # NAICS3 belief-share regressions

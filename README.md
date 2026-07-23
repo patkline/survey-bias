@@ -184,7 +184,7 @@ for the lightweight firm-name match step.
 ### 2. Analysis --- `code/2_analysis/`
 
 **Input:** `data/processed/long_survey_final.csv`; Revelio EIV also uses `data/processed/revelio_firm_measures.csv`
-**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `EIV_firm`, `EIV_within`, `EIV_between`, `EIV_revelio_firm`
+**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `belief_amad_summary`, `EIV_firm`, `EIV_within`, `EIV_between`, `EIV_revelio_firm`, `EIV_eeo1_naics3_shares`, `NAICS3_belief_share_regressions`
 
 **Models currently enabled** in `!metafile.R`: **Borda + OLS** only (`run_pl = run_ol = run_ols_centered = FALSE`). The PL / OL / OLSC fitters below still exist and can be toggled back on; downstream `3_create_tables_figures/` scripts auto-detect whichever models the `variance` / `Coefficients` sheets contain.
 
@@ -210,10 +210,14 @@ for the lightweight firm-name match step.
       - `correlation_function.R` --- `corr`, `corr_den`, `corr_c` (noise-corrected)
       - `katz_correct.R` --- positivity correction for variance components
       - `EB_procedure.R` --- two-step empirical Bayes shrinkage of firm estimates (writes the `eb` column on `Coefficients`)
+      - `belief_summary_amad.R` --- arm/framing-restricted Likert and Borda respondent-pair AMADs, analytical SEs, and decompositions
     - **EIV regressions**
       - `eivreg.R` --- measurement-error regression with `Σ_error`
       - `eiv_functions.R` --- runs `eivreg` over (lhs × rhs × subset × model) specs
       - `revelio_eiv.R` --- reads matched Revelio firm measures and writes `EIV_revelio_firm`
+      - `eeo1_naics3_shares.R` --- loads the firm crosswalk and national EEO-1 NAICS3 workforce shares
+      - `eeo1_naics3_eiv.R` --- EIV contact-gap regressions with NAICS3 workforce-share controls
+      - `regress_beliefs_on_eeo1_naics3_shares.R` --- firm-level belief regressions with NAICS3-clustered SEs plus equal-industry specifications
       - `make_industry_means.R` --- njobs-weighted within/between industry decomposition
     - **Misc**
       - `experimental.R` --- ad-hoc outcome transforms (dif, log_dif, etc.)
@@ -230,7 +234,8 @@ for the lightweight firm-name match step.
   - `summary_statistics_histograms.R` --- response duration histogram
   - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
     - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
-    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings), OLS/Borda belief-summary table, and OLS/Borda responses/mean/sample-SD/signal-SD table
+    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
+    - `belief_summary_ols_borda.R` --- formats the intermediate belief diagnostics into `belief_summary_ols_borda_different_ratings.tex`
     - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
     - `firm_average_likert_histograms.R` --- firm-level average Likert-score histograms for pooled Black- and gender-discrimination beliefs, annotated with the mean, sample SD, and signal SD
   - `top_bottom_firm_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
@@ -251,6 +256,8 @@ for the lightweight firm-name match step.
   - `eiv_revelio_outcome_tables.R` --- Controlling for Revelio workforce shares on the RHS of main EIV regs 
   - `eiv_revelio_composition_tables.R` --- Revelio outcomes (race/gender workforce share and paygaps as LHS)
   - `eiv_eeo1_share_tables.R` --- EIV tables using EEO-1 industry-level race/gender shares
+  - `eiv_eeo1_naics3_share_controls_table.R` --- full-sample EIV contact-gap table with NAICS3 workforce-share controls and NAICS3-clustered standard errors in the share-control columns
+  - `naics3_beliefs_on_eeo1_shares_table.R` --- firm-level beliefs-on-NAICS3-share regression table
   - `revelio_eeo1_frontline_share_correlations.R` --- firm-level Revelio workforce shares vs EEO-1 industry shares: comparison CSV, correlations, industry black-share scatterplots
   - `eiv_scatterplots.R` --- audit contact gaps on raw firm-level beliefs, scatter with naive (weighted OLS, robust SE) and EIV fitted lines
   - `eiv_coefplot_by_subgroup.R` --- coefplot of subgroup-split EIV slopes (njobs-weighted Katz noise), with slope-difference annotations
