@@ -44,6 +44,7 @@ write_variance_within_between <- function(dir_path,
                                           tex_name = "variance_biascorrected_within_between_industry.tex",
                                           latex_decimals = 3,
                                           borda_mult = 1,
+                                          outcome_groups = NULL,
                                           variant = c("unweighted",
                                                       "njobs_weighted")) {
   variant <- match.arg(variant)
@@ -310,26 +311,52 @@ write_variance_within_between <- function(dir_path,
 
   total_cols <- col_idx  # Outcome + per-model columns
 
+  # Build one row's formatted cells (outcome label first, then each model's block)
+  row_cells <- function(df_panel, i, indent = "") {
+    cells <- paste0(indent, df_panel$Outcome_display[i])
+    for (mdl in present_models) {
+      cells <- c(cells,
+                 fmt_dec(df_panel[[paste0(mdl, "_sd")]][i], latex_decimals),
+                 fmt_dec(df_panel[[paste0(mdl, "_sd_bias_corrected")]][i], latex_decimals),
+                 fmt_dec(df_panel[[paste0(mdl, "_t_stat")]][i], latex_decimals))
+      if (mdl == "PL"    && "PL_reliability" %in% names(df_panel)) {
+        cells <- c(cells, fmt_dec(df_panel$PL_reliability[i], latex_decimals))
+      }
+      if (mdl == "Borda" && "Borda_var_norm" %in% names(df_panel)) {
+        cells <- c(cells, fmt_dec(df_panel$Borda_var_norm[i], latex_decimals))
+      }
+    }
+    cells
+  }
+
   panel_rows <- function(df_panel) {
     if (nrow(df_panel) == 0) return(character(0))
-    parts <- character(nrow(df_panel))
-    for (i in seq_len(nrow(df_panel))) {
-      cells <- df_panel$Outcome_display[i]
-      for (mdl in present_models) {
-        cells <- c(cells,
-                   fmt_dec(df_panel[[paste0(mdl, "_sd")]][i], latex_decimals),
-                   fmt_dec(df_panel[[paste0(mdl, "_sd_bias_corrected")]][i], latex_decimals),
-                   fmt_dec(df_panel[[paste0(mdl, "_t_stat")]][i], latex_decimals))
-        if (mdl == "PL"    && "PL_reliability" %in% names(df_panel)) {
-          cells <- c(cells, fmt_dec(df_panel$PL_reliability[i], latex_decimals))
-        }
-        if (mdl == "Borda" && "Borda_var_norm" %in% names(df_panel)) {
-          cells <- c(cells, fmt_dec(df_panel$Borda_var_norm[i], latex_decimals))
-        }
+
+    # Flat listing (previous behavior) when no outcome_groups supplied
+    if (is.null(outcome_groups)) {
+      parts <- character(nrow(df_panel))
+      for (i in seq_len(nrow(df_panel))) {
+        parts[i] <- paste0("    ", paste(row_cells(df_panel, i), collapse = " & "), " \\\\")
       }
-      parts[i] <- paste0("    ", paste(cells, collapse = " & "), " \\\\")
+      return(parts)
     }
-    parts
+
+    # Grouped listing, matching write_variance_table()'s grouped_summary_table_rows() style:
+    # bold group header, \quad-indented rows, extra vertical space between groups
+    lines <- character(0)
+    group_names <- names(outcome_groups)
+    for (g in seq_along(outcome_groups)) {
+      idx <- match(outcome_groups[[g]], df_panel$base_outcome)
+      idx <- idx[!is.na(idx)]
+      if (!length(idx)) next
+      lines <- c(lines, paste0("    \\textbf{", group_names[g], "} \\\\"))
+      for (j in seq_along(idx)) {
+        i <- idx[j]
+        row_end <- if (j == length(idx) && g < length(outcome_groups)) " \\\\[0.5em]" else " \\\\"
+        lines <- c(lines, paste0("    ", paste(row_cells(df_panel, i, indent = "\\quad "), collapse = " & "), row_end))
+      }
+    }
+    lines
   }
 
   panel_a <- tab %>% dplyr::filter(.data$panel == "Panel A: Within-industry")
@@ -371,6 +398,7 @@ write_variance_within_between(
   csv_name      = "variance_biascorrected_within_between_industry.csv",
   tex_name      = "variance_biascorrected_within_between_industry.tex",
   borda_mult    = 1,
+  outcome_groups = standard_outcome_groups,
   variant       = "unweighted"
 )
 
@@ -383,5 +411,6 @@ write_variance_within_between(
   csv_name      = "variance_biascorrected_within_between_industry_njobs_weighted.csv",
   tex_name      = "variance_biascorrected_within_between_industry_njobs_weighted.tex",
   borda_mult    = 1,
+  outcome_groups = standard_outcome_groups,
   variant       = "njobs_weighted"
 )
