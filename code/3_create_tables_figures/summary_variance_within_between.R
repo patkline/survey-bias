@@ -21,10 +21,11 @@ source("code/globals.R")
 source(file.path(create_tables_figures, "summary_outcomes_config.R"))
 source(file.path(analysis, "katz_correct.R"))
 
-# Per-model column count: PL gets ICC, Borda gets Normed Variance, others 3 cols
+# Per-model column count: PL gets ICC, Likert and Borda get Reliability, matching
+# write_variance_table()'s model_n_cols() in summary_variance_table.R
 model_n_cols_wb <- function(model) {
-  if (model == "PL")    return(4L)
-  if (model == "Borda") return(4L)
+  if (model == "PL")                 return(4L)  # SD, Signal SD, T-stat, ICC
+  if (model %in% c("OLS", "Borda")) return(4L)  # SD, Signal SD, Reliability, T-stat
   3L
 }
 
@@ -44,6 +45,7 @@ write_variance_within_between <- function(dir_path,
                                           tex_name = "variance_biascorrected_within_between_industry.tex",
                                           latex_decimals = 3,
                                           borda_mult = 1,
+                                          outcome_groups = NULL,
                                           variant = c("unweighted",
                                                       "njobs_weighted")) {
   variant <- match.arg(variant)
@@ -207,6 +209,11 @@ write_variance_within_between <- function(dir_path,
       outcome,
       !!paste0(mdl, "_sd")                := sqrt(pmax(variance, 0)) * mult,
       !!paste0(mdl, "_sd_bias_corrected") := sqrt(pmax(signal, 0)) * mult,
+      !!paste0(mdl, "_reliability")       := ifelse(
+        is.finite(variance) & variance > 0 & is.finite(signal),
+        pmax(signal, 0) / variance,
+        NA_real_
+      ),
       !!paste0(mdl, "_t_stat")            := as.numeric(t_stat)
     )
   }
@@ -216,13 +223,6 @@ write_variance_within_between <- function(dir_path,
     mult <- if (mdl == "Borda") borda_mult else 1
     mdl_df <- build_model_cols(var_df, mdl, mult = mult)
     if (is.null(mdl_df)) next
-    if (mdl == "Borda") {
-      mdl_df$Borda_var_norm <- ifelse(
-        is.finite(mdl_df$Borda_sd_bias_corrected),
-        (mdl_df$Borda_sd_bias_corrected / borda_mult)^2 / 0.0844,
-        NA_real_
-      )
-    }
     if (mdl == "PL") {
       pl_raw <- var_df %>% dplyr::filter(.data$model == "PL")
       if ("reliability" %in% names(pl_raw)) {
@@ -274,11 +274,11 @@ write_variance_within_between <- function(dir_path,
     csv_cols[[paste0(disp, ": sd")]]                <- tab[[paste0(mdl, "_sd")]]
     csv_cols[[paste0(disp, ": bias corrected sd")]] <- tab[[paste0(mdl, "_sd_bias_corrected")]]
     csv_cols[[paste0(disp, ": t-stat")]]            <- tab[[paste0(mdl, "_t_stat")]]
+    if (mdl %in% c("OLS", "Borda") && paste0(mdl, "_reliability") %in% names(tab)) {
+      csv_cols[[paste0(disp, ": reliability")]] <- tab[[paste0(mdl, "_reliability")]]
+    }
     if (mdl == "PL"    && "PL_reliability"  %in% names(tab)) {
       csv_cols[["PL: reliability"]] <- tab$PL_reliability
-    }
-    if (mdl == "Borda" && "Borda_var_norm"  %in% names(tab)) {
-      csv_cols[["Borda: normed variance"]] <- tab$Borda_var_norm
     }
   }
   csv_out_path <- file.path(tables_dir, csv_name)
@@ -300,36 +300,64 @@ write_variance_within_between <- function(dir_path,
                     sprintf("\\cmidrule(lr){%d-%d}", col_idx + 1L, col_idx + n))
     hdr_cols <- c(hdr_cols,
                   "Std Dev",
-                  "\\shortstack{Signal\\\\Std Dev}",
-                  "\\shortstack{T-stat\\\\no signal}")
+                  "\\shortstack{Signal\\\\Std Dev}")
+    if (mdl %in% c("OLS", "Borda")) hdr_cols <- c(hdr_cols, "Reliability")
+    hdr_cols <- c(hdr_cols, "\\shortstack{T-stat\\\\no signal}")
     if (mdl == "PL")    hdr_cols <- c(hdr_cols, "ICC")
-    if (mdl == "Borda") hdr_cols <- c(hdr_cols, "\\shortstack{Normed\\\\Variance}")
     align_str <- c(align_str, rep("c", n))
     col_idx <- col_idx + n
   }
 
   total_cols <- col_idx  # Outcome + per-model columns
 
+  # Build one row's formatted cells (outcome label first, then each model's block),
+  # column order matching model_n_cols_wb() / the header loop above: SD, Signal SD,
+  # Reliability (OLS/Borda only), T-stat, ICC (PL only)
+  row_cells <- function(df_panel, i, indent = "") {
+    cells <- paste0(indent, df_panel$Outcome_display[i])
+    for (mdl in present_models) {
+      cells <- c(cells,
+                 fmt_dec(df_panel[[paste0(mdl, "_sd")]][i], latex_decimals),
+                 fmt_dec(df_panel[[paste0(mdl, "_sd_bias_corrected")]][i], latex_decimals))
+      if (mdl %in% c("OLS", "Borda")) {
+        cells <- c(cells, fmt_dec(df_panel[[paste0(mdl, "_reliability")]][i], latex_decimals))
+      }
+      cells <- c(cells, fmt_dec(df_panel[[paste0(mdl, "_t_stat")]][i], latex_decimals))
+      if (mdl == "PL" && "PL_reliability" %in% names(df_panel)) {
+        cells <- c(cells, fmt_dec(df_panel$PL_reliability[i], latex_decimals))
+      }
+    }
+    cells
+  }
+
   panel_rows <- function(df_panel) {
     if (nrow(df_panel) == 0) return(character(0))
-    parts <- character(nrow(df_panel))
-    for (i in seq_len(nrow(df_panel))) {
-      cells <- df_panel$Outcome_display[i]
-      for (mdl in present_models) {
-        cells <- c(cells,
-                   fmt_dec(df_panel[[paste0(mdl, "_sd")]][i], latex_decimals),
-                   fmt_dec(df_panel[[paste0(mdl, "_sd_bias_corrected")]][i], latex_decimals),
-                   fmt_dec(df_panel[[paste0(mdl, "_t_stat")]][i], latex_decimals))
-        if (mdl == "PL"    && "PL_reliability" %in% names(df_panel)) {
-          cells <- c(cells, fmt_dec(df_panel$PL_reliability[i], latex_decimals))
-        }
-        if (mdl == "Borda" && "Borda_var_norm" %in% names(df_panel)) {
-          cells <- c(cells, fmt_dec(df_panel$Borda_var_norm[i], latex_decimals))
-        }
+
+    # Flat listing (previous behavior) when no outcome_groups supplied
+    if (is.null(outcome_groups)) {
+      parts <- character(nrow(df_panel))
+      for (i in seq_len(nrow(df_panel))) {
+        parts[i] <- paste0("    ", paste(row_cells(df_panel, i), collapse = " & "), " \\\\")
       }
-      parts[i] <- paste0("    ", paste(cells, collapse = " & "), " \\\\")
+      return(parts)
     }
-    parts
+
+    # Grouped listing, matching write_variance_table()'s grouped_summary_table_rows() style:
+    # bold group header, \quad-indented rows, extra vertical space between groups
+    lines <- character(0)
+    group_names <- names(outcome_groups)
+    for (g in seq_along(outcome_groups)) {
+      idx <- match(outcome_groups[[g]], df_panel$base_outcome)
+      idx <- idx[!is.na(idx)]
+      if (!length(idx)) next
+      lines <- c(lines, paste0("    \\textbf{", group_names[g], "} \\\\"))
+      for (j in seq_along(idx)) {
+        i <- idx[j]
+        row_end <- if (j == length(idx) && g < length(outcome_groups)) " \\\\[0.5em]" else " \\\\"
+        lines <- c(lines, paste0("    ", paste(row_cells(df_panel, i, indent = "\\quad "), collapse = " & "), row_end))
+      }
+    }
+    lines
   }
 
   panel_a <- tab %>% dplyr::filter(.data$panel == "Panel A: Within-industry")
@@ -371,6 +399,7 @@ write_variance_within_between(
   csv_name      = "variance_biascorrected_within_between_industry.csv",
   tex_name      = "variance_biascorrected_within_between_industry.tex",
   borda_mult    = 1,
+  outcome_groups = standard_outcome_groups,
   variant       = "unweighted"
 )
 
@@ -383,5 +412,6 @@ write_variance_within_between(
   csv_name      = "variance_biascorrected_within_between_industry_njobs_weighted.csv",
   tex_name      = "variance_biascorrected_within_between_industry_njobs_weighted.tex",
   borda_mult    = 1,
+  outcome_groups = standard_outcome_groups,
   variant       = "njobs_weighted"
 )

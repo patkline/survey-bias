@@ -200,17 +200,12 @@ stopifnot(nrow(industry_rating_estimates) == 19 * 2 * 7, !anyNA(industry_rating_
 # Should be 164 firms x 2 aggregation methods x 7 survey measures = 2296 deviations, none missing
 stopifnot(nrow(within_industry_rating_deviations) == 164 * 2 * 7, !anyNA(within_industry_rating_deviations))
 
-# Attach each survey measure x aggregation method's mean rating across the 164 rated firms
-within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::left_join(firm_level_rating_estimates |> dplyr::group_by(survey_measure, aggregation_method) |> dplyr::summarise(mean_rating_across_firms = mean(rating_estimate), .groups = "drop"), by = c("survey_measure", "aggregation_method"))
-
-# Add the cross-firm mean rating back to the empirical Bayes deviations, putting the plotted values on the rating scale
-within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::mutate(empirical_bayes_plus_mean_across_firms = empirical_bayes + mean_rating_across_firms)
-
-# Keep necessary variables
-within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, aer_naics2, survey_measure, aggregation_method, empirical_bayes_plus_mean_across_firms)
+# Keep necessary variables. Plotted values are the raw within-industry deviations (zero-centered by
+# construction), with no cross-firm mean added back.
+within_industry_rating_deviations <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, aer_naics2, survey_measure, aggregation_method, empirical_bayes)
 
 # Reshape to one row per firm, one column per survey measure x aggregation method plotted rating
-within_industry_rating_deviations <- within_industry_rating_deviations |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes_plus_mean_across_firms, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes_plus_mean_across_firms")
+within_industry_rating_deviations <- within_industry_rating_deviations |> tidyr::pivot_wider(names_from = c(survey_measure, aggregation_method), values_from = empirical_bayes, names_glue = "{survey_measure}_{tolower(aggregation_method)}_empirical_bayes")
 
 # Should be one row per firm
 stopifnot(nrow(within_industry_rating_deviations) == 164)
@@ -219,7 +214,7 @@ stopifnot(nrow(within_industry_rating_deviations) == 164)
 stopifnot(!anyNA(within_industry_rating_deviations))
 
 # Borda ratings should be distinct within every survey measure, so the rank-based top/bottom cuts are unambiguous
-stopifnot(all(sapply(within_industry_rating_deviations |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes_plus_mean_across_firms")), function(rating_column) !anyDuplicated(rating_column))))
+stopifnot(all(sapply(within_industry_rating_deviations |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes")), function(rating_column) !anyDuplicated(rating_column))))
 
 # Keep necessary variables
 industry_rating_estimates <- industry_rating_estimates |> dplyr::select(aer_naics2, aer_naics2_name, survey_measure, aggregation_method, empirical_bayes)
@@ -237,21 +232,18 @@ stopifnot(!anyNA(industry_rating_estimates))
 stopifnot(all(sapply(industry_rating_estimates |> dplyr::select(dplyr::ends_with("_borda_not_recentered_empirical_bayes")), function(rating_column) !anyDuplicated(rating_column))))
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Define the common y axis shared with the top/bottom discrimination figures
+# Define the common y axis shared across the within-industry deviation figures. Unlike the top/bottom
+# discrimination figures (which plot raw-scale ratings), these figures plot zero-centered within-industry
+# deviations, so the axis is computed from the plotted deviations themselves rather than fixed to the
+# raw-scale range.
 # -----------------------------------------------------------------------------------------------------------------------------
-# Define the common y-axis tick positions, fixed to the top/bottom discrimination figures' ticks
-discrimination_axis_break_positions <- seq(2, 4, by = 0.5)
-
-# Define the common y-axis limits, fixed to the top/bottom discrimination figures' limits
-discrimination_axis_limits <- c(1.9, 4.1)
-
 # Define vector to store every within-industry figure's plotted ratings
 within_industry_plotted_ratings <- c()
 
 # Loop over each survey measure, collecting the ratings its figure plots
 for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
   # Keep this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
-  within_industry_working_data <- within_industry_rating_deviations |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_mean_across_firms")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_mean_across_firms")))
+  within_industry_working_data <- within_industry_rating_deviations |> dplyr::select(likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes")))
 
   # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
   within_industry_working_data <- within_industry_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 139)
@@ -263,8 +255,15 @@ for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_
   within_industry_plotted_ratings <- c(within_industry_plotted_ratings, within_industry_working_data$likert_empirical_bayes_rating, within_industry_working_data$borda_empirical_bayes_rating_rescaled)
 }
 
+# Common y-axis tick positions and limits for the within-industry deviation figures, computed from the
+# actual plotted (zero-centered) deviations. Kept separate from discrimination_axis_break_positions /
+# discrimination_axis_limits below, which stay fixed to the raw rating scale for the between-industry
+# (level) figures further down this script.
+within_industry_axis_break_positions <- pretty(range(within_industry_plotted_ratings))
+within_industry_axis_limits <- range(within_industry_axis_break_positions)
+
 # Every plotted rating should sit inside the common y-axis limits
-stopifnot(all(dplyr::between(within_industry_plotted_ratings, discrimination_axis_limits[1], discrimination_axis_limits[2])))
+stopifnot(all(dplyr::between(within_industry_plotted_ratings, within_industry_axis_limits[1], within_industry_axis_limits[2])))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Plot within-industry figure for each survey measure
@@ -272,7 +271,7 @@ stopifnot(all(dplyr::between(within_industry_plotted_ratings, discrimination_axi
 # Loop over each survey measure, drawing one within-industry figure per measure
 for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
   # Keep the firm identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names
-  within_industry_plot_working_data <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes_plus_mean_across_firms")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes_plus_mean_across_firms")))
+  within_industry_plot_working_data <- within_industry_rating_deviations |> dplyr::select(firm_id, firm, likert_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_ols_not_recentered_empirical_bayes")), borda_empirical_bayes_rating = dplyr::all_of(paste0(survey_measure, "_borda_not_recentered_empirical_bayes")))
 
   # Keep the 25 firms with the lowest and the 25 firms with the highest Borda ratings
   within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::filter(rank(borda_empirical_bayes_rating) <= 25 | rank(borda_empirical_bayes_rating) > 139)
@@ -317,7 +316,7 @@ for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_
   within_industry_plot_working_data <- within_industry_plot_working_data |> dplyr::mutate(rating_segment_upper = pmax(likert_empirical_bayes_rating, borda_empirical_bayes_rating_rescaled))
 
   # Plotted ratings should sit inside the shared y-axis limits, since the panel draws without clipping
-  stopifnot(all(dplyr::between(c(within_industry_plot_working_data$likert_empirical_bayes_rating, within_industry_plot_working_data$borda_empirical_bayes_rating_rescaled), discrimination_axis_limits[1], discrimination_axis_limits[2]), na.rm = TRUE))
+  stopifnot(all(dplyr::between(c(within_industry_plot_working_data$likert_empirical_bayes_rating, within_industry_plot_working_data$borda_empirical_bayes_rating_rescaled), within_industry_axis_limits[1], within_industry_axis_limits[2]), na.rm = TRUE))
 
   # Define the within-industry figure
   within_industry_figure <- ggplot2::ggplot(within_industry_plot_working_data, ggplot2::aes(x = firm)) +
@@ -346,12 +345,12 @@ for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_
     # Primary axis for the Likert ratings and secondary axis unwinding the rescaled Borda ratings, with the
     # secondary tick marks placed at the primary tick positions and relabeled in Borda units
     ggplot2::scale_y_continuous(
-      name = "Likert Score (EB)",
-      breaks = discrimination_axis_break_positions,
+      name = "Likert Score (EB, within-industry deviation)",
+      breaks = within_industry_axis_break_positions,
       sec.axis = ggplot2::sec_axis(
         ~ (. - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
-        name = "Borda Score (EB)",
-        breaks = (discrimination_axis_break_positions - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
+        name = "Borda Score (EB, within-industry deviation)",
+        breaks = (within_industry_axis_break_positions - plotted_likert_rating_mean) / borda_to_likert_scale_factor + plotted_borda_rating_mean,
         labels = function(borda_axis_value) formatC(borda_axis_value, digits = 2, format = "f")
       )
     ) +
@@ -420,16 +419,16 @@ for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_
     ggplot2::scale_x_discrete(labels = function(firm_name) ifelse(grepl("^__gap\\d+__$", firm_name), "", firm_name), expand = ggplot2::expansion(add = 0.8)) +
 
     # Allow the angled firm names to render outside the panel, on the shared y-axis limits
-    ggplot2::coord_cartesian(ylim = discrimination_axis_limits, clip = "off")
+    ggplot2::coord_cartesian(ylim = within_industry_axis_limits, clip = "off")
 
   # Compute the panel y-axis span, scaling the callout anchor offsets
-  panel_axis_span <- diff(discrimination_axis_limits)
+  panel_axis_span <- diff(within_industry_axis_limits)
 
   # Compute the lowest plotted rating among the 25 top firms i.e., the ceiling for the top-five callout below the top block
   top_block_floor <- min(within_industry_plot_working_data$rating_segment_lower[29:53], na.rm = TRUE)
 
   # Anchor the bottom-five callout header just under the panel top, over the bottom firms
-  bottom_callout_header_y <- discrimination_axis_limits[2] - 0.01 * panel_axis_span
+  bottom_callout_header_y <- within_industry_axis_limits[2] - 0.01 * panel_axis_span
 
   # Anchor the bottom-five callout names below their header, clearing the underline
   bottom_callout_names_y <- bottom_callout_header_y - 0.068 * panel_axis_span
@@ -438,7 +437,7 @@ for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_
   top_callout_header_y <- top_block_floor - 0.095 * panel_axis_span
 
   # Flip the top-five callout to the panel top when a low top block would push its names into the legend; the name block extends about 0.26 spans below the header
-  if (top_callout_header_y - 0.26 * panel_axis_span < discrimination_axis_limits[1] + 0.20 * panel_axis_span) top_callout_header_y <- discrimination_axis_limits[2] - 0.01 * panel_axis_span
+  if (top_callout_header_y - 0.26 * panel_axis_span < within_industry_axis_limits[1] + 0.20 * panel_axis_span) top_callout_header_y <- within_industry_axis_limits[2] - 0.01 * panel_axis_span
 
   # Anchor the top-five callout names below their header, clearing the underline
   top_callout_names_y <- top_callout_header_y - 0.068 * panel_axis_span
@@ -489,6 +488,11 @@ for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_
 # -----------------------------------------------------------------------------------------------------------------------------
 # Plot between-industry figure for each survey measure
 # -----------------------------------------------------------------------------------------------------------------------------
+# These figures plot raw-scale industry-average ratings (levels, not deviations), so the y-axis is fixed
+# to the same range used by the top/bottom discrimination figures, for comparability.
+discrimination_axis_break_positions <- seq(2, 4, by = 0.5)
+discrimination_axis_limits <- c(1.9, 4.1)
+
 # Loop over each survey measure, drawing one between-industry figure per measure
 for (survey_measure in c("pooled_favor_white", "FirmCont_favor_white", "conduct_favor_white", "pooled_favor_male", "FirmCont_favor_male", "conduct_favor_male", "conduct_favor_younger")) {
   # Keep the industry identifiers and this survey measure's Likert and Borda ratings, renamed to survey-measure-generic names

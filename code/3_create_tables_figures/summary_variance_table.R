@@ -422,5 +422,6 @@ write_variance_table_both(
   outcomes      = alternate_framings,
   tables_dir    = variance_tables_dir,
   label_mapping = alternate_label_mapping,
-  tex_base      = "variance_biascorrected_alternate"
+  tex_base      = "variance_biascorrected_alternate",
+  outcome_groups = alternate_outcome_groups
 )
