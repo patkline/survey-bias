@@ -36,17 +36,24 @@ construct_firm_level_estimates <- function(
     
     # Name the score column the estimator reads
     score_variable_name <- "rating"
+    # OLS remains an unweighted respondent mean
+    weight_variable_name <- NULL
   } else {
     # Compute each respondent's individual Borda counts across firms
     respondent_firm_scores <- compute_borda_individual_wide(
       data_wide    = respondent_firm_rankings_wide,
       id_map       = firm_names_and_job_counts,
+      # Ranks are coded with 1 as best, so lower ranks win pairwise comparisons
+      higher_is_better = FALSE,
       # Anchor the Borda scale to reference firms 38, 76, and 90
       ref_firm_ids = c(38, 76, 90)
     )
     
     # Name the score column the estimator reads
     score_variable_name <- "B"
+    # Weight respondent-level win rates by their eligible-opponent counts so
+    # the firm estimate is a ratio of pooled wins to pooled comparisons
+    weight_variable_name <- "e"
   }
 
   # Aggregate the respondent x firm scores to recentered and non-recentered firm-level estimates
@@ -54,7 +61,8 @@ construct_firm_level_estimates <- function(
     respondent_firm_scores,
     respondent_id_variable_name = "resp_id",
     firm_id_variable_name       = "firm_id",
-    rating_variable_name        = score_variable_name
+    rating_variable_name        = score_variable_name,
+    weight_variable_name        = weight_variable_name
   )
 
   # -------------------------------------------------------------------------------------

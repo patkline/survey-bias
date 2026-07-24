@@ -239,24 +239,39 @@ prepare_bootstrap_score_input <- function(sample_data, outcome, aggregation_meth
 
   if (method_without_suffix == "OLS") {
     scores <- prep$data_rating_long |>
-      dplyr::mutate(score = 6 - .data$rating) |>
-      dplyr::select(resp_id, firm_id, score)
+      dplyr::mutate(
+        score = 6 - .data$rating,
+        aggregation_weight = 1
+      ) |>
+      dplyr::select(resp_id, firm_id, score, aggregation_weight)
   } else {
     scores <- compute_borda_individual_wide(
       data_wide = prep$data_wide_pltree,
       id_map = prep$id_map,
+      higher_is_better = FALSE,
       ref_firm_ids = c(38, 76, 90)
     ) |>
-      dplyr::transmute(resp_id, firm_id, score = B)
+      dplyr::transmute(
+        resp_id,
+        firm_id,
+        score = B,
+        aggregation_weight = e
+      )
   }
 
   scores <- scores |>
     dplyr::mutate(
       resp_id = as.character(.data$resp_id),
       firm_id = as.integer(.data$firm_id),
-      score = as.numeric(.data$score)
+      score = as.numeric(.data$score),
+      aggregation_weight = as.numeric(.data$aggregation_weight)
     ) |>
-    dplyr::filter(.data$firm_id %in% firm_id_vector, is.finite(.data$score))
+    dplyr::filter(
+      .data$firm_id %in% firm_id_vector,
+      is.finite(.data$score),
+      is.finite(.data$aggregation_weight),
+      .data$aggregation_weight >= 0
+    )
 
   if (anyDuplicated(scores[c("resp_id", "firm_id")])) {
     stop("Bootstrap score input has duplicated respondent-firm scores for ",
@@ -276,6 +291,17 @@ prepare_bootstrap_score_input <- function(sample_data, outcome, aggregation_meth
     match(scores$firm_id, firm_id_vector)
   )] <- scores$score
 
+  aggregation_weight_matrix <- matrix(
+    NA_real_,
+    nrow = length(respondent_ids),
+    ncol = length(firm_id_vector),
+    dimnames = list(respondent_ids, as.character(firm_id_vector))
+  )
+  aggregation_weight_matrix[cbind(
+    match(scores$resp_id, respondent_ids),
+    match(scores$firm_id, firm_id_vector)
+  )] <- scores$aggregation_weight
+
   if (any(colSums(is.finite(score_matrix)) == 0)) {
     stop("Bootstrap score input is missing at least one firm for ",
          outcome, " / ", aggregation_method)
@@ -283,7 +309,8 @@ prepare_bootstrap_score_input <- function(sample_data, outcome, aggregation_meth
 
   list(
     respondent_ids = respondent_ids,
-    score_matrix = score_matrix
+    score_matrix = score_matrix,
+    aggregation_weight_matrix = aggregation_weight_matrix
   )
 }
 
@@ -292,11 +319,22 @@ prepare_bootstrap_score_input <- function(sample_data, outcome, aggregation_meth
 # respondent resample, but much faster.
 compute_weighted_firm_mean_result <- function(bootstrap_score_input, respondent_weights) {
   score_matrix <- bootstrap_score_input$score_matrix
+  aggregation_weight_matrix <- bootstrap_score_input$aggregation_weight_matrix
   observed_score <- is.finite(score_matrix)
   respondent_weights <- as.numeric(respondent_weights)
   stopifnot(length(respondent_weights) == nrow(score_matrix))
+  stopifnot(
+    identical(dim(aggregation_weight_matrix), dim(score_matrix)),
+    all(is.finite(aggregation_weight_matrix[observed_score])),
+    all(aggregation_weight_matrix[observed_score] >= 0)
+  )
 
-  firm_weighted_counts <- colSums(observed_score * respondent_weights)
+  aggregation_weight_matrix_zero <- aggregation_weight_matrix
+  aggregation_weight_matrix_zero[!observed_score] <- 0
+  bootstrap_aggregation_weights <-
+    aggregation_weight_matrix_zero * respondent_weights
+
+  firm_weighted_counts <- colSums(bootstrap_aggregation_weights)
   if (any(!is.finite(firm_weighted_counts)) || any(firm_weighted_counts <= 0)) {
     return(NULL)
   }
@@ -304,11 +342,18 @@ compute_weighted_firm_mean_result <- function(bootstrap_score_input, respondent_
   score_matrix_zero <- score_matrix
   score_matrix_zero[!observed_score] <- 0
 
-  firm_estimates <- colSums(score_matrix_zero * respondent_weights) / firm_weighted_counts
+  firm_estimates <-
+    colSums(score_matrix_zero * bootstrap_aggregation_weights) /
+    firm_weighted_counts
 
   residual_matrix <- sweep(score_matrix_zero, 2, firm_estimates, "-")
   residual_matrix[!observed_score] <- 0
-  weighted_residual_matrix <- residual_matrix * sqrt(respondent_weights)
+  # The bootstrap expands each respondent according to respondent_weights.
+  # Each replicated respondent contributes e_ij * (B_ij - mean_j) to the
+  # weighted-mean estimating equation.
+  weighted_residual_matrix <-
+    residual_matrix * aggregation_weight_matrix_zero *
+    sqrt(respondent_weights)
 
   robust_covariance_matrix <- crossprod(weighted_residual_matrix) /
     outer(firm_weighted_counts, firm_weighted_counts)

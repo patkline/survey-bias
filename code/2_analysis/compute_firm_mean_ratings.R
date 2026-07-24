@@ -16,7 +16,10 @@ compute_firm_mean_ratings <- function(
   # Name of the firm identifier variable in respondent_firm_scores
   firm_id_variable_name = "firm_id",
   # Name of the score variable in respondent_firm_scores
-  rating_variable_name = "B"
+  rating_variable_name = "B",
+  # Optional nonnegative aggregation weight. NULL gives every respondent-firm
+  # score weight one; Borda passes the eligible-opponent count e_ij.
+  weight_variable_name = NULL
 ) {
   # -------------------------------------------------------------------------------------
   # Validate inputs and fix the respondent and firm ordering
@@ -26,6 +29,36 @@ compute_firm_mean_ratings <- function(
 
   # Require (respondent, firm) to uniquely identify a row, so each rating maps to one matrix cell
   stopifnot(!anyDuplicated(respondent_firm_scores[c(respondent_id_variable_name, firm_id_variable_name)]))
+
+  # Fail rather than silently dropping a missing score from the numerator while
+  # retaining it in the respondent count or weight denominator
+  rating_values <- respondent_firm_scores[[rating_variable_name]]
+  stopifnot(!anyNA(rating_values))
+  rating_values <- suppressWarnings(as.numeric(rating_values))
+  stopifnot(
+    length(rating_values) == nrow(respondent_firm_scores),
+    all(is.finite(rating_values))
+  )
+  respondent_firm_scores[[rating_variable_name]] <- rating_values
+
+  # Use unit weights for the ordinary mean and explicit eligible-opponent
+  # weights for the corrected Borda ratio-of-sums estimator
+  if (is.null(weight_variable_name)) {
+    aggregation_weights <- rep(1, nrow(respondent_firm_scores))
+  } else {
+    stopifnot(
+      length(weight_variable_name) == 1L,
+      weight_variable_name %in% names(respondent_firm_scores)
+    )
+    aggregation_weights <- suppressWarnings(as.numeric(respondent_firm_scores[[weight_variable_name]]))
+  }
+  stopifnot(
+    length(aggregation_weights) == nrow(respondent_firm_scores),
+    !anyNA(aggregation_weights),
+    all(aggregation_weights >= 0),
+    all(is.finite(aggregation_weights))
+  )
+  respondent_firm_scores$.firm_mean_weight <- aggregation_weights
 
   # Store distinct respondent ids and sort in ascending order
   respondent_ids <- sort(unique(respondent_firm_scores[[respondent_id_variable_name]]))
@@ -40,7 +73,8 @@ compute_firm_mean_ratings <- function(
   # Rename the firm identifier to firm_id
   collapsed_firm_ratings <- respondent_firm_scores |> dplyr::rename(firm_id = !!firm_id_variable_name)
 
-  # Collapse to one row per firm: respondent count, mean rating, and the ingredients of its naive standard error
+  # Collapse to one row per firm: respondent count, total aggregation weight,
+  # and the weighted mean rating
   collapsed_firm_ratings <- collapsed_firm_ratings |>
     
     # Group by firm_id to compute firm-level summaries
@@ -50,17 +84,21 @@ compute_firm_mean_ratings <- function(
     dplyr::summarise(
       # Number of respondents who rated the firm
       firm_number_of_respondents = dplyr::n(),
-      # Firm's mean rating across respondents
-      firm_mean_rating = sum(.data[[rating_variable_name]], na.rm = TRUE) / firm_number_of_respondents,
-      # Sum of squared deviations of ratings from the firm mean
-      residual_sum_of_squares_firm_mean_rating = sum((.data[[rating_variable_name]] - firm_mean_rating)^2, na.rm = TRUE),
-      # Unbiased variance of ratings around the firm mean; missing for firms with a single respondent, which occur in subset builds
-      unbiased_firm_rating_variance = dplyr::if_else(firm_number_of_respondents > 1, residual_sum_of_squares_firm_mean_rating / (firm_number_of_respondents - 1), NA_real_),
-      # Naive standard error of the firm mean
-      firm_mean_rating_se = sqrt(unbiased_firm_rating_variance / firm_number_of_respondents),
+      # Sum of respondent-firm aggregation weights for this firm
+      firm_sum_of_weights = sum(.data$.firm_mean_weight),
+      # Firm's weighted mean rating across respondents. With Borda weights this
+      # is algebraically the pooled-wins / pooled-eligible-comparisons estimator.
+      firm_mean_rating = sum(.data$.firm_mean_weight * .data[[rating_variable_name]]) / firm_sum_of_weights,
       # Ungroup to a one-row-per-firm data frame
       .groups = "drop"
     )
+
+  # Every retained firm must have a well-defined weighted mean
+  stopifnot(
+    all(is.finite(collapsed_firm_ratings$firm_sum_of_weights)),
+    all(collapsed_firm_ratings$firm_sum_of_weights > 0),
+    all(is.finite(collapsed_firm_ratings$firm_mean_rating))
+  )
 
   # Sort firms ascending by id
   collapsed_firm_ratings <- collapsed_firm_ratings |> dplyr::arrange(firm_id)
@@ -91,13 +129,15 @@ compute_firm_mean_ratings <- function(
   # -------------------------------------------------------------------------------------
   # Build the robust naive covariance matrix 
   # -------------------------------------------------------------------------------------
-  # Diagonal matrix of one over each firm's respondent count i.e., the inverse Hessian of the firm mean rating
-  inverse_hessian_matrix_of_firm_mean_rating <- diag(1 / collapsed_firm_ratings$firm_number_of_respondents)
+  # Diagonal matrix of one over each firm's total aggregation weight i.e., the
+  # inverse Hessian of the weighted firm mean rating
+  inverse_hessian_matrix_of_firm_mean_rating <- diag(1 / collapsed_firm_ratings$firm_sum_of_weights)
   
   # Label rows and columns of inverse hessian matrix by firm
   dimnames(inverse_hessian_matrix_of_firm_mean_rating) <- list(firm_column_names, firm_column_names)
 
-  # Define empty respondent x firm matrix to hold each respondent's residual from their firm's mean rating
+  # Define empty respondent x firm matrix to hold each respondent's weighted
+  # score residual from their firm's mean rating
   score_matrix_of_firm_mean_rating <- matrix(
     0, 
     nrow = total_number_of_respondents_across_all_firms, 
@@ -105,11 +145,16 @@ compute_firm_mean_ratings <- function(
     dimnames = list(respondent_ids, firm_column_names)
   )
 
-  # Compute the residual of each observed rating from its firm's mean rating
+  # Compute the residual of each observed rating from its firm's weighted mean
   residual_from_firm_mean_rating  <- respondent_firm_scores[[rating_variable_name]] - collapsed_firm_ratings$firm_mean_rating[firm_column_index]
+
+  # The weighted-mean estimating equation is
+  # sum_i w_ij * (rating_ij - firm_mean_j) = 0
+  weighted_residual_from_firm_mean_rating <- respondent_firm_scores$.firm_mean_weight * residual_from_firm_mean_rating
   
-  # Place each residual at its respondent x firm cell, leaving unobserved pairs zero
-  score_matrix_of_firm_mean_rating[cbind(respondent_row_index, firm_column_index)] <- residual_from_firm_mean_rating
+  # Place each weighted residual at its respondent x firm cell, leaving
+  # unobserved pairs zero
+  score_matrix_of_firm_mean_rating[cbind(respondent_row_index, firm_column_index)] <- weighted_residual_from_firm_mean_rating
 
   # Compute the cross-product of the score matrix across respondents
   score_matrix_of_firm_mean_rating_cross_product <- crossprod(score_matrix_of_firm_mean_rating)
@@ -132,8 +177,19 @@ compute_firm_mean_ratings <- function(
   # Label influence function columns by firm
   colnames(influence_function_matrix_raw) <- firm_column_names
 
-  # Compute the naive covariance of the firm mean ratings, with squared naive standard errors on the diagonal
-  naive_covariance_matrix_raw <- diag(collapsed_firm_ratings$firm_mean_rating_se^2)
+  # Compute the naive diagonal variance from respondent-level influence
+  # contributions with the same finite-sample correction as the previous
+  # unweighted sample-variance / n formula. For unit weights this reduces
+  # exactly to sum(residual^2) / (n * (n - 1)).
+  robust_variance_raw <- diag(robust_covariance_matrix_raw)
+  naive_variance_raw <- dplyr::if_else(
+    collapsed_firm_ratings$firm_number_of_respondents > 1,
+    robust_variance_raw *
+      collapsed_firm_ratings$firm_number_of_respondents /
+      (collapsed_firm_ratings$firm_number_of_respondents - 1),
+    NA_real_
+  )
+  naive_covariance_matrix_raw <- diag(naive_variance_raw)
 
   # Label the naive covariance matrix rows and columns by firm
   dimnames(naive_covariance_matrix_raw) <- list(firm_column_names, firm_column_names)
@@ -200,6 +256,8 @@ compute_firm_mean_ratings <- function(
     firm_id          = firm_ids,
     # Number of respondent-firm score observations for this firm
     firm_number_of_respondents = collapsed_firm_ratings$firm_number_of_respondents,
+    # Sum of aggregation weights contributing to this firm's estimate
+    firm_sum_of_weights = collapsed_firm_ratings$firm_sum_of_weights,
     # Number of distinct respondents contributing to this outcome
     total_number_of_respondents = total_number_of_respondents_across_all_firms,
     # Recentered firm mean rating
@@ -218,6 +276,8 @@ compute_firm_mean_ratings <- function(
     firm_id          = firm_ids,
     # Number of respondent-firm score observations for this firm
     firm_number_of_respondents = collapsed_firm_ratings$firm_number_of_respondents,
+    # Sum of aggregation weights contributing to this firm's estimate
+    firm_sum_of_weights = collapsed_firm_ratings$firm_sum_of_weights,
     # Number of distinct respondents contributing to this outcome
     total_number_of_respondents = total_number_of_respondents_across_all_firms,
     # Non-recentered firm mean rating

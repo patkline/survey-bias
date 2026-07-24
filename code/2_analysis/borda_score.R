@@ -10,7 +10,10 @@
 # - id_var: respondent id column name
 # - higher_is_better: if FALSE (default), lower ranks are better (1 best)
 # - normalize: if TRUE, divides by (# alternatives ranked - 1) per respondent
-# Returns: tibble(resp_id, firm_id, firm, B) with one row per (respondent, ranked firm)
+# Returns: tibble(resp_id, firm_id, firm, B, e) with one row per
+# (respondent, ranked firm), where e is the number of eligible opponents used
+# to normalize B. Reference firms use all other observed firms; non-reference
+# firms use only other observed non-reference firms.
 # ------------------------------------------------------------
 compute_borda_individual_wide <- function(data_wide,
                                           id_map,
@@ -48,6 +51,10 @@ compute_borda_individual_wide <- function(data_wide,
   M[M <= 0] <- NA_real_
   
   N <- dim(X)[[2]] - length(ref_firm_ids)
+  stopifnot(
+    "Expected 161 non-reference firms for the Borda self-tie correction" =
+      N == 161L
+  )
   
   out_list <- vector("list", nrow(M))
   
@@ -62,7 +69,6 @@ compute_borda_individual_wide <- function(data_wide,
     
     # Reference indicator for the firms in this respondent's set
     is_ref_idx <- f_ids_i %in% ref_firm_ids
-    
     # --- 1. Full Borda over all firms (current behavior) ---
     if (higher_is_better) {
       wins_mat_full <- outer(v, v, ">")
@@ -83,6 +89,11 @@ compute_borda_individual_wide <- function(data_wide,
     
     # Start with full Borda scores
     B_out <- B_full
+    # Reference firms are compared with every other observed firm
+    e_out <- rep(k - 1L, k)
+    # By default retain all observed firms; the non-reference fallback below
+    # may remove non-reference firms that have no eligible opponent.
+    keep_idx <- seq_len(k)
     
     # --- 2. Recompute Borda for non-reference firms only,
     #        using comparisons among non-reference firms ---
@@ -112,13 +123,20 @@ compute_borda_individual_wide <- function(data_wide,
       
       # Overwrite B_out *only* for non-reference firms
       B_out[idx_nonref] <- B_nr
+      e_out[idx_nonref] <- k_nonref - 1L
+    } else {
+      # A non-reference firm with no other non-reference opponent cannot be
+      # scored on the intended scale. Retain any reference firm, whose full
+      # Borda score remains well-defined, and drop the non-reference firm(s).
+      keep_idx <- which(is_ref_idx)
     }
-    # If k_nonref < 2, we leave B_out as B_full for all firms in the set
+    if (length(keep_idx) == 0L) next
     
     out_list[[i]] <- tibble::tibble(
       !!id_var := data_wide[[id_var]][i],
-      firm_id   = f_ids_i,
-      B         = as.numeric(B_out)
+      firm_id   = f_ids_i[keep_idx],
+      B         = as.numeric(B_out[keep_idx]),
+      e         = as.numeric(e_out[keep_idx])
     )
   }
   
@@ -128,4 +146,3 @@ compute_borda_individual_wide <- function(data_wide,
   
   out
 }
-
