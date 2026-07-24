@@ -88,6 +88,22 @@ alternate_label_mapping <- c(
   "conduct_older"          = "Discrimination Older - Older Wording (Conduct)"
 )
 
+# Group headers for the alternate-framings variance table, matching the Race/Gender/Age
+# grouping convention of standard_outcome_groups above
+alternate_outcome_groups <- list(
+  Race = c(
+    "FirmCont_favor_white", "FirmCont_black",  "FirmCont_white",
+    "FirmHire_favor_white", "FirmHire_black",  "FirmHire_white",
+    "conduct_favor_white",  "conduct_black",   "conduct_white"
+  ),
+  Gender = c(
+    "FirmCont_favor_male",  "FirmCont_male",   "FirmCont_female",
+    "FirmHire_favor_male",  "FirmHire_male",   "FirmHire_female",
+    "conduct_favor_male",   "conduct_male",    "conduct_female"
+  ),
+  Age = c("conduct_favor_younger", "conduct_younger", "conduct_older")
+)
+
 # Outcomes that get the OLS-EB vs Borda-EB dual-axis plot
 ols_borda_dualaxis_outcomes <- c(
   "pooled_favor_white", "pooled_favor_male",
