@@ -212,11 +212,11 @@ for (confidence_specification in confidence_table_specifications) {
     # Assert the confidence question takes only the five confidence levels or the empty-string missing code
     stopifnot(all(survey_respondents[[confidence_specification$confidence_variable]] %in% c("", "Not at all confident", "Slightly confident", "Somewhat confident", "Very confident", "Extremely confident")))
 
-    # Count each respondent's non-missing ratings of the matching belief variable and their range across firms
-    respondent_rating_variation <- survey_responses |> dplyr::filter(!is.na(.data[[confidence_specification$rating_variable]])) |> dplyr::group_by(ResponseId) |> dplyr::summarise(rating_count = dplyr::n(), rating_range = max(.data[[confidence_specification$rating_variable]]) - min(.data[[confidence_specification$rating_variable]]), .groups = "drop")
+    # Count each respondent's valid ratings of the matching belief variable, treating -1 ("don't know") as missing
+    respondent_rating_counts <- survey_responses |> dplyr::filter(!is.na(.data[[confidence_specification$rating_variable]]), .data[[confidence_specification$rating_variable]] != -1) |> dplyr::group_by(ResponseId) |> dplyr::summarise(rating_count = dplyr::n(), .groups = "drop")
 
-    # Keep respondents with at least three ratings that are not all identical
-    confidence_respondents <- survey_respondents |> dplyr::filter(ResponseId %in% respondent_rating_variation$ResponseId[respondent_rating_variation$rating_count >= 3 & respondent_rating_variation$rating_range > 0])
+    # Keep respondents with at least three valid ratings, including question-level straightliners
+    confidence_respondents <- survey_respondents |> dplyr::filter(ResponseId %in% respondent_rating_counts$ResponseId[respondent_rating_counts$rating_count >= 3])
 
     # Label each kept respondent with their confidence level, the empty-string missing code as Missing
     confidence_respondents <- confidence_respondents |> dplyr::mutate(confidence_category = dplyr::if_else(.data[[confidence_specification$confidence_variable]] == "", "Missing", .data[[confidence_specification$confidence_variable]]))
