@@ -32,6 +32,9 @@ else if "`user'" == "jordancammarota" {
 else if "`user'" == "anh-huynguyen" {
     global dropbox_survey_bias_root "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
 }
+else if "`user'" == "evanrose" {
+    global dropbox_survey_bias_root "/Users/evanrose/Library/CloudStorage/Dropbox/GSI-GSR-Reader/Audit/Survey/consolidated_code"
+}
 else {
     di as error "🧌 No Dropbox path configured for user: `user'"
     exit 198
@@ -54,6 +57,9 @@ if "`user'" == "nicorotundo" {
 //}
 else if "`user'" == "anh-huynguyen" {
     global git_survey_bias_root "/Users/anh-huynguyen/Documents/GitHub/survey-bias"
+}
+else if "`user'" == "evanrose" {
+    global git_survey_bias_root "/Users/evanrose/Documents/GitHub/survey-bias"
 }
 else {
     di as error "🧌 No GitHub path configured for user: `user'"

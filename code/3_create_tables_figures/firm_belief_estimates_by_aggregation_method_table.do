@@ -163,6 +163,9 @@ Load the firm-level raw and EB-shrunk belief estimates from the Coefficients she
 * Import the coefficient estimates
 import parquet "${output}/intermediate/Full_Sample/Coefficients.parquet", clear
 
+* Parquet numeric columns can import as string; force numeric so the %4.3f display format rounds them (otherwise raw/rse/eb print at full precision)
+destring estimate rse eb, replace
+
 * Uniquely identified by subset x model x outcome x entity type x entity
 gisid subset model outcome entity_type entity_id
 
