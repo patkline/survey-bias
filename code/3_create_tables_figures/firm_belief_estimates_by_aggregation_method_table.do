@@ -61,6 +61,58 @@ tempfile firm_industry_crosswalk
 save `firm_industry_crosswalk'
 
 /* -----------------------------------------------------------------------------------------------------------
+Flag each respondent's estimation sample membership per displayed belief measure, so the don't-know shares
+cover the same respondents as the estimates shown alongside them
+----------------------------------------------------------------------------------------------------------- */
+* Import the long survey microdata
+import delimited "${processed}/long_survey_final.csv", asdouble clear
+
+* Uniquely identified by response x firm
+gisid responseid firm_id
+
+* R writes missing cells as the literal text NA, so the belief measure columns import as string; recode to numeric missing
+foreach belief in pooled_favor_white pooled_favor_male conduct_favor_younger {
+
+    * Recode the NA text to empty i.e., numeric missing after destring
+    replace `belief' = "" if inlist(`belief', "NA")
+
+    * Convert to numeric
+    destring `belief', replace
+}
+
+* Count each respondent's answered firms per measure
+gcollapse (count) n_valid_pooled_favor_white = pooled_favor_white ///
+    n_valid_pooled_favor_male = pooled_favor_male ///
+    n_valid_conduct_favor_younger = conduct_favor_younger, by(responseid)
+
+* Should be 6515 respondents
+assert _N == 6515
+
+* Flag each measure's estimation sample i.e., respondents answering at least three of their five firms, as create_wide_rankings.R requires of both the Likert and Borda estimates
+foreach belief in pooled_favor_white pooled_favor_male conduct_favor_younger {
+    gen byte est_sample_`belief' = n_valid_`belief' >= 3
+}
+
+* Should be 4706 race respondents, matching the Coefficients sheet respondent count
+count if est_sample_pooled_favor_white
+assert r(N) == 4706
+
+* Should be 6251 gender respondents, matching the Coefficients sheet respondent count
+count if est_sample_pooled_favor_male
+assert r(N) == 6251
+
+* Should be 3004 age respondents, matching the Coefficients sheet respondent count
+count if est_sample_conduct_favor_younger
+assert r(N) == 3004
+
+* Keep the respondent identifier and its estimation sample flags
+keep responseid est_sample_*
+
+* Save the respondent -> estimation sample flag file
+tempfile respondent_estimation_samples
+save `respondent_estimation_samples'
+
+/* -----------------------------------------------------------------------------------------------------------
 Compute each firm's don't-know share per displayed belief measure from the summary-stats microdata
 ----------------------------------------------------------------------------------------------------------- */
 * Import the summary-stats survey microdata; the -1 don't-know/prefer-not-to-answer codes are preserved in this export
@@ -80,6 +132,9 @@ assert r(ndistinct) == 6515
 
 * Firm slots numbered 1-5
 assert inlist(option_number, 1, 2, 3, 4, 5)
+
+* Merge each respondent's estimation sample flags onto their responses
+merge m:1 responseid using `respondent_estimation_samples', assert(3) nogen
 
 * Response-level arm questions behind each displayed belief measure; the favor composites drop the first-listed arm's -1s, so the don't-know codes must come from the arm variables
 local parts_pooled_favor_white firmcont_white firmcont_black conduct_black
@@ -124,11 +179,11 @@ foreach belief in pooled_favor_white pooled_favor_male conduct_favor_younger {
         * Component ratings take only the 1-5 scale values, the -1 don't-know code, or missing when not asked
         assert inlist(`component', -1, 1, 2, 3, 4, 5) | mi(`component')
 
-        * Mark the response as asked if the component carries any answer code
-        replace asked_`belief' = 1 if inlist(`component', -1, 1, 2, 3, 4, 5)
+        * Mark the response as asked if the component carries any answer code, among the measure's estimation sample respondents
+        replace asked_`belief' = 1 if inlist(`component', -1, 1, 2, 3, 4, 5) & est_sample_`belief'
 
-        * Mark the response as don't know iff the answer is -1
-        replace dk_`belief' = 1 if inlist(`component', -1)
+        * Mark the response as don't know iff the answer is -1, among the measure's estimation sample respondents
+        replace dk_`belief' = 1 if inlist(`component', -1) & est_sample_`belief'
     }
 }
 
