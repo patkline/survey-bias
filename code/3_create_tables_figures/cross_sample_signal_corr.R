@@ -12,7 +12,6 @@ source("code/globals.R")
 
 # Load the lightweight analysis helpers needed to recompute firm estimates in
 # respondent-level bootstrap draws.
-source(file.path(analysis, "leave_in_connected.R"))
 source(file.path(analysis, "create_wide_rankings.R"))
 source(file.path(analysis, "borda_score.R"))
 

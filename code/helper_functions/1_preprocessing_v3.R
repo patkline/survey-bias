@@ -50,10 +50,6 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
   data_ranked <- data_ranked %>%
     dplyr::filter(!resp_id %in% respondents_to_drop)
   
-  # Restrict to Leave out Connected Set
-  firm_set <- leave_in_connected_set(data_ranked)
-  data_ranked <- data_ranked %>% dplyr::filter(firm_id %in% firm_set)
-
   # Step 8: Pivot to Wide and Clean
   data_wide_pltree <- data_ranked %>%
     pivot_wider(names_from = firm_id, values_from = Rank, names_prefix = "firm")

@@ -136,7 +136,6 @@ required_r_packages <- c(
   # core packages (added)
   "arrow",
   "dplyr",
-  "igraph",
   "openxlsx",
   "parallel",
   "PlackettLuce",

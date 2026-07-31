@@ -164,7 +164,6 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
   - `create_firm_industry_crosswalk_refusa.py` --- RefUSA → SIC mapping
   - `create_firm_industry_crosswalk_industry_map.py` --- harmonizes across sources, writes final crosswalk
   - `sample_prep.R` --- applies sample restrictions; writes `long_survey_final.csv`
-    - `helper_functions/leave_in_connected.R` --- keeps largest connected component of firm-respondent graph
     - `helper_functions/1_preprocessing_v3.R` --- builds outcome variables (favor-x, dif, log_dif, etc.)
   - `build_revelio_firm_measures.py` --- matches the saved Revelio CSV to survey `firm_id`; writes `data/processed/revelio_firm_measures.csv`
 
@@ -200,7 +199,6 @@ for the lightweight firm-name match step.
     - **Data prep**
       - `prep_outcomes.R` --- per-model outcome construction
       - `create_wide_rankings.R` --- long ranks → wide ranking matrix
-      - `leave_in_connected.R` --- per-outcome connectivity filter
     - **Score helpers**
       - `mean_estimator_bread_and_score.R` --- bread/score/robust cov for mean-based estimators (OLS, Borda)
       - `borda_score.R` --- per-respondent Borda computation with reference-firm normalization
