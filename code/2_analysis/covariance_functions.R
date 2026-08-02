@@ -1,8 +1,223 @@
 # ------------------------------------------------------------------------------
-# Purpose: Calculate Covariance and Noise
+# Purpose: Calculate Covariance, Noise, and the clustered sampling covariance
+# of the bivariate signal-covariance estimator.
 #
 # Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
+prepare_clustered_signal_inputs <- function(res1, res2, common_cols) {
+  S1_df <- res1$mats$S
+  S2_df <- res2$mats$S
+
+  collapse_respondent_influence <- function(S_df) {
+    ids <- as.character(S_df[["resp_id"]])
+    if (anyNA(ids)) {
+      stop("compute_clustered_signal_vcov(): respondent ids cannot be missing.")
+    }
+    influence <- as.matrix(S_df[, common_cols, drop = FALSE])
+    had_duplicates <- anyDuplicated(ids) > 0L
+    if (had_duplicates) {
+      influence <- rowsum(influence, group = ids, reorder = FALSE)
+      ids <- rownames(influence)
+    }
+    list(ids = ids, influence = influence, had_duplicates = had_duplicates)
+  }
+  collapsed1 <- collapse_respondent_influence(S1_df)
+  collapsed2 <- collapse_respondent_influence(S2_df)
+  id1 <- collapsed1$ids
+  id2 <- collapsed2$ids
+
+  firm_ids <- as.integer(sub("^entity", "", common_cols))
+  beta1 <- as.numeric(res1$firm_table$estimate[match(firm_ids, res1$firm_table$entity_id)])
+  beta2 <- as.numeric(res2$firm_table$estimate[match(firm_ids, res2$firm_table$entity_id)])
+  J <- length(common_cols)
+  C11 <- if (collapsed1$had_duplicates) {
+    crossprod(collapsed1$influence)
+  } else {
+    as.matrix(res1$mats$rcov[common_cols, common_cols, drop = FALSE])
+  }
+  C22 <- if (collapsed2$had_duplicates) {
+    crossprod(collapsed2$influence)
+  } else {
+    as.matrix(res2$mats$rcov[common_cols, common_cols, drop = FALSE])
+  }
+  common_ids <- intersect(id1, id2)
+  if (length(common_ids)) {
+    C12 <- crossprod(
+      collapsed1$influence[match(common_ids, id1), , drop = FALSE],
+      collapsed2$influence[match(common_ids, id2), , drop = FALSE]
+    )
+  } else {
+    C12 <- matrix(0, nrow = J, ncol = J)
+  }
+
+  list(
+    beta1 = beta1,
+    beta2 = beta2,
+    C = rbind(cbind(C11, C12), cbind(t(C12), C22)),
+    J = J
+  )
+}
+
+assert_delta_method_vcov_matches_scalar <- function(signal_vcov,
+                                                    prepared_inputs,
+                                                    weights,
+                                                    tolerance = 1e-10) {
+  J <- prepared_inputs$J
+  weights <- as.numeric(weights) / sum(weights)
+
+  index1 <- seq_len(J)
+  index2 <- J + seq_len(J)
+
+  # Explicitly zero the cross-outcome firm-by-firm blocks. The variance
+  # gradients have support within one outcome, so these are the same two
+  # diagonal entries produced by the main multivariate calculation.
+  C_zero_cross <- prepared_inputs$C
+  C_zero_cross[index1, index2] <- 0
+  C_zero_cross[index2, index1] <- 0
+
+  equal_weights <- max(abs(weights - rep(1 / J, J))) <= tolerance
+  if (equal_weights) {
+    if (!exists("var_component_with_var", mode = "function")) {
+      stop(
+        "assert_delta_method_vcov_matches_scalar(): var_component_with_var() is not loaded.",
+        call. = FALSE
+      )
+    }
+    expected <- c(
+      var_component_with_var(
+        theta_hat = prepared_inputs$beta1 - mean(prepared_inputs$beta1),
+        Sigma = C_zero_cross[index1, index1, drop = FALSE]
+      )$Vhat,
+      var_component_with_var(
+        theta_hat = prepared_inputs$beta2 - mean(prepared_inputs$beta2),
+        Sigma = C_zero_cross[index2, index2, drop = FALSE]
+      )$Vhat
+    )
+    comparator <- "var_component_with_var()"
+  } else {
+    if (!exists("compute_njobs_weighted_signal_components", mode = "function")) {
+      stop(
+        "assert_delta_method_vcov_matches_scalar(): compute_njobs_weighted_signal_components() is not loaded.",
+        call. = FALSE
+      )
+    }
+    expected <- c(
+      compute_njobs_weighted_signal_components(
+        firm_regressor_vector = prepared_inputs$beta1,
+        firm_number_of_jobs_vector = weights,
+        firm_robust_covariance_matrix = C_zero_cross[index1, index1, drop = FALSE]
+      )$Vhat_njobs_weighted,
+      compute_njobs_weighted_signal_components(
+        firm_regressor_vector = prepared_inputs$beta2,
+        firm_number_of_jobs_vector = weights,
+        firm_robust_covariance_matrix = C_zero_cross[index2, index2, drop = FALSE]
+      )$Vhat_njobs_weighted
+    )
+    comparator <- "compute_njobs_weighted_signal_components()"
+  }
+
+  observed <- c(signal_vcov[1L, 1L], signal_vcov[3L, 3L])
+  absolute_difference <- abs(observed - expected)
+  relative_difference <- absolute_difference / pmax(abs(expected), .Machine$double.xmin)
+
+  if (any(!is.finite(relative_difference)) || any(relative_difference > tolerance)) {
+    stop(
+      "Delta-method acceptance test failed. Multivariate diagonal Vhat values: ",
+      paste(signif(observed, 16L), collapse = ", "),
+      "; scalar ", comparator, " Vhat values: ",
+      paste(signif(expected, 16L), collapse = ", "),
+      "; relative differences: ",
+      paste(signif(relative_difference, 6L), collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  max(absolute_difference)
+}
+
+compute_clustered_signal_vcov <- function(res1 = NULL, res2 = NULL,
+                                          common_cols = NULL, weights,
+                                          include_cross_outcome = TRUE,
+                                          prepared_inputs = NULL) {
+  if (is.null(prepared_inputs)) {
+    prepared_inputs <- prepare_clustered_signal_inputs(res1, res2, common_cols)
+  }
+  beta1 <- prepared_inputs$beta1
+  beta2 <- prepared_inputs$beta2
+  C <- prepared_inputs$C
+  J <- prepared_inputs$J
+  weights <- as.numeric(weights)
+
+  if (anyNA(c(beta1, beta2, weights)) ||
+      !all(is.finite(c(beta1, beta2, weights))) ||
+      any(weights <= 0) || sum(weights) <= 0) {
+    return(empty_signal_vcov())
+  }
+  weights <- weights / sum(weights)
+
+  if (!isTRUE(include_cross_outcome)) {
+    C[seq_len(J), J + seq_len(J)] <- 0
+    C[J + seq_len(J), seq_len(J)] <- 0
+  }
+
+  # Gradients for q = (var(outcome 1), cov(outcomes 1,2), var(outcome 2)).
+  # Multiplication by A = diag(w) - ww' applies the same weighted centering as
+  # the observed covariance estimator without materializing the 2J x 2J B's.
+  centered_weighted_beta1 <- weights * (beta1 - sum(weights * beta1))
+  centered_weighted_beta2 <- weights * (beta2 - sum(weights * beta2))
+  zero <- matrix(0, nrow = J, ncol = J)
+  gradients <- cbind(
+    c(2 * centered_weighted_beta1, rep(0, J)),
+    c(centered_weighted_beta2, centered_weighted_beta1),
+    c(rep(0, J), 2 * centered_weighted_beta2)
+  )
+
+  # This is algebraically crossprod(S_stacked %*% gradients): the sum of
+  # respondent-clustered outer products after applying all three gradients.
+  signal_vcov <- crossprod(gradients, C %*% gradients)
+
+  # Plug-in quadratic-form bias correction, the multivariate analogue of
+  # -2 tr((W C)^2) in the scalar calculation, with W = diag(weights).
+  apply_variance_weights <- function(C_block) sweep(C_block, 1L, weights, "*")
+  index1 <- seq_len(J)
+  index2 <- J + seq_len(J)
+  P <- apply_variance_weights(C[index1, index1, drop = FALSE])
+  Q <- apply_variance_weights(C[index1, index2, drop = FALSE])
+  R <- apply_variance_weights(C[index2, index1, drop = FALSE])
+  S <- apply_variance_weights(C[index2, index2, drop = FALSE])
+  BC <- list(
+    rbind(cbind(P, Q), cbind(zero, zero)),
+    rbind(cbind(R / 2, S / 2), cbind(P / 2, Q / 2)),
+    rbind(cbind(zero, zero), cbind(R, S))
+  )
+  for (i in seq_len(3L)) {
+    for (j in i:3L) {
+      bias_correction <- 2 * sum(BC[[i]] * t(BC[[j]]))
+      signal_vcov[i, j] <- signal_vcov[i, j] - bias_correction
+      signal_vcov[j, i] <- signal_vcov[i, j]
+    }
+  }
+
+  component_names <- c("var1", "cov12", "var2")
+  dimnames(signal_vcov) <- list(component_names, component_names)
+  attr(signal_vcov, "scalar_vhat_acceptance_max_abs_diff") <-
+    assert_delta_method_vcov_matches_scalar(
+      signal_vcov = signal_vcov,
+      prepared_inputs = prepared_inputs,
+      weights = weights
+    )
+  signal_vcov
+}
+
+empty_signal_vcov <- function() {
+  component_names <- c("var1", "cov12", "var2")
+  out <- matrix(NA_real_, nrow = 3L, ncol = 3L,
+                dimnames = list(component_names, component_names))
+  attr(out, "scalar_vhat_acceptance_max_abs_diff") <- NA_real_
+  out
+}
+
 compute_pairwise_cov_and_noise <- function(res1, res2) {
   stopifnot(!is.null(res1$mats$S), !is.null(res2$mats$S))
   
@@ -36,6 +251,10 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
       noise = NA_real_,
       covariance_njobs_weighted = NA_real_,
       noise_njobs_weighted = NA_real_,
+      signal_vcov = empty_signal_vcov(),
+      signal_vcov_njobs_weighted = empty_signal_vcov(),
+      scalar_vhat_acceptance_max_abs_diff = NA_real_,
+      scalar_vhat_njobs_weighted_acceptance_max_abs_diff = NA_real_,
       N1 = N1,
       N2 = N2,
       Ncommon = Ncommon
@@ -54,28 +273,23 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
     mean(beta2_full, na.rm = TRUE)
   covariance <- mean(beta1 * beta2, na.rm = TRUE)
 
-  S1_full <- as.matrix(S1_df[, common_cols, drop = FALSE])
-  S2_full <- as.matrix(S2_df[, common_cols, drop = FALSE])
-
-  J <- as.integer(ncol(S1_full))
-
-  if (Ncommon > 0L) {
-    ord_ids <- sort(overlap_ids)
-    map1 <- match(ord_ids, id1)
-    map2 <- match(ord_ids, id2)
-
-    S1_ovl <- S1_full[map1, , drop = FALSE]
-    S2_ovl <- S2_full[map2, , drop = FALSE]
-
-    Theta12 <- crossprod(S1_ovl, S2_ovl)
-  } else {
-    Theta12 <- matrix(0, nrow = J, ncol = J)
-  }
+  clustered_inputs <- prepare_clustered_signal_inputs(res1, res2, common_cols)
+  J <- as.integer(clustered_inputs$J)
+  Theta12 <- clustered_inputs$C[seq_len(J), J + seq_len(J), drop = FALSE]
   
   noise <- if (J > 0L) sum(Matrix::diag(Theta12)) / J else NA_real_
 
+  signal_vcov <- compute_clustered_signal_vcov(
+    res1 = res1,
+    res2 = res2,
+    common_cols = common_cols,
+    weights = rep(1 / J, J),
+    prepared_inputs = clustered_inputs
+  )
+
   covariance_njobs_weighted <- NA_real_
   noise_njobs_weighted <- NA_real_
+  signal_vcov_njobs_weighted <- empty_signal_vcov()
   if ("njobs" %in% names(res1$firm_table) && "njobs" %in% names(res2$firm_table)) {
     njobs1 <- as.numeric(res1$firm_table$njobs[match(firm_ids, res1$firm_table$entity_id)])
     njobs2 <- as.numeric(res2$firm_table$njobs[match(firm_ids, res2$firm_table$entity_id)])
@@ -92,6 +306,13 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
 
       covariance_njobs_weighted <- sum(firm_weights * beta1_weighted * beta2_weighted)
       noise_njobs_weighted <- sum(firm_weights * Matrix::diag(Theta12))
+      signal_vcov_njobs_weighted <- compute_clustered_signal_vcov(
+        res1 = res1,
+        res2 = res2,
+        common_cols = common_cols,
+        weights = firm_weights,
+        prepared_inputs = clustered_inputs
+      )
     }
   }
   
@@ -101,9 +322,56 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
     noise = noise,
     covariance_njobs_weighted = covariance_njobs_weighted,
     noise_njobs_weighted = noise_njobs_weighted,
+    signal_vcov = signal_vcov,
+    signal_vcov_njobs_weighted = signal_vcov_njobs_weighted,
+    scalar_vhat_acceptance_max_abs_diff =
+      if (is.null(attr(signal_vcov, "scalar_vhat_acceptance_max_abs_diff"))) {
+        NA_real_
+      } else {
+        attr(signal_vcov, "scalar_vhat_acceptance_max_abs_diff")
+      },
+    scalar_vhat_njobs_weighted_acceptance_max_abs_diff =
+      if (is.null(attr(signal_vcov_njobs_weighted, "scalar_vhat_acceptance_max_abs_diff"))) {
+        NA_real_
+      } else {
+        attr(signal_vcov_njobs_weighted, "scalar_vhat_acceptance_max_abs_diff")
+      },
     N1 = N1,
     N2 = N2,
     Ncommon = Ncommon
+  )
+}
+
+pairwise_covariance_row <- function(lhs, rhs, subset, model, out) {
+  data.frame(
+    lhs = lhs,
+    rhs = rhs,
+    subset = subset,
+    model = model,
+    J = out$J,
+    N1 = out$N1,
+    N2 = out$N2,
+    Ncommon = out$Ncommon,
+    covariance = out$covariance,
+    noise = out$noise,
+    covariance_njobs_weighted = out$covariance_njobs_weighted,
+    noise_njobs_weighted = out$noise_njobs_weighted,
+    signal_vcov_11 = out$signal_vcov[1, 1],
+    signal_vcov_12 = out$signal_vcov[1, 2],
+    signal_vcov_13 = out$signal_vcov[1, 3],
+    signal_vcov_22 = out$signal_vcov[2, 2],
+    signal_vcov_23 = out$signal_vcov[2, 3],
+    signal_vcov_33 = out$signal_vcov[3, 3],
+    signal_vcov_njobs_weighted_11 = out$signal_vcov_njobs_weighted[1, 1],
+    signal_vcov_njobs_weighted_12 = out$signal_vcov_njobs_weighted[1, 2],
+    signal_vcov_njobs_weighted_13 = out$signal_vcov_njobs_weighted[1, 3],
+    signal_vcov_njobs_weighted_22 = out$signal_vcov_njobs_weighted[2, 2],
+    signal_vcov_njobs_weighted_23 = out$signal_vcov_njobs_weighted[2, 3],
+    signal_vcov_njobs_weighted_33 = out$signal_vcov_njobs_weighted[3, 3],
+    scalar_vhat_acceptance_max_abs_diff = out$scalar_vhat_acceptance_max_abs_diff,
+    scalar_vhat_njobs_weighted_acceptance_max_abs_diff =
+      out$scalar_vhat_njobs_weighted_acceptance_max_abs_diff,
+    stringsAsFactors = FALSE
   )
 }
 
@@ -142,21 +410,7 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
         if (!is.null(model_all[[v1]]) && !is.null(model_all[[v2]])) {
           message("Covariance Calculation for model = ", model, ", subset = all, outcome1 = ", v1, ", outcome2 = ", v2)
           out <- compute_pairwise_cov_and_noise(model_all[[v1]], model_all[[v2]])
-          rows[[k]] <- data.frame(
-            lhs = v1,
-            rhs = v2,
-            subset = "all",
-            model = model,
-            J = out$J,
-            N1 = out$N1,
-            N2 = out$N2,
-            Ncommon = out$Ncommon,
-            covariance = out$covariance,
-            noise = out$noise,
-            covariance_njobs_weighted = out$covariance_njobs_weighted,
-            noise_njobs_weighted = out$noise_njobs_weighted,
-            stringsAsFactors = FALSE
-          )
+          rows[[k]] <- pairwise_covariance_row(v1, v2, "all", model, out)
           k <- k + 1L
         }
       }
@@ -177,21 +431,7 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
         if (!is.null(model_97[[v1]]) && !is.null(model_97[[v2]])) {
           message("Covariance Calculation for model = ", model, ", subset = 97, outcome1 = ", v1, ", outcome2 = ", v2)
           out <- compute_pairwise_cov_and_noise(model_97[[v1]], model_97[[v2]])
-          rows[[k]] <- data.frame(
-            lhs = v1,
-            rhs = v2,
-            subset = "subset97",
-            model = model,
-            J = out$J,
-            N1 = out$N1,
-            N2 = out$N2,
-            Ncommon = out$Ncommon,
-            covariance = out$covariance,
-            noise = out$noise,
-            covariance_njobs_weighted = out$covariance_njobs_weighted,
-            noise_njobs_weighted = out$noise_njobs_weighted,
-            stringsAsFactors = FALSE
-          )
+          rows[[k]] <- pairwise_covariance_row(v1, v2, "subset97", model, out)
           k <- k + 1L
         }
       }
@@ -218,20 +458,8 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
           ))
 
           out <- compute_pairwise_cov_and_noise(level_results[["OLS"]][[outcome_name]], level_results[["Borda"]][[outcome_name]])
-          rows[[k]] <- data.frame(
-            lhs = outcome_name,
-            rhs = outcome_name,
-            subset = level_name,
-            model = "OLS_x_Borda",
-            J = out$J,
-            N1 = out$N1,
-            N2 = out$N2,
-            Ncommon = out$Ncommon,
-            covariance = out$covariance,
-            noise = out$noise,
-            covariance_njobs_weighted = out$covariance_njobs_weighted,
-            noise_njobs_weighted = out$noise_njobs_weighted,
-            stringsAsFactors = FALSE
+          rows[[k]] <- pairwise_covariance_row(
+            outcome_name, outcome_name, level_name, "OLS_x_Borda", out
           )
           k <- k + 1L
         }

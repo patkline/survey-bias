@@ -63,6 +63,7 @@ add_zero_error_controls <- function(noise_mat, controls) {
     raw_out[rownames(raw_noise_mat), colnames(raw_noise_mat)] <- raw_noise_mat
     attr(out, "raw_noise_matrix") <- raw_out
   }
+  attr(out, "signal_vcov_by_pair") <- attr(noise_mat, "signal_vcov_by_pair")
   out
 }
 
