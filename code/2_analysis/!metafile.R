@@ -71,6 +71,8 @@ analysis_check_sheets <- c(
   "covariance_within_industry", "correlation_within_industry",
   "covariance_between_industry", "correlation_between_industry",
   "belief_amad_summary",
+  "LinkedIn_firm_shares",
+  "LinkedIn_belief_share_regressions",
   "EIV_firm", "EIV_within", "EIV_between",
   "EIV_within_selectivity", "EIV_between_selectivity"
 )
@@ -91,6 +93,12 @@ system.time({
 # This is intentionally computed in section 2; section 3 only formats outputs.
 system.time({
   run_belief_summary_amad_analysis(data, output_dir)
+})
+
+# Merge the 2023 Yimfor LinkedIn shares and run the firm-level belief
+# regressions used by the corresponding section 3 table.
+system.time({
+  source(file.path(analysis, "linkedin_share_analysis.R"))
 })
 
 message("🎃 Full_Sample write check:")

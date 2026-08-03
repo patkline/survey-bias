@@ -143,6 +143,12 @@ source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_naics3_share_controls_table.R"))
 source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
 
+# Yimfor LinkedIn workforce-share regressions
+source(file.path(
+  create_tables_figures,
+  "average_beliefs_vs_linkedin_workforce_shares_table.R"
+))
+
 # NAICS3 belief-share regressions
 source(file.path(create_tables_figures, "naics3_beliefs_on_eeo1_shares_table.R"))
 
