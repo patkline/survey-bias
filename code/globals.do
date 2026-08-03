@@ -21,7 +21,7 @@ local user = lower("`c(username)'")
 
 * Map system user --> Dropbox consolidated_code root
 if "`user'" == "nicorotundo" {
-    global dropbox_survey_bias_root "/Users/nicorotundo/Library/CloudStorage/Dropbox/Survey/consolidated_code"
+    global dropbox_survey_bias_root "/Users/nicorotundo/Dropbox/Survey/consolidated_code"
 }
 else if "`user'" == "monicahea" {
     global dropbox_survey_bias_root "/Users/monicahea/Dropbox/Survey/consolidated_code"

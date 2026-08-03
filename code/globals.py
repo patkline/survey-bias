@@ -27,7 +27,7 @@ from pathlib import Path
 # ------------------------------------------------------------------------------
 # User -> Dropbox root (same entries as globals.R)
 dropbox_roots_by_user = {
-    "nicorotundo": "/Users/nicorotundo/Library/CloudStorage/Dropbox/Survey/consolidated_code",
+    "nicorotundo": "/Users/nicorotundo/Dropbox/Survey/consolidated_code",
     "monicahea": "/Users/monicahea/Dropbox/Survey/consolidated_code",
     "jordancammarota": "/Users/jordancammarota/Dropbox/consolidated_code",
     "anh-huynguyen": "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
