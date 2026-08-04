@@ -141,7 +141,7 @@ source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix
 # source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
 # source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
-source(file.path(create_tables_figures, "eiv_eeo1_naics3_share_controls_table.R"))
+source(file.path(create_tables_figures, "eiv_linkedin_share_controls_table.R"))
 source(file.path(create_tables_figures, "revelio_eeo1_frontline_share_correlations.R"))
 
 # Yimfor LinkedIn workforce-share regressions

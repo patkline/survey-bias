@@ -274,15 +274,33 @@ multivariate_katz_signal_mean <- function(
     current_draws <- draw_multivariate_normal(current_batch_size, mean_vector, signal_vcov)
     drawn_count <- drawn_count + current_batch_size
 
-    for (draw_index in seq_len(nrow(current_draws))) {
-      candidate <- unvech_matrix(current_draws[draw_index, ], names = colnames(signal_hat))
-      if (!is_positive_definite_matrix(candidate, tol = pd_tol)) {
-        pd_rejected_count <- pd_rejected_count + 1L
-        next
+    if (nrow(signal_hat) == 2L) {
+      # For [[a, b], [b, c]], lambda_min > pd_tol iff A - pd_tol I
+      # has a positive first principal minor and determinant. Vectorizing this
+      # check avoids millions of tiny eigen decompositions when the paper's
+      # pairwise correlations are regenerated.
+      shifted_a <- current_draws[, 1L] - pd_tol
+      shifted_c <- current_draws[, 3L] - pd_tol
+      accepted <- shifted_a > 0 &
+        shifted_a * shifted_c - current_draws[, 2L]^2 > 0
+      accepted[is.na(accepted)] <- FALSE
+      accepted_in_batch <- sum(accepted)
+      if (accepted_in_batch > 0L) {
+        accepted_sum <- accepted_sum + colSums(current_draws[accepted, , drop = FALSE])
       }
+      accepted_count <- accepted_count + accepted_in_batch
+      pd_rejected_count <- pd_rejected_count + current_batch_size - accepted_in_batch
+    } else {
+      for (draw_index in seq_len(nrow(current_draws))) {
+        candidate <- unvech_matrix(current_draws[draw_index, ], names = colnames(signal_hat))
+        if (!is_positive_definite_matrix(candidate, tol = pd_tol)) {
+          pd_rejected_count <- pd_rejected_count + 1L
+          next
+        }
 
-      accepted_sum <- accepted_sum + current_draws[draw_index, ]
-      accepted_count <- accepted_count + 1L
+        accepted_sum <- accepted_sum + current_draws[draw_index, ]
+        accepted_count <- accepted_count + 1L
+      }
     }
   }
 
@@ -295,6 +313,15 @@ multivariate_katz_signal_mean <- function(
       accepted_count,
       pd_rejected_count
     ))
+  }
+
+  if (accepted_count < target_accepts) {
+    warning(
+      "multivariate_katz_signal_mean(): draw cap reached with ",
+      accepted_count, " positive-definite draws accepted out of ", drawn_count,
+      " (target: ", target_accepts, ").",
+      call. = FALSE
+    )
   }
 
   out <- unvech_matrix(accepted_sum / accepted_count, names = colnames(signal_hat))
@@ -332,6 +359,10 @@ constrain_signal_inside_observed_covariance <- function(signal_matrix, observed_
 compute_multivariate_katz_noise_matrix <- function(observed_covariance_matrix,
                                                    raw_noise_matrix,
                                                    signal_vcov,
+                                                   draws = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_DRAWS", unset = "50000")),
+                                                   target_accepts = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_TARGET_ACCEPTS", unset = "5000")),
+                                                   batch_size = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_BATCH_SIZE", unset = "10000")),
+                                                   seed = as.integer(Sys.getenv("EIV_MULTIVARIATE_KATZ_SEED", unset = "1961")),
                                                    pd_tol = 1e-10) {
   observed_covariance_matrix <- symmetrize_matrix(observed_covariance_matrix)
   raw_noise_matrix <- symmetrize_matrix(raw_noise_matrix)
@@ -352,6 +383,10 @@ compute_multivariate_katz_noise_matrix <- function(observed_covariance_matrix,
   katz_signal_matrix <- multivariate_katz_signal_mean(
     signal_hat = raw_signal_matrix,
     signal_vcov = signal_vcov,
+    draws = draws,
+    target_accepts = target_accepts,
+    batch_size = batch_size,
+    seed = seed,
     pd_tol = pd_tol
   )
 
@@ -378,6 +413,109 @@ compute_multivariate_katz_noise_matrix <- function(observed_covariance_matrix,
   }
 
   katz_noise_matrix
+}
+
+# ----------------------------------------------------------------------------------------
+# compute_multivariate_katz_signal_correlation() --- apply the same bivariate
+# Katz correction used by the EIV regressions, then convert the corrected
+# 2 x 2 signal covariance matrix to a correlation. Keeping this conversion in
+# one helper ensures correlation tables and figures use exactly the same lower
+# PD truncation and second-step upper clipping as the EIV path.
+# ----------------------------------------------------------------------------------------
+compute_multivariate_katz_signal_correlation <- function(
+    observed_covariance_matrix,
+    raw_noise_matrix,
+    signal_vcov,
+    draws = as.integer(Sys.getenv(
+      "CORRELATION_MULTIVARIATE_KATZ_DRAWS",
+      unset = "50000000"
+    )),
+    target_accepts = as.integer(Sys.getenv(
+      "CORRELATION_MULTIVARIATE_KATZ_TARGET_ACCEPTS",
+      unset = "5000"
+    )),
+    batch_size = as.integer(Sys.getenv(
+      "CORRELATION_MULTIVARIATE_KATZ_BATCH_SIZE",
+      unset = "10000"
+    )),
+    seed = as.integer(Sys.getenv(
+      "CORRELATION_MULTIVARIATE_KATZ_SEED",
+      unset = "1961"
+    )),
+    pd_tol = 1e-10
+) {
+  observed_covariance_matrix <- symmetrize_matrix(observed_covariance_matrix)
+  raw_noise_matrix <- symmetrize_matrix(raw_noise_matrix)
+
+  if (!identical(dim(observed_covariance_matrix), c(2L, 2L)) ||
+      !identical(dim(raw_noise_matrix), c(2L, 2L))) {
+    stop(
+      "compute_multivariate_katz_signal_correlation(): observed and noise matrices must be 2 x 2.",
+      call. = FALSE
+    )
+  }
+
+  katz_noise_matrix <- compute_multivariate_katz_noise_matrix(
+    observed_covariance_matrix = observed_covariance_matrix,
+    raw_noise_matrix = raw_noise_matrix,
+    signal_vcov = signal_vcov,
+    draws = draws,
+    target_accepts = target_accepts,
+    batch_size = batch_size,
+    seed = seed,
+    pd_tol = pd_tol
+  )
+  if (is.null(katz_noise_matrix)) return(NULL)
+
+  katz_signal_matrix <- symmetrize_matrix(
+    observed_covariance_matrix - katz_noise_matrix
+  )
+  if (!is_positive_semidefinite_matrix(katz_signal_matrix, tol = 1e-8)) {
+    stop(
+      "compute_multivariate_katz_signal_correlation(): corrected signal matrix is not positive semidefinite.",
+      call. = FALSE
+    )
+  }
+
+  signal_denominator <- sqrt(
+    max(katz_signal_matrix[1L, 1L], 0) *
+      max(katz_signal_matrix[2L, 2L], 0)
+  )
+  if (!is.finite(signal_denominator) || signal_denominator <= 0) return(NULL)
+
+  signal_correlation <- katz_signal_matrix[1L, 2L] / signal_denominator
+  if (!is.finite(signal_correlation) || abs(signal_correlation) > 1 + 1e-8) {
+    stop(
+      "compute_multivariate_katz_signal_correlation(): corrected correlation lies outside [-1, 1].",
+      call. = FALSE
+    )
+  }
+  # Remove only numerical spillover at the boundary; the PSD correction, not
+  # this clamp, is what imposes the substantive correlation constraint.
+  signal_correlation <- min(1, max(-1, signal_correlation))
+
+  diagnostic_attributes <- c(
+    "multivariate_katz_acceptance_rate",
+    "multivariate_katz_draws",
+    "multivariate_katz_accepts",
+    "multivariate_katz_pd_rejects",
+    "multivariate_katz_pd_rejection_rate"
+  )
+  diagnostics <- stats::setNames(
+    lapply(diagnostic_attributes, function(attribute_name) {
+      attr(katz_noise_matrix, attribute_name)
+    }),
+    diagnostic_attributes
+  )
+
+  c(
+    list(
+      signal_correlation = signal_correlation,
+      signal_matrix = katz_signal_matrix,
+      noise_matrix = katz_noise_matrix
+    ),
+    diagnostics
+  )
 }
 
 # ----------------------------------------------------------------------------------------
