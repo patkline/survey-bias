@@ -73,6 +73,7 @@ analysis_check_sheets <- c(
   "belief_amad_summary",
   "LinkedIn_firm_shares",
   "LinkedIn_belief_share_regressions",
+  "EIV_linkedin_shares",
   "EIV_firm", "EIV_within", "EIV_between",
   "EIV_within_selectivity", "EIV_between_selectivity"
 )

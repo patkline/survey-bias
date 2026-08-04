@@ -254,7 +254,7 @@ for the lightweight firm-name match step.
   - `eiv_revelio_outcome_tables.R` --- Controlling for Revelio workforce shares on the RHS of main EIV regs 
   - `eiv_revelio_composition_tables.R` --- Revelio outcomes (race/gender workforce share and paygaps as LHS)
   - `eiv_eeo1_share_tables.R` --- EIV tables using EEO-1 industry-level race/gender shares
-  - `eiv_eeo1_naics3_share_controls_table.R` --- full-sample EIV contact-gap table with NAICS3 workforce-share controls and NAICS3-clustered standard errors in the share-control columns
+  - `eiv_linkedin_share_controls_table.R` --- full-sample EIV contact-gap table with 2023 Yimfor LinkedIn workforce-share controls and NAICS3-clustered standard errors in the share-control columns
   - `naics3_beliefs_on_eeo1_shares_table.R` --- firm-level beliefs-on-NAICS3-share regression table
   - `revelio_eeo1_frontline_share_correlations.R` --- firm-level Revelio workforce shares vs EEO-1 industry shares: comparison CSV, correlations, industry black-share scatterplots
   - `eiv_scatterplots.R` --- audit contact gaps on raw firm-level beliefs, scatter with naive (weighted OLS, robust SE) and EIV fitted lines

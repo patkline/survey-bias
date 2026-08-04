@@ -8,28 +8,27 @@ if (!exists("git_survey_bias_root", inherits = TRUE)) {
 
 linkedin_regressions_sheet <- "LinkedIn_belief_share_regressions"
 
-yimfor_results <- read_parquet_sheet(
+linkedin_results <- read_parquet_sheet(
   file.path(intermediate, "Full_Sample"),
   linkedin_regressions_sheet
 )
 
-if (nrow(yimfor_results) != 24L) {
-  stop("Expected 24 Yimfor LinkedIn belief-share regression results.")
+if (nrow(linkedin_results) != 12L) {
+  stop("Expected 12 joint LinkedIn belief-share regression results.")
 }
 
-yimfor_table_columns <- tidyr::expand_grid(
-  model = c("OLS", "Borda"),
+linkedin_table_columns <- tidyr::expand_grid(
   belief_label = c(
-    "Race Beliefs",
-    "Gender Beliefs",
-    "Selectivity Beliefs"
+    "Race",
+    "Gender",
+    "Selectivity"
   ),
   industry_fe = c(FALSE, TRUE)
 )
 
-format_yimfor_table_number <- function(value) {
+format_linkedin_table_number <- function(value) {
   if (!is.finite(value)) {
-    stop("Cannot format a non-finite Yimfor table value.")
+    stop("Cannot format a non-finite LinkedIn table value.")
   }
   if (abs(value) < 0.0005) {
     value <- 0
@@ -37,97 +36,115 @@ format_yimfor_table_number <- function(value) {
   sprintf("%.3f", value)
 }
 
-pull_yimfor_table_result <- function(
-    panel_value,
+format_linkedin_table_percent <- function(value) {
+  if (!is.finite(value)) {
+    stop("Cannot format a non-finite LinkedIn table percentage.")
+  }
+  paste0(sprintf("%.1f", 100 * value), "\\%")
+}
+
+pull_linkedin_table_result <- function(
     model_value,
     belief_value,
     industry_fe_value
 ) {
-  result <- yimfor_results |>
+  result <- linkedin_results |>
     dplyr::filter(
-      .data$panel == panel_value,
       .data$model == model_value,
       .data$belief_label == belief_value,
       .data$industry_fe == industry_fe_value
     )
 
   if (nrow(result) != 1L) {
-    stop("Could not identify a unique Yimfor table result.")
+    stop("Could not identify a unique LinkedIn table result.")
   }
   result
 }
 
-make_yimfor_panel_lines <- function(panel_value, share_label) {
-  column_results <- lapply(seq_len(nrow(yimfor_table_columns)), function(i) {
-    pull_yimfor_table_result(
-      panel_value = panel_value,
-      model_value = yimfor_table_columns$model[i],
-      belief_value = yimfor_table_columns$belief_label[i],
-      industry_fe_value = yimfor_table_columns$industry_fe[i]
+make_linkedin_panel_lines <- function(panel_label, model_value) {
+  column_results <- lapply(seq_len(nrow(linkedin_table_columns)), function(i) {
+    pull_linkedin_table_result(
+      model_value = model_value,
+      belief_value = linkedin_table_columns$belief_label[i],
+      industry_fe_value = linkedin_table_columns$industry_fe[i]
     )
   })
 
-  estimates <- vapply(
+  make_estimate_row <- function(label, variable) {
+    values <- vapply(
+      column_results,
+      function(result) format_linkedin_table_number(result[[variable]]),
+      FUN.VALUE = character(1L)
+    )
+    paste0(label, " & ", paste(values, collapse = " & "), " \\\\")
+  }
+
+  make_standard_error_row <- function(variable) {
+    values <- vapply(
+      column_results,
+      function(result) paste0(
+        "(",
+        format_linkedin_table_number(result[[variable]]),
+        ")"
+      ),
+      FUN.VALUE = character(1L)
+    )
+    paste0(" & ", paste(values, collapse = " & "), " \\\\")
+  }
+
+  signal_explained <- vapply(
     column_results,
-    function(result) format_yimfor_table_number(
-      result$effect_per_10pp_share
-    ),
-    FUN.VALUE = character(1L)
-  )
-  standard_errors <- vapply(
-    column_results,
-    function(result) paste0(
-      "(",
-      format_yimfor_table_number(result$effect_per_10pp_se),
-      ")"
-    ),
+    function(result) format_linkedin_table_percent(result$signal_explained),
     FUN.VALUE = character(1L)
   )
 
   c(
     paste0(
-      "\\multicolumn{13}{l}{\\textbf{",
-      panel_value,
+      "\\multicolumn{7}{l}{\\textbf{",
+      panel_label,
       "}} \\\\"
     ),
-    paste0(share_label, " & ", paste(estimates, collapse = " & "), " \\\\"),
-    paste0(" & ", paste(standard_errors, collapse = " & "), " \\\\")
+    make_estimate_row("Black Share", "black_effect_per_10pp_share"),
+    make_standard_error_row("black_effect_per_10pp_se"),
+    "\\addlinespace",
+    make_estimate_row("Female Share", "female_effect_per_10pp_share"),
+    make_standard_error_row("female_effect_per_10pp_se"),
+    "\\addlinespace",
+    paste0(
+      "Signal Explained & ",
+      paste(signal_explained, collapse = " & "),
+      " \\\\"
+    )
   )
 }
 
 industry_fe_cells <- ifelse(
-  yimfor_table_columns$industry_fe,
+  linkedin_table_columns$industry_fe,
   "X",
   ""
 )
 
-yimfor_latex_lines <- c(
-  "\\begin{tabular}{l*{12}{c}}",
+linkedin_latex_lines <- c(
+  "\\begin{tabular}{l*{6}{c}}",
   "\\toprule",
-  " & \\multicolumn{6}{c}{Likert} & \\multicolumn{6}{c}{Borda} \\\\",
-  "\\cmidrule(lr){2-7} \\cmidrule(lr){8-13}",
   paste0(
-    " & \\multicolumn{2}{c}{Race Beliefs}",
-    " & \\multicolumn{2}{c}{Gender Beliefs}",
-    " & \\multicolumn{2}{c}{Selectivity Beliefs}",
     " & \\multicolumn{2}{c}{Race Beliefs}",
     " & \\multicolumn{2}{c}{Gender Beliefs}",
     " & \\multicolumn{2}{c}{Selectivity Beliefs} \\\\"
   ),
   paste0(
     "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5} ",
-    "\\cmidrule(lr){6-7} \\cmidrule(lr){8-9} ",
-    "\\cmidrule(lr){10-11} \\cmidrule(lr){12-13}"
+    "\\cmidrule(lr){6-7}"
   ),
   paste0(
     " & ",
-    paste(paste0("(", seq_len(12L), ")"), collapse = " & "),
+    paste(paste0("(", seq_len(6L), ")"), collapse = " & "),
     " \\\\"
   ),
   "\\midrule",
-  make_yimfor_panel_lines("Panel A: Race", "Black Share"),
+  make_linkedin_panel_lines("Panel A: Likert", "OLS"),
   "\\addlinespace",
-  make_yimfor_panel_lines("Panel B: Gender", "Female Share"),
+  make_linkedin_panel_lines("Panel B: Borda", "Borda"),
   "\\addlinespace",
   paste0(
     "Industry FE & ",
@@ -138,13 +155,13 @@ yimfor_latex_lines <- c(
   "\\end{tabular}"
 )
 
-yimfor_table_path <- file.path(
+linkedin_table_path <- file.path(
   tables,
   "average_beliefs_vs_linkedin_workforce_shares.tex"
 )
 write_lines_checked(
-  yimfor_latex_lines,
-  yimfor_table_path,
+  linkedin_latex_lines,
+  linkedin_table_path,
   label = "average beliefs versus LinkedIn workforce shares table"
 )
 

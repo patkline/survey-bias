@@ -13,6 +13,18 @@ if (!exists("read_parquet_sheet", mode = "function", inherits = TRUE)) {
 if (!exists("load_firm_naics3_crosswalk", mode = "function", inherits = TRUE)) {
   source(file.path(analysis, "eeo1_naics3_shares.R"))
 }
+if (!exists("var_component_with_var", mode = "function", inherits = TRUE)) {
+  source(file.path(analysis, "katz_correct.R"))
+}
+if (!exists("eivreg", mode = "function", inherits = TRUE)) {
+  source(file.path(analysis, "eivreg.R"))
+}
+if (!exists("run_eiv_suite", mode = "function", inherits = TRUE)) {
+  source(file.path(analysis, "eiv_functions.R"))
+}
+if (!exists("eeo1_coef_to_wide", mode = "function", inherits = TRUE)) {
+  source(file.path(analysis, "eeo1_eiv.R"))
+}
 
 yimfor_linkedin_workbook <- file.path(
   git_survey_bias_root,
@@ -23,6 +35,7 @@ yimfor_linkedin_workbook <- file.path(
 
 linkedin_firm_shares_sheet <- "LinkedIn_firm_shares"
 linkedin_regressions_sheet <- "LinkedIn_belief_share_regressions"
+linkedin_eiv_sheet <- "EIV_linkedin_shares"
 
 yimfor_kline_to_survey <- c(
   "Avis-Budget" = "Avis Budget Group",
@@ -78,10 +91,25 @@ yimfor_belief_specs <- tibble::tribble(
   3L, "Selectivity Beliefs", "FirmSelective"
 )
 
-yimfor_share_specs <- tibble::tribble(
-  ~panel_order, ~panel, ~share_label, ~share_variable,
-  1L, "Panel A: Race", "Black Share", "analysis_share_black",
-  2L, "Panel B: Gender", "Female Share", "analysis_share_female"
+yimfor_eiv_rhs_outcomes <- c(
+  "pooled_favor_white",
+  "pooled_favor_male"
+)
+
+yimfor_eiv_zero_error_controls <- c(
+  "analysis_share_black",
+  "analysis_share_female"
+)
+
+yimfor_eiv_specs <- list(
+  list(
+    lhs = "log_dif",
+    rhs = c("pooled_favor_white", "analysis_share_black")
+  ),
+  list(
+    lhs = "log_dif_gender",
+    rhs = c("pooled_favor_male", "analysis_share_female")
+  )
 )
 
 clean_yimfor_rcid <- function(x) {
@@ -346,36 +374,191 @@ add_yimfor_analysis_shares <- function(
   firm_shares
 }
 
-fit_yimfor_belief_share_regression <- function(
-    data,
-    share_variable,
-    industry_fe
+run_yimfor_share_control_eiv <- function(
+    coefficients_long,
+    variance_df,
+    covariance_df,
+    firm_shares,
+    models_to_run = c("OLS", "Borda")
 ) {
+  eiv_firm_shares <- firm_shares |>
+    dplyr::transmute(
+      firm_id = as.integer(.data$firm_id),
+      share_firm = .data$firm,
+      analysis_share_black = as.numeric(.data$analysis_share_black),
+      analysis_share_female = as.numeric(.data$analysis_share_female),
+      naics3 = as.integer(.data$naics3),
+      share_is_naics3_fallback = .data$share_is_naics3_fallback
+    )
+
+  coef_firm_wide <- eeo1_coef_to_wide(coefficients_long, "Firm") |>
+    dplyr::left_join(
+      eiv_firm_shares,
+      by = c("entity_id" = "firm_id")
+    )
+
+  if (nrow(coef_firm_wide) != 194L ||
+      dplyr::n_distinct(coef_firm_wide$entity_id) != 97L ||
+      any(coef_firm_wide$entity != coef_firm_wide$share_firm) ||
+      any(coef_firm_wide$share_is_naics3_fallback) ||
+      any(is.na(coef_firm_wide$naics3)) ||
+      any(!is.finite(coef_firm_wide$analysis_share_black)) ||
+      any(!is.finite(coef_firm_wide$analysis_share_female))) {
+    stop("The 97-firm EIV sample did not merge cleanly to Yimfor shares.")
+  }
+
+  noise_mats <- stats::setNames(
+    vector("list", length(models_to_run)),
+    models_to_run
+  )
+  for (model_value in models_to_run) {
+    noise_mats[[model_value]] <- build_noise_matrix(
+      variance_df = variance_df,
+      covariance_df = covariance_df,
+      outcomes = yimfor_eiv_rhs_outcomes,
+      subset_value = "subset97",
+      model_value = model_value
+    ) |>
+      add_zero_error_controls_eeo1(yimfor_eiv_zero_error_controls)
+  }
+
+  # Match the earlier Yimfor EIV table: employment weights, no fixed effects,
+  # and NAICS3-clustered standard errors with the finite-sample adjustment.
+  # Workforce shares are measured without sampling error; only beliefs are
+  # corrected for measurement error.
+  eiv_results <- run_eiv_suite(
+    regs = yimfor_eiv_specs,
+    coef_df_wide = coef_firm_wide,
+    noise_mats_97 = noise_mats,
+    models = models_to_run,
+    id_col = "entity_id",
+    model_col = "model",
+    weights_col = "njobs",
+    cluster_col = "naics3",
+    cluster_df_adj = TRUE,
+    use_fe = FALSE
+  ) |>
+    dplyr::mutate(
+      linkedin_regression_level = "Firm",
+      linkedin_spec_group = "share_control"
+    )
+
+  if (nrow(eiv_results) != 8L ||
+      any(eiv_results$n != 97L) ||
+      !setequal(eiv_results$model, models_to_run)) {
+    stop("The Yimfor share-control EIV output failed its validation checks.")
+  }
+
+  eiv_results
+}
+
+build_yimfor_rcov_matrix <- function(rcov_long, entity_ids) {
+  if (nrow(rcov_long) != length(entity_ids)^2) {
+    stop("The firm-estimate covariance matrix is incomplete.")
+  }
+
+  Sigma <- matrix(
+    NA_real_,
+    nrow = length(entity_ids),
+    ncol = length(entity_ids),
+    dimnames = list(as.character(entity_ids), as.character(entity_ids))
+  )
+  Sigma[cbind(
+    match(rcov_long$entity_id_i, entity_ids),
+    match(rcov_long$entity_id_j, entity_ids)
+  )] <- as.numeric(rcov_long$rcov)
+
+  if (anyNA(Sigma) || max(abs(Sigma - t(Sigma))) > 1e-10) {
+    stop("The firm-estimate covariance matrix is missing or asymmetric.")
+  }
+
+  Sigma
+}
+
+calculate_yimfor_projected_signal <- function(theta_hat, Sigma, design) {
+  design_qr <- qr(design)
+  if (design_qr$rank != ncol(design)) {
+    stop("The signal-projection design matrix is not full rank.")
+  }
+
+  design_q <- qr.Q(design_qr)
+  residual_maker <- diag(length(theta_hat)) - tcrossprod(design_q)
+  residual_theta_hat <- as.numeric(residual_maker %*% theta_hat)
+  residual_Sigma <- residual_maker %*% Sigma %*% residual_maker
+  variance_component <- var_component_with_var(
+    residual_theta_hat,
+    residual_Sigma
+  )
+
+  list(
+    signal_variance = katz_correct(
+      variance_component$sigma2_hat,
+      variance_component$Vhat
+    ),
+    sigma2_hat = variance_component$sigma2_hat,
+    Vhat = variance_component$Vhat
+  )
+}
+
+fit_yimfor_joint_share_regression <- function(data, Sigma, industry_fe) {
   estimation_sample <- data |>
     dplyr::transmute(
+      entity_id = as.integer(.data$entity_id),
       firm = .data$firm,
       estimate = as.numeric(.data$estimate),
-      analysis_share = as.numeric(.data[[share_variable]]),
+      analysis_share_black = as.numeric(.data$analysis_share_black),
+      analysis_share_female = as.numeric(.data$analysis_share_female),
       aer_naics2 = as.integer(.data$aer_naics2),
       share_is_naics3_fallback = .data$share_is_naics3_fallback
     ) |>
     dplyr::filter(
       is.finite(.data$estimate),
-      is.finite(.data$analysis_share),
+      is.finite(.data$analysis_share_black),
+      is.finite(.data$analysis_share_female),
       !is.na(.data$aer_naics2)
-    )
+    ) |>
+    dplyr::arrange(.data$entity_id)
 
   regression_formula <- if (isTRUE(industry_fe)) {
-    estimate ~ analysis_share + factor(aer_naics2)
+    estimate ~ analysis_share_black + analysis_share_female +
+      factor(aer_naics2)
   } else {
-    estimate ~ analysis_share
+    estimate ~ analysis_share_black + analysis_share_female
   }
   fit <- stats::lm(regression_formula, data = estimation_sample)
   regression_vcov <- sandwich::vcovHC(fit, type = "HC1")
   robust_se <- sqrt(diag(regression_vcov))
-  share_slope <- unname(stats::coef(fit)[["analysis_share"]])
-  share_slope_se <- unname(robust_se[["analysis_share"]])
-  share_t <- share_slope / share_slope_se
+  coefficients <- stats::coef(fit)
+
+  # The no-FE baseline is the unconditional Table 4 signal. With FE, the
+  # baseline first removes AER-industry means so signal_explained isolates the
+  # incremental contribution of the two workforce shares within industries.
+  baseline_design <- if (isTRUE(industry_fe)) {
+    stats::model.matrix(~ factor(aer_naics2), data = estimation_sample)
+  } else {
+    matrix(1, nrow = nrow(estimation_sample), ncol = 1L)
+  }
+  full_design <- stats::model.matrix(
+    regression_formula,
+    data = estimation_sample
+  )
+  # Project both the firm estimates and their covariance matrix before applying
+  # the same Katz signal correction used in Table 4.
+  baseline_signal <- calculate_yimfor_projected_signal(
+    estimation_sample$estimate,
+    Sigma,
+    baseline_design
+  )
+  residual_signal <- calculate_yimfor_projected_signal(
+    estimation_sample$estimate,
+    Sigma,
+    full_design
+  )
+
+  black_slope <- unname(coefficients[["analysis_share_black"]])
+  black_slope_se <- unname(robust_se[["analysis_share_black"]])
+  female_slope <- unname(coefficients[["analysis_share_female"]])
+  female_slope_se <- unname(robust_se[["analysis_share_female"]])
 
   tibble::tibble(
     industry_fe = isTRUE(industry_fe),
@@ -386,17 +569,35 @@ fit_yimfor_belief_share_regression <- function(
     n_naics3_share_fallbacks = sum(
       estimation_sample$share_is_naics3_fallback
     ),
-    share_slope = share_slope,
-    share_slope_se = share_slope_se,
-    share_slope_p_value = 2 * stats::pt(
-      abs(share_t),
+    black_share_slope = black_slope,
+    black_share_slope_se = black_slope_se,
+    black_share_slope_p_value = 2 * stats::pt(
+      abs(black_slope / black_slope_se),
       df = stats::df.residual(fit),
       lower.tail = FALSE
     ),
-    effect_per_10pp_share = 0.1 * share_slope,
-    effect_per_10pp_se = 0.1 * share_slope_se,
+    black_effect_per_10pp_share = 0.1 * black_slope,
+    black_effect_per_10pp_se = 0.1 * black_slope_se,
+    female_share_slope = female_slope,
+    female_share_slope_se = female_slope_se,
+    female_share_slope_p_value = 2 * stats::pt(
+      abs(female_slope / female_slope_se),
+      df = stats::df.residual(fit),
+      lower.tail = FALSE
+    ),
+    female_effect_per_10pp_share = 0.1 * female_slope,
+    female_effect_per_10pp_se = 0.1 * female_slope_se,
     r_squared = summary(fit)$r.squared,
-    adjusted_r_squared = summary(fit)$adj.r.squared
+    adjusted_r_squared = summary(fit)$adj.r.squared,
+    baseline_signal_variance = baseline_signal$signal_variance,
+    residual_signal_variance = residual_signal$signal_variance,
+    signal_explained = 1 -
+      residual_signal$signal_variance / baseline_signal$signal_variance,
+    signal_explained_definition = if (isTRUE(industry_fe)) {
+      "incremental_within_aer_naics2"
+    } else {
+      "unconditional"
+    }
   )
 }
 
@@ -405,7 +606,8 @@ run_linkedin_share_analysis <- function(
     write_sheets = TRUE
 ) {
   firm_shares <- add_yimfor_analysis_shares()
-  coefficients <- read_parquet_sheet(output_dir, "Coefficients") |>
+  coefficients_long <- read_parquet_sheet(output_dir, "Coefficients")
+  coefficients <- coefficients_long |>
     dplyr::filter(
       .data$subset == "all",
       .data$entity_type == "Firm",
@@ -413,10 +615,31 @@ run_linkedin_share_analysis <- function(
       .data$outcome %in% yimfor_belief_specs$belief_outcome
     ) |>
     dplyr::transmute(
+      entity_id = as.integer(.data$entity_id),
       model = .data$model,
       belief_outcome = .data$outcome,
       firm = .data$entity,
       estimate = .data$estimate
+    )
+
+  rcov_path <- parquet_sheet_path(output_dir, "rcov")
+  if (!file.exists(rcov_path)) {
+    stop("Firm-estimate covariance sheet not found: ", rcov_path)
+  }
+  rcov_relevant <- arrow::open_dataset(rcov_path, format = "parquet") |>
+    dplyr::filter(
+      .data$subset == "all",
+      .data$model %in% c("OLS", "Borda"),
+      .data$outcome %in% yimfor_belief_specs$belief_outcome
+    ) |>
+    dplyr::collect()
+
+  variance_all <- read_parquet_sheet(output_dir, "variance")
+  variance_results <- variance_all |>
+    dplyr::filter(
+      .data$subset == "all",
+      .data$model %in% c("OLS", "Borda"),
+      .data$outcome %in% yimfor_belief_specs$belief_outcome
     )
 
   coefficient_counts <- coefficients |>
@@ -432,54 +655,85 @@ run_linkedin_share_analysis <- function(
 
   regression_results <- list()
   result_index <- 1L
-  for (panel_index in seq_len(nrow(yimfor_share_specs))) {
-    panel_spec <- yimfor_share_specs[panel_index, ]
-    for (model_value in c("OLS", "Borda")) {
-      for (belief_index in seq_len(nrow(yimfor_belief_specs))) {
-        belief_spec <- yimfor_belief_specs[belief_index, ]
-        estimation_data <- coefficients |>
-          dplyr::filter(
-            .data$model == model_value,
-            .data$belief_outcome == belief_spec$belief_outcome
-          ) |>
-          dplyr::left_join(firm_shares, by = "firm")
+  for (model_value in c("OLS", "Borda")) {
+    for (belief_index in seq_len(nrow(yimfor_belief_specs))) {
+      belief_spec <- yimfor_belief_specs[belief_index, ]
+      estimation_data <- coefficients |>
+        dplyr::filter(
+          .data$model == model_value,
+          .data$belief_outcome == belief_spec$belief_outcome
+        ) |>
+        dplyr::left_join(firm_shares, by = "firm") |>
+        dplyr::arrange(.data$entity_id)
 
-        if (nrow(estimation_data) != 164L ||
-            any(is.na(estimation_data$analysis_share_black)) ||
-            any(is.na(estimation_data$analysis_share_female))) {
-          stop("Belief estimates did not merge cleanly to the workforce shares.")
+      if (nrow(estimation_data) != 164L ||
+          any(is.na(estimation_data$analysis_share_black)) ||
+          any(is.na(estimation_data$analysis_share_female))) {
+        stop("Belief estimates did not merge cleanly to the workforce shares.")
+      }
+
+      rcov_spec <- rcov_relevant |>
+        dplyr::filter(
+          .data$model == model_value,
+          .data$outcome == belief_spec$belief_outcome
+        )
+      Sigma <- build_yimfor_rcov_matrix(
+        rcov_spec,
+        estimation_data$entity_id
+      )
+
+      for (industry_fe in c(FALSE, TRUE)) {
+        result <- fit_yimfor_joint_share_regression(
+          estimation_data,
+          Sigma = Sigma,
+          industry_fe = industry_fe
+        )
+
+        if (!isTRUE(industry_fe)) {
+          table4_signal <- variance_results |>
+            dplyr::filter(
+              .data$model == model_value,
+              .data$outcome == belief_spec$belief_outcome
+            ) |>
+            dplyr::pull("signal")
+          if (length(table4_signal) != 1L ||
+              abs(result$baseline_signal_variance - table4_signal) > 1e-10) {
+            stop("Unconditional signal variance does not match Table 4.")
+          }
         }
 
-        for (industry_fe in c(FALSE, TRUE)) {
-          result <- fit_yimfor_belief_share_regression(
-            estimation_data,
-            share_variable = panel_spec$share_variable,
-            industry_fe = industry_fe
-          )
-          regression_results[[result_index]] <- dplyr::bind_cols(
-            panel_spec,
-            tibble::tibble(
-              model = model_value,
-              model_order = match(model_value, c("OLS", "Borda"))
-            ),
-            belief_spec,
-            result
-          )
-          result_index <- result_index + 1L
-        }
+        regression_results[[result_index]] <- dplyr::bind_cols(
+          tibble::tibble(
+            model = model_value,
+            model_order = match(model_value, c("OLS", "Borda"))
+          ),
+          belief_spec,
+          result
+        )
+        result_index <- result_index + 1L
       }
     }
   }
 
   regression_results <- dplyr::bind_rows(regression_results)
-  if (nrow(regression_results) != 24L ||
+  if (nrow(regression_results) != 12L ||
       any(regression_results$n_firms != 164L) ||
       any(regression_results$n_aer_naics2 != 19L) ||
       any(regression_results$n_linkedin_shares != 161L) ||
       any(regression_results$n_naics3_share_fallbacks != 3L) ||
-      any(regression_results$se_type != "HC1")) {
+      any(regression_results$se_type != "HC1") ||
+      any(!is.finite(regression_results$signal_explained)) ||
+      any(regression_results$signal_explained < 0) ||
+      any(regression_results$signal_explained > 1)) {
     stop("The Yimfor belief-share regressions failed their validation checks.")
   }
+
+  eiv_results <- run_yimfor_share_control_eiv(
+    coefficients_long = coefficients_long,
+    variance_df = variance_all,
+    covariance_df = read_parquet_sheet(output_dir, "covariance"),
+    firm_shares = firm_shares
+  )
 
   if (isTRUE(write_sheets)) {
     write_parquet_sheet(
@@ -492,11 +746,17 @@ run_linkedin_share_analysis <- function(
       linkedin_regressions_sheet,
       regression_results
     )
+    write_parquet_sheet(
+      output_dir,
+      linkedin_eiv_sheet,
+      eiv_results
+    )
   }
 
   invisible(list(
     firm_shares = firm_shares,
-    regression_results = regression_results
+    regression_results = regression_results,
+    eiv_results = eiv_results
   ))
 }
 
