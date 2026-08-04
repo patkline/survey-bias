@@ -100,6 +100,7 @@ source(file.path(create_tables_figures, "firm_average_likert_histograms.R"))
 
 # Rating figure scripts
 source(file.path(create_tables_figures, "top_bottom_firm_ratings_dual_axis_figures.R"))
+source(file.path(create_tables_figures, "firm_likert_amad_scatterplots.R"))
 if (!nzchar(Sys.getenv("CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS"))) {
   Sys.setenv(CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS = "499")
 }
