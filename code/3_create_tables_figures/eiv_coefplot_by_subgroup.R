@@ -412,7 +412,7 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
         geom_point(size = 2.6) +
 
         # Slope difference per spec block, color-matched to the spec
-        geom_text(data = delta_annotation_data, aes(x = delta_x, y = delta_y, color = fe_label, label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), hjust = 0, size = 3.3, inherit.aes = FALSE, show.legend = FALSE) +
+        geom_text(data = delta_annotation_data, aes(x = delta_x, y = delta_y, color = fe_label, label = paste0("Δ = ", round(rhs_variable_coefficient_difference, 3), " (", round(rhs_variable_coefficient_difference_se, 3), ")")), hjust = 0, size = 2.6, inherit.aes = FALSE, show.legend = FALSE) +
 
         # Colors for the no-controls and industry-FE specs
         scale_color_manual(values = c("No Controls" = "steelblue", "Industry FE" = "darkorange")) +
@@ -421,10 +421,10 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
         scale_y_continuous(breaks = y_axis_data$point_y, labels = y_axis_data$subgroup_label, expand = expansion(mult = c(0.02, 0.03))) +
 
         # Right headroom for the delta annotations
-        scale_x_continuous(expand = expansion(mult = c(0.02, 0.22))) +
+        scale_x_continuous(expand = expansion(mult = c(0.02, 0.58))) +
 
-        # X-axis names the RHS belief; no y-axis or legend title
-        labs(x = paste0("EIV coefficient on ", unique(eiv_coefplot_data$rhs_variable)), y = NULL, color = NULL) +
+        # X-axis names the RHS belief by its display label; no y-axis or legend title
+        labs(x = paste0("EIV coefficient on ", c(pooled_favor_white_ols = "Discrimination Black (Pooled), Likert", pooled_favor_white_borda = "Discrimination Black (Pooled), Borda", pooled_favor_male_ols = "Discrimination Female (Pooled), Likert", pooled_favor_male_borda = "Discrimination Female (Pooled), Borda")[[rhs_variable_value]]), y = NULL, color = NULL) +
 
         # Theme baseline (larger base font)
         theme_minimal(base_size = 14) +
@@ -442,14 +442,16 @@ for (rhs_variable_value in c("pooled_favor_white_ols", "pooled_favor_white_borda
             axis.line.x = element_line(color = "black"),
             axis.ticks = element_blank(),
 
-            # Legend inside the plot, top-right
+            # Legend inside the plot, top-right, kept small so it clears the slope-difference annotations
             legend.position = c(0.98, 0.98),
             legend.justification = c(1, 1),
             legend.direction = "vertical",
             legend.background = element_blank(),
-            legend.key = element_blank()
+            legend.key = element_blank(),
+            legend.text = element_text(size = 7),
+            legend.key.size = unit(0.32, "cm")
         )
 
     # Export the figure, one file per RHS belief measure
-    ggsave(file.path(figures, paste0("eiv_coefplot_by_subgroup_", rhs_variable_value, ".png")), plot = eiv_coefplot, width = 14, height = 10, dpi = 300, bg = "white")
+    ggsave(file.path(figures, paste0("eiv_coefplot_by_subgroup_", rhs_variable_value, ".png")), plot = eiv_coefplot, width = 6.5, height = 6, dpi = 300, bg = "white")
 }

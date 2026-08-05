@@ -71,7 +71,7 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     labs(x = paste0("Mean Likert rating, ", survey_measure_label), y = "Average mean absolute deviation (AMAD)") +
 
     # Theme baseline
-    theme_minimal(base_size = 11) +
+    theme_minimal(base_size = 13) +
 
     # Theme adjustments
     theme(
@@ -88,5 +88,5 @@ for (survey_measure in c("pooled_favor_white", "pooled_favor_male", "conduct_fav
     )
 
   # Export the scatterplot, one file per survey measure
-  ggsave(file.path(figures, paste0("firm_likert_amad_scatterplots_", survey_measure, ".png")), plot = firm_likert_amad_scatterplot, width = 10, height = 6, dpi = 300, bg = "white")
+  ggsave(file.path(figures, paste0("firm_likert_amad_scatterplots_", survey_measure, ".png")), plot = firm_likert_amad_scatterplot, width = 6, height = 4, dpi = 300, bg = "white")
 }
