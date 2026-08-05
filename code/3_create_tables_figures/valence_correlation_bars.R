@@ -1,10 +1,12 @@
 # -------------------------------------------------------------------
 # Purpose: Bar graphs of debiased cross-valence correlations
 #          Two graphs per model (race & gender), 3 bars each
-#          Uses corr_c from the correlation sheet:
-#            corr_c = (covariance - noise) / sqrt(signal1 * signal2)
+#          Uses the pairwise multivariate-Katz signal correlation.
 # -------------------------------------------------------------------
 source("code/globals.R")
+source(file.path(analysis, "katz_correct.R"))
+source(file.path(analysis, "eiv_functions.R"))
+source(file.path(analysis, "correlation_function.R"))
 
 library(dplyr)
 library(ggplot2)
@@ -27,9 +29,30 @@ gender_pairs <- list(
   list(a = "conduct_male",   b = "conduct_female",   label = "Conduct")
 )
 
-# --- Read correlation sheet -------------------------------------------
-corr_df <- read_parquet_sheet(full_sample_dir, "correlation") %>%
-  dplyr::filter(subset == subset_filter)
+# --- Build multivariate-Katz correlations for the displayed pairs -----
+pair_key <- function(lhs, rhs) paste(pmin(lhs, rhs), pmax(lhs, rhs), sep = "||")
+displayed_pairs <- c(race_pairs, gender_pairs)
+displayed_pair_keys <- vapply(
+  displayed_pairs,
+  function(pair) pair_key(pair$a, pair$b),
+  character(1)
+)
+
+variance_input <- read_parquet_sheet(full_sample_dir, "variance")
+covariance_input <- read_parquet_sheet(full_sample_dir, "covariance") %>%
+  dplyr::filter(
+    subset == subset_filter,
+    model %in% c("OLS", "Borda"),
+    pair_key(lhs, rhs) %in% displayed_pair_keys
+  )
+stopifnot(nrow(covariance_input) == length(displayed_pair_keys) * 2)
+
+corr_df <- build_correlation_from_varcov(
+  var_df = variance_input,
+  cov_df = covariance_input,
+  use_multivariate_katz = TRUE
+)
+stopifnot(all(dplyr::between(corr_df$corr_c, -1, 1)))
 
 models <- intersect(c("OLS", "Borda"), unique(as.character(corr_df$model)))
 if (length(models) == 0L) {

@@ -1,4 +1,7 @@
 source("code/globals.R")
+source(file.path(analysis, "katz_correct.R"))
+source(file.path(analysis, "eiv_functions.R"))
+source(file.path(analysis, "correlation_function.R"))
 
 # Build a row-wise table of opposite-valence pair correlations across models
 # using corr_c from the new-pipeline correlation sheet.
@@ -19,6 +22,25 @@ opposite_pairs <- tibble::tribble(
 
 pair_key <- function(lhs, rhs) paste(pmin(lhs, rhs), pmax(lhs, rhs), sep = "||")
 
+# Rebuild the displayed correlations from the variance and covariance sheets
+# so the table uses the same pairwise multivariate-Katz correction as the
+# correlation heatmap and EIV specifications.
+opposite_pair_keys <- pair_key(opposite_pairs$lhs, opposite_pairs$rhs)
+variance_input <- read_parquet_sheet(full_sample_dir, "variance")
+covariance_input <- read_parquet_sheet(full_sample_dir, "covariance") |>
+  dplyr::filter(
+    subset == "all",
+    model %in% c("OLS", "Borda"),
+    pair_key(lhs, rhs) %in% opposite_pair_keys
+  )
+stopifnot(nrow(covariance_input) == nrow(opposite_pairs) * 2)
+multivariate_correlation_input <- build_correlation_from_varcov(
+  var_df = variance_input,
+  cov_df = covariance_input,
+  use_multivariate_katz = TRUE
+)
+stopifnot(all(dplyr::between(multivariate_correlation_input$corr_c, -1, 1)))
+
 to_logical_flag <- function(x) {
   if (is.logical(x)) return(x)
   if (is.numeric(x)) return(x != 0)
@@ -26,8 +48,7 @@ to_logical_flag <- function(x) {
   as.logical(x)
 }
 
-read_pairwise_corr <- function(dir_path, model_value, model_col, all_firms_value = TRUE) {
-  df <- read_parquet_sheet(dir_path, "correlation")
+read_pairwise_corr <- function(df, model_value, model_col, all_firms_value = TRUE) {
   req <- c("lhs", "rhs", "corr_c")
   miss <- setdiff(req, names(df))
   if (length(miss) > 0) {
@@ -62,14 +83,14 @@ read_pairwise_corr <- function(dir_path, model_value, model_col, all_firms_value
 }
 
 ols_corr <- read_pairwise_corr(
-  dir_path = full_sample_dir,
+  df = multivariate_correlation_input,
   model_value = "OLS",
   model_col = "OLS",
   all_firms_value = all_firms_flag
 )
 
 borda_corr <- read_pairwise_corr(
-  dir_path = full_sample_dir,
+  df = multivariate_correlation_input,
   model_value = "Borda",
   model_col = "Borda",
   all_firms_value = all_firms_flag

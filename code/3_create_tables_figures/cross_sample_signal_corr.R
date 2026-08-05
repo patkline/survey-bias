@@ -14,6 +14,9 @@ source("code/globals.R")
 # respondent-level bootstrap draws.
 source(file.path(analysis, "create_wide_rankings.R"))
 source(file.path(analysis, "borda_score.R"))
+source(file.path(analysis, "katz_correct.R"))
+source(file.path(analysis, "eiv_functions.R"))
+source(file.path(analysis, "covariance_functions.R"))
 
 # Number of respondent bootstrap draws used to calibrate the Wald and CMD
 # reference distributions. Set CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS=0 to
@@ -118,6 +121,62 @@ stopifnot(
   setequal(sample_vector, sample_definition_table$sample),
   !anyDuplicated(sample_definition_table$sample)
 )
+
+# The two samples in every reported comparison are disjoint partitions. This
+# justifies a zero cross-sample measurement-error covariance block in the
+# multivariate delta-method calculation below.
+for (sample_pair in sample_pair_list) {
+  sample_pair_definitions <- sample_definition_table |>
+    dplyr::filter(sample %in% c(sample_pair$sample_1, sample_pair$sample_2))
+  stopifnot(
+    nrow(sample_pair_definitions) == 2,
+    length(unique(sample_pair_definitions$subset_var)) == 1,
+    length(unique(sample_pair_definitions$subset_value)) == 2
+  )
+}
+
+# Read one or more robust firm-level covariance matrices from a subgroup's
+# rcov sheet, returning each matrix in the common firm order.
+read_firm_robust_covariance_matrices <- function(
+    subsample,
+    model_values,
+    outcome_value,
+    firm_id_vector
+) {
+  covariance_rows <- arrow::open_dataset(
+    parquet_sheet_path(file.path(intermediate, paste0("Subset_", subsample)), "rcov")
+  ) |>
+    dplyr::filter(
+      subset == "all",
+      model %in% model_values,
+      outcome == outcome_value
+    ) |>
+    dplyr::select(model, entity_id_i, entity_id_j, rcov) |>
+    dplyr::collect()
+
+  expected_rows <- length(model_values) * length(firm_id_vector)^2
+  stopifnot(
+    nrow(covariance_rows) == expected_rows,
+    !anyDuplicated(covariance_rows[c("model", "entity_id_i", "entity_id_j")]),
+    !anyNA(covariance_rows[c("model", "entity_id_i", "entity_id_j", "rcov")])
+  )
+
+  matrices <- lapply(model_values, function(model_value) {
+    model_rows <- covariance_rows[covariance_rows$model == model_value, , drop = FALSE]
+    covariance_matrix <- matrix(
+      0,
+      nrow = length(firm_id_vector),
+      ncol = length(firm_id_vector),
+      dimnames = list(as.character(firm_id_vector), as.character(firm_id_vector))
+    )
+    covariance_matrix[cbind(
+      as.character(model_rows$entity_id_i),
+      as.character(model_rows$entity_id_j)
+    )] <- model_rows$rcov
+    covariance_matrix
+  })
+  stats::setNames(matrices, model_values)
+}
 
 # Invert a covariance matrix only when it is numerically full rank.
 safe_solve <- function(matrix_value) {
@@ -588,7 +647,8 @@ for (sample_name in sample_vector) {
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Construct dataset of the Katz-corrected signal variance by sample i.e., the signal correlation denominator
+# Construct the former scalar-Katz signal variances by sample. These are kept
+# only to report the pre-multivariate correlation in the diagnostics CSV.
 # -----------------------------------------------------------------------------------------------------------------------------
 # Define dataframe to store every sample's signal variance
 aggregated_sample_signal_variance <- data.frame()
@@ -673,10 +733,14 @@ for (sample_pair in sample_pair_list) {
         for (belief_measure_value in c("pooled_favor_white", "pooled_favor_male")) {
 
             #### Collect each subsample's inputs
-            # Store each subsample's belief vector, signal variance, and robust covariance matrix
+            # Store each subsample's belief vector, scalar-Katz variance, and
+            # robust covariance matrices. The raw (non-recentered) matrix stays
+            # on the Wald/CMD path; the recentered matrix matches the signal-
+            # covariance calculation used in Section 2.
             belief_vector_by_subsample <- list()
             signal_variance_by_subsample <- list()
             robust_covariance_matrix_by_subsample <- list()
+            signal_robust_covariance_matrix_by_subsample <- list()
 
             # Loop over the two subsamples of the split
             for (subsample in c(sample_pair$sample_1, sample_pair$sample_2)) {
@@ -717,44 +781,28 @@ for (sample_pair in sample_pair_list) {
                 # Store this subsample's Katz-corrected signal variance
                 signal_variance_by_subsample[[subsample]] <- subsample_signal_variance$katz_corrected_signal_variance_across_firms
 
-                # Load this subsample's robust covariance sheet
-                subsample_robust_covariance <- arrow::open_dataset(parquet_sheet_path(file.path(intermediate, paste0("Subset_", subsample)), "rcov"))
+                signal_aggregation_method_value <- sub(
+                  "_not_recentered$", "", aggregation_method_value
+                )
+                covariance_matrices <- read_firm_robust_covariance_matrices(
+                  subsample = subsample,
+                  model_values = c(
+                    aggregation_method_value,
+                    signal_aggregation_method_value
+                  ),
+                  outcome_value = belief_measure_value,
+                  firm_id_vector = firm_id_vector
+                )
 
-                # Keep the full firm sample
-                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::filter(subset == "all")
+                # Preserve the existing non-recentered covariance inputs for
+                # the Wald and CMD statistics.
+                robust_covariance_matrix_by_subsample[[subsample]] <-
+                  covariance_matrices[[aggregation_method_value]]
 
-                # Keep this aggregation method
-                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::filter(model == aggregation_method_value)
-
-                # Keep this belief measure
-                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::filter(outcome == belief_measure_value)
-
-                # Keep necessary variables
-                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::select(entity_id_i, entity_id_j, rcov)
-
-                # Collect the filtered robust covariance rows
-                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::collect()
-
-                # Should be 164 firms x 164 firms = 26896 firm pairs
-                stopifnot(nrow(subsample_robust_covariance) == 164 * 164)
-
-                # Firm-pair identifiers should uniquely identify the filtered robust covariance rows
-                stopifnot(!anyDuplicated(subsample_robust_covariance[c("entity_id_i", "entity_id_j")]))
-
-                # Firm-pair identifiers should be non-missing
-                stopifnot(!anyNA(subsample_robust_covariance[c("entity_id_i", "entity_id_j")]))
-
-                # Rename variables to be more descriptive
-                subsample_robust_covariance <- subsample_robust_covariance |> dplyr::rename(firm_id_i = entity_id_i, firm_id_j = entity_id_j, robust_covariance = rcov)
-
-                # Define a matrix of 0s to hold this subsample's robust covariance, rows and columns ordered by firm_id_vector
-                firm_robust_covariance_matrix <- matrix(0, nrow = length(firm_id_vector), ncol = length(firm_id_vector), dimnames = list(as.character(firm_id_vector), as.character(firm_id_vector)))
-
-                # Populate the robust covariance matrix from the firm-pair rows
-                firm_robust_covariance_matrix[cbind(as.character(subsample_robust_covariance$firm_id_i), as.character(subsample_robust_covariance$firm_id_j))] <- subsample_robust_covariance$robust_covariance
-
-                # Store this subsample's robust covariance matrix
-                robust_covariance_matrix_by_subsample[[subsample]] <- firm_robust_covariance_matrix
+                # Use the recentered covariance inputs for the cross-firm
+                # signal covariance and its delta-method sampling VCV.
+                signal_robust_covariance_matrix_by_subsample[[subsample]] <-
+                  covariance_matrices[[signal_aggregation_method_value]]
 
             }
 
@@ -766,8 +814,76 @@ for (sample_pair in sample_pair_list) {
             # Population covariance between the two subsamples' beliefs
             belief_covariance <- mean(belief_sample_1_centered * belief_sample_2_centered)
 
-            # Unweighted signal correlation
-            signal_correlation <- belief_covariance / sqrt(signal_variance_by_subsample[[sample_pair$sample_1]] * signal_variance_by_subsample[[sample_pair$sample_2]])
+            # Retain the former scalar-Katz ratio for a before/after audit.
+            signal_correlation_scalar_katz <- belief_covariance / sqrt(
+              signal_variance_by_subsample[[sample_pair$sample_1]] *
+                signal_variance_by_subsample[[sample_pair$sample_2]]
+            )
+
+            # Pairwise multivariate Katz. Since each comparison uses disjoint
+            # respondent samples, the cross-sample firm-by-firm covariance
+            # blocks are zero. The diagonal blocks retain the full cross-firm
+            # dependence and firm-specific precision from the rcov sheets.
+            number_of_firms <- length(firm_id_vector)
+            zero_cross_sample_covariance <- matrix(
+              0,
+              nrow = number_of_firms,
+              ncol = number_of_firms
+            )
+            signal_covariance_sample_1 <-
+              signal_robust_covariance_matrix_by_subsample[[sample_pair$sample_1]]
+            signal_covariance_sample_2 <-
+              signal_robust_covariance_matrix_by_subsample[[sample_pair$sample_2]]
+            clustered_signal_inputs <- list(
+              beta1 = belief_vector_by_subsample[[sample_pair$sample_1]],
+              beta2 = belief_vector_by_subsample[[sample_pair$sample_2]],
+              C = rbind(
+                cbind(signal_covariance_sample_1, zero_cross_sample_covariance),
+                cbind(zero_cross_sample_covariance, signal_covariance_sample_2)
+              ),
+              J = number_of_firms
+            )
+            signal_vcov <- compute_clustered_signal_vcov(
+              weights = rep(1 / number_of_firms, number_of_firms),
+              include_cross_outcome = FALSE,
+              prepared_inputs = clustered_signal_inputs
+            )
+            observed_covariance_matrix <- matrix(
+              c(
+                mean(belief_sample_1_centered^2), belief_covariance,
+                belief_covariance, mean(belief_sample_2_centered^2)
+              ),
+              nrow = 2,
+              byrow = TRUE,
+              dimnames = list(
+                c(sample_pair$sample_1, sample_pair$sample_2),
+                c(sample_pair$sample_1, sample_pair$sample_2)
+              )
+            )
+            raw_noise_matrix <- matrix(
+              c(
+                mean(diag(signal_covariance_sample_1)), 0,
+                0, mean(diag(signal_covariance_sample_2))
+              ),
+              nrow = 2,
+              byrow = TRUE,
+              dimnames = dimnames(observed_covariance_matrix)
+            )
+            multivariate_katz_result <- compute_multivariate_katz_signal_correlation(
+              observed_covariance_matrix = observed_covariance_matrix,
+              raw_noise_matrix = raw_noise_matrix,
+              signal_vcov = signal_vcov
+            )
+            if (is.null(multivariate_katz_result)) {
+              stop(
+                "Multivariate Katz correction failed for ",
+                sample_pair$row_label, " / ", aggregation_method_value,
+                " / ", belief_measure_value,
+                call. = FALSE
+              )
+            }
+            signal_correlation <- multivariate_katz_result$signal_correlation
+            stopifnot(dplyr::between(signal_correlation, -1, 1))
 
             #### Wald test of belief equality
             # Belief difference across the two subsamples
@@ -865,6 +981,19 @@ for (sample_pair in sample_pair_list) {
               aggregation_method = tolower(aggregation_method_value),
               belief_measure = belief_measure_value,
               signal_correlation = signal_correlation,
+              signal_correlation_scalar_katz = signal_correlation_scalar_katz,
+              multivariate_katz_signal_variance_sample_1 = multivariate_katz_result$signal_matrix[1, 1],
+              multivariate_katz_signal_covariance = multivariate_katz_result$signal_matrix[1, 2],
+              multivariate_katz_signal_variance_sample_2 = multivariate_katz_result$signal_matrix[2, 2],
+              multivariate_katz_acceptance_rate = multivariate_katz_result$multivariate_katz_acceptance_rate,
+              multivariate_katz_draws = multivariate_katz_result$multivariate_katz_draws,
+              multivariate_katz_accepts = multivariate_katz_result$multivariate_katz_accepts,
+              multivariate_katz_pd_rejects = multivariate_katz_result$multivariate_katz_pd_rejects,
+              multivariate_katz_pd_rejection_rate = multivariate_katz_result$multivariate_katz_pd_rejection_rate,
+              delta_method_scalar_acceptance_max_abs_diff = attr(
+                signal_vcov,
+                "scalar_vhat_acceptance_max_abs_diff"
+              ),
               wald_statistic = wald_statistic,
               wald_degrees_of_freedom = wald_degrees_of_freedom,
               wald_p_value_chisq = wald_p_value_chisq,
@@ -905,6 +1034,14 @@ for (sample_pair in sample_pair_list) {
 
 # Signal correlations should be non-missing
 stopifnot(!anyNA(aggregated_correlation_results$signal_correlation))
+
+# Pairwise multivariate-Katz signal correlations must respect the correlation
+# bounds by construction.
+stopifnot(all(dplyr::between(
+  aggregated_correlation_results$signal_correlation,
+  -1,
+  1
+)))
 
 # Wald p-values should be non-missing
 stopifnot(!anyNA(aggregated_correlation_results$wald_p_value))
