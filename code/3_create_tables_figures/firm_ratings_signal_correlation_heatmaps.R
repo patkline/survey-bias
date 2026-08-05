@@ -7,6 +7,9 @@
 # -----------------------------------------------------------------------------------------------------------------------------
 # Run globals
 source("code/globals.R")
+source(file.path(analysis, "katz_correct.R"))
+source(file.path(analysis, "eiv_functions.R"))
+source(file.path(analysis, "correlation_function.R"))
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Define the label names for the survey measures shown on the heatmaps + their order
@@ -35,21 +38,51 @@ survey_measure_display_order <- unname(survey_measure_display_names)
 # Loop over correlation sheets
 for (correlation_sheet in c("correlation", "correlation_between_industry", "correlation_within_industry")) {
 
-    # Import into a dataframe
-    sheet_correlations <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), correlation_sheet)
+    # Define the sheet's measure-name suffix,
+    measure_suffix <- c("correlation" = "", "correlation_between_industry" = "_im_w", "correlation_within_industry" = "_dm_w")[[correlation_sheet]]
 
-    # Assert one row per survey measure pair x aggregation method x firm subset
-    stopifnot(!anyDuplicated(sheet_correlations[c("lhs", "rhs", "model", "subset")]), !anyNA(sheet_correlations[c("lhs", "rhs", "model", "subset")]))
+    subset_value <- c(
+        "correlation" = "all",
+        "correlation_between_industry" = "subset97",
+        "correlation_within_industry" = "subset97"
+    )[[correlation_sheet]]
+    selected_outcomes <- paste0(names(survey_measure_display_names), measure_suffix)
 
-    # Restrict to the given sheet's firm subset
-    #XXNR: sub in the "all" restriction for all sheets once the unweighted between/within-industry correlations are built
-    sheet_correlations <- sheet_correlations[sheet_correlations$subset == c("correlation" = "all", "correlation_between_industry" = "subset97", "correlation_within_industry" = "subset97")[[correlation_sheet]], ]
+    if (correlation_sheet == "correlation") {
+        # Build only the 100 correlations displayed in the paper's full-sample
+        # heatmap. This applies Katz jointly to each pair's two variances and
+        # covariance instead of using the stored scalar-Katz ratios.
+        variance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "variance")
+        covariance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "covariance") |>
+            dplyr::filter(
+                subset == subset_value,
+                (model %in% c("OLS", "Borda") & lhs %in% selected_outcomes & rhs %in% selected_outcomes) |
+                    (model == "OLS_x_Borda" & lhs == rhs & lhs %in% selected_outcomes)
+            )
+        stopifnot(nrow(covariance_input) == 10 * 9 + 10)
+        sheet_correlations <- build_correlation_from_varcov(
+            var_df = variance_input,
+            cov_df = covariance_input,
+            use_multivariate_katz = TRUE
+        )
+        stopifnot(all(dplyr::between(sheet_correlations$corr_c, -1, 1)))
+    } else {
+        # These ancillary decompositions are not Figure 6 and can contain
+        # signal matrices so far outside the PD cone that rejection sampling
+        # has effectively zero probability. Preserve their existing estimates.
+        sheet_correlations <- read_parquet_sheet(
+            file.path(intermediate, "Full_Sample"),
+            correlation_sheet
+        ) |>
+            dplyr::filter(
+                subset == subset_value,
+                (model %in% c("OLS", "Borda") & lhs %in% selected_outcomes & rhs %in% selected_outcomes) |
+                    (model == "OLS_x_Borda" & lhs == rhs & lhs %in% selected_outcomes)
+            )
+    }
 
     # Assert one row per survey measure pair x aggregation method
     stopifnot(!anyDuplicated(sheet_correlations[c("lhs", "rhs", "model")]), !anyNA(sheet_correlations[c("lhs", "rhs", "model")]))
-
-    # Define the sheet's measure-name suffix,
-    measure_suffix <- c("correlation" = "", "correlation_between_industry" = "_im_w", "correlation_within_industry" = "_dm_w")[[correlation_sheet]]
 
     # Assert every survey measure name carries the sheet's suffix
     stopifnot(all(endsWith(sheet_correlations$lhs, measure_suffix)), all(endsWith(sheet_correlations$rhs, measure_suffix)))
