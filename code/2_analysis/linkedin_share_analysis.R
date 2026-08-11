@@ -422,10 +422,10 @@ run_yimfor_share_control_eiv <- function(
       add_zero_error_controls_eeo1(yimfor_eiv_zero_error_controls)
   }
 
-  # Match the earlier Yimfor EIV table: employment weights, no fixed effects,
-  # and NAICS3-clustered standard errors with the finite-sample adjustment.
-  # Workforce shares are measured without sampling error; only beliefs are
-  # corrected for measurement error.
+  # Match the main firm-level EIV specification: employment weights, no fixed
+  # effects, and the default heteroskedasticity-robust EIV sandwich standard
+  # errors. Workforce shares are measured without sampling error; 
+  # only beliefs are corrected for measurement error.
   eiv_results <- run_eiv_suite(
     regs = yimfor_eiv_specs,
     coef_df_wide = coef_firm_wide,
@@ -434,8 +434,6 @@ run_yimfor_share_control_eiv <- function(
     id_col = "entity_id",
     model_col = "model",
     weights_col = "njobs",
-    cluster_col = "naics3",
-    cluster_df_adj = TRUE,
     use_fe = FALSE
   ) |>
     dplyr::mutate(
