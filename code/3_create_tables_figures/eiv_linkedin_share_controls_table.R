@@ -92,6 +92,11 @@ linkedin_eiv_fmt_standard_error <- function(x) {
   ifelse(is.na(x), "", paste0("(", sprintf("%.3f", as.numeric(x)), ")"))
 }
 
+# LinkedIn workforce shares are coded from zero to one. Report their EIV
+# coefficients and standard errors as the effect of a 10-percentage-point
+# increase
+linkedin_eiv_scaling <- 0.1
+
 linkedin_eiv_panel_lines <- function(panel_label, lhs, belief_rhs, share_rhs,
                                      share_label) {
   results <- lapply(seq_len(nrow(linkedin_eiv_columns)), function(column_index) {
@@ -116,10 +121,10 @@ linkedin_eiv_panel_lines <- function(panel_label, lhs, belief_rhs, share_rhs,
   )
   share_estimates <- vapply(results, function(result) {
     if (is.null(result$share)) NA_real_ else as.numeric(result$share$sample_est)
-  }, numeric(1L))
+  }, numeric(1L)) * linkedin_eiv_scaling
   share_standard_errors <- vapply(results, function(result) {
     if (is.null(result$share)) NA_real_ else as.numeric(result$share$sample_se)
-  }, numeric(1L))
+  }, numeric(1L)) * linkedin_eiv_scaling
 
   c(
     paste0("\\multicolumn{5}{l}{\\textbf{", panel_label, "}} \\\\"),
