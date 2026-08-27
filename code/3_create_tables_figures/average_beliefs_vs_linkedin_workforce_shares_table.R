@@ -19,9 +19,9 @@ if (nrow(linkedin_results) != 12L) {
 
 linkedin_table_columns <- tidyr::expand_grid(
   belief_label = c(
-    "Race",
-    "Gender",
-    "Selectivity"
+    "Race Beliefs",
+    "Gender Beliefs",
+    "Selectivity Beliefs"
   ),
   industry_fe = c(FALSE, TRUE)
 )
@@ -56,7 +56,13 @@ pull_linkedin_table_result <- function(
     )
 
   if (nrow(result) != 1L) {
-    stop("Could not identify a unique LinkedIn table result.")
+    stop(
+      "Could not identify a unique LinkedIn table result for model=",
+      model_value,
+      ", belief_label=", belief_value,
+      ", industry_fe=", industry_fe_value,
+      "; found ", nrow(result), " row(s)."
+    )
   }
   result
 }

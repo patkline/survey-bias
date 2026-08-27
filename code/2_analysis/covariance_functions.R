@@ -75,46 +75,25 @@ assert_delta_method_vcov_matches_scalar <- function(signal_vcov,
   C_zero_cross[index1, index2] <- 0
   C_zero_cross[index2, index1] <- 0
 
-  equal_weights <- max(abs(weights - rep(1 / J, J))) <= tolerance
-  if (equal_weights) {
-    if (!exists("var_component_with_var", mode = "function")) {
-      stop(
-        "assert_delta_method_vcov_matches_scalar(): var_component_with_var() is not loaded.",
-        call. = FALSE
-      )
-    }
-    expected <- c(
-      var_component_with_var(
-        theta_hat = prepared_inputs$beta1 - mean(prepared_inputs$beta1),
-        Sigma = C_zero_cross[index1, index1, drop = FALSE]
-      )$Vhat,
-      var_component_with_var(
-        theta_hat = prepared_inputs$beta2 - mean(prepared_inputs$beta2),
-        Sigma = C_zero_cross[index2, index2, drop = FALSE]
-      )$Vhat
+  if (!exists("compute_njobs_weighted_signal_components", mode = "function")) {
+    stop(
+      "assert_delta_method_vcov_matches_scalar(): compute_njobs_weighted_signal_components() is not loaded.",
+      call. = FALSE
     )
-    comparator <- "var_component_with_var()"
-  } else {
-    if (!exists("compute_njobs_weighted_signal_components", mode = "function")) {
-      stop(
-        "assert_delta_method_vcov_matches_scalar(): compute_njobs_weighted_signal_components() is not loaded.",
-        call. = FALSE
-      )
-    }
-    expected <- c(
-      compute_njobs_weighted_signal_components(
-        firm_regressor_vector = prepared_inputs$beta1,
-        firm_number_of_jobs_vector = weights,
-        firm_robust_covariance_matrix = C_zero_cross[index1, index1, drop = FALSE]
-      )$Vhat_njobs_weighted,
-      compute_njobs_weighted_signal_components(
-        firm_regressor_vector = prepared_inputs$beta2,
-        firm_number_of_jobs_vector = weights,
-        firm_robust_covariance_matrix = C_zero_cross[index2, index2, drop = FALSE]
-      )$Vhat_njobs_weighted
-    )
-    comparator <- "compute_njobs_weighted_signal_components()"
   }
+  expected <- c(
+    compute_njobs_weighted_signal_components(
+      firm_regressor_vector = prepared_inputs$beta1,
+      firm_number_of_jobs_vector = weights,
+      firm_robust_covariance_matrix = C_zero_cross[index1, index1, drop = FALSE]
+    )$Vhat_njobs_weighted,
+    compute_njobs_weighted_signal_components(
+      firm_regressor_vector = prepared_inputs$beta2,
+      firm_number_of_jobs_vector = weights,
+      firm_robust_covariance_matrix = C_zero_cross[index2, index2, drop = FALSE]
+    )$Vhat_njobs_weighted
+  )
+  comparator <- "compute_njobs_weighted_signal_components()"
 
   observed <- c(signal_vcov[1L, 1L], signal_vcov[3L, 3L])
   absolute_difference <- abs(observed - expected)
