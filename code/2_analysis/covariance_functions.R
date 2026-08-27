@@ -164,6 +164,8 @@ compute_clustered_signal_vcov <- function(res1 = NULL, res2 = NULL,
   # Gradients for q = (var(outcome 1), cov(outcomes 1,2), var(outcome 2)).
   # Multiplication by A = diag(w) - ww' applies the same weighted centering as
   # the observed covariance estimator without materializing the 2J x 2J B's.
+  weighted_centering_quadratic_matrix <-
+    diag(weights, nrow = J, ncol = J) - tcrossprod(weights)
   centered_weighted_beta1 <- weights * (beta1 - sum(weights * beta1))
   centered_weighted_beta2 <- weights * (beta2 - sum(weights * beta2))
   zero <- matrix(0, nrow = J, ncol = J)
@@ -177,15 +179,17 @@ compute_clustered_signal_vcov <- function(res1 = NULL, res2 = NULL,
   # respondent-clustered outer products after applying all three gradients.
   signal_vcov <- crossprod(gradients, C %*% gradients)
 
-  # Plug-in quadratic-form bias correction, the multivariate analogue of
-  # -2 tr((W C)^2) in the scalar calculation, with W = diag(weights).
-  apply_variance_weights <- function(C_block) sweep(C_block, 1L, weights, "*")
+  # Plug-in quadratic-form bias correction, using A = W - ww' to account for
+  # estimation of each outcome's weighted grand mean.
+  apply_weighted_centering <- function(C_block) {
+    weighted_centering_quadratic_matrix %*% C_block
+  }
   index1 <- seq_len(J)
   index2 <- J + seq_len(J)
-  P <- apply_variance_weights(C[index1, index1, drop = FALSE])
-  Q <- apply_variance_weights(C[index1, index2, drop = FALSE])
-  R <- apply_variance_weights(C[index2, index1, drop = FALSE])
-  S <- apply_variance_weights(C[index2, index2, drop = FALSE])
+  P <- apply_weighted_centering(C[index1, index1, drop = FALSE])
+  Q <- apply_weighted_centering(C[index1, index2, drop = FALSE])
+  R <- apply_weighted_centering(C[index2, index1, drop = FALSE])
+  S <- apply_weighted_centering(C[index2, index2, drop = FALSE])
   BC <- list(
     rbind(cbind(P, Q), cbind(zero, zero)),
     rbind(cbind(R / 2, S / 2), cbind(P / 2, Q / 2)),
@@ -305,7 +309,9 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
       beta2_weighted <- beta2_weighted - sum(firm_weights * beta2_weighted)
 
       covariance_njobs_weighted <- sum(firm_weights * beta1_weighted * beta2_weighted)
-      noise_njobs_weighted <- sum(firm_weights * Matrix::diag(Theta12))
+      noise_njobs_weighted <-
+        sum(firm_weights * Matrix::diag(Theta12)) -
+        as.numeric(t(firm_weights) %*% Theta12 %*% firm_weights)
       signal_vcov_njobs_weighted <- compute_clustered_signal_vcov(
         res1 = res1,
         res2 = res2,

@@ -46,8 +46,10 @@ compute_njobs_weighted_signal_components <- function(
   # Weighted variance of the centered regressor estimate across firms
   njobs_weighted_variance_across_firms <- sum(firm_weight_vector * firm_regressor_centered_vector^2)
 
-  # Weighted mean squared standard error across firms i.e. the raw weighted noise
-  njobs_weighted_noise_across_firms <- sum(firm_weight_vector * diag(firm_robust_covariance_matrix))
+  # Weighted mean squared standard error across firms, adjusted for estimation of the weighted grand mean
+  njobs_weighted_noise_across_firms <-
+    sum(firm_weight_vector * diag(firm_robust_covariance_matrix)) -
+    as.numeric(t(firm_weight_vector) %*% firm_robust_covariance_matrix %*% firm_weight_vector)
 
   # Weighted unbiased signal variance estimate across firms i.e. weighted variance minus weighted noise
   njobs_weighted_unbiased_signal_variance_across_firms <- njobs_weighted_variance_across_firms - njobs_weighted_noise_across_firms
@@ -55,10 +57,18 @@ compute_njobs_weighted_signal_components <- function(
   # Job-weighted centered regressor estimate i.e. the weight times the centered estimate for each firm
   firm_weighted_regressor_centered_vector <- firm_weight_vector * firm_regressor_centered_vector
 
+  # Quadratic-form matrix for variance around the estimated weighted grand mean: A = W - ww'
+  weighted_centering_quadratic_matrix <-
+    diag(firm_weight_vector,
+         nrow = length(firm_weight_vector),
+         ncol = length(firm_weight_vector)) - tcrossprod(firm_weight_vector)
+  weighted_centering_quadratic_matrix_times_covariance <-
+    weighted_centering_quadratic_matrix %*% firm_robust_covariance_matrix
+
   # Sampling variance of the weighted unbiased signal variance estimate
   njobs_weighted_signal_variance_sampling_variance <-
     4 * sum(firm_weighted_regressor_centered_vector * (firm_robust_covariance_matrix %*% firm_weighted_regressor_centered_vector)) -
-    2 * sum((firm_weight_vector * firm_robust_covariance_matrix) * t(firm_weight_vector * firm_robust_covariance_matrix))
+    2 * sum(weighted_centering_quadratic_matrix_times_covariance * t(weighted_centering_quadratic_matrix_times_covariance))
 
   # Katz-corrected signal variance across firms
   njobs_weighted_katz_signal_variance_across_firms <- katz_correct(

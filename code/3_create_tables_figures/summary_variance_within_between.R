@@ -172,13 +172,15 @@ write_variance_within_between <- function(dir_path,
         # between component of the corresponding firm-level variance.
         beta_c <- beta - sum(w * beta)
         wb <- w * beta_c
-        DSigmaD <- (w %o% w) * Sigma
+        A <- diag(w, nrow = length(w), ncol = length(w)) - tcrossprod(w)
+        ASigma <- A %*% Sigma
 
         var_df$variance[i]   <- sum(w * beta_c^2, na.rm = TRUE)
-        var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE)
+        var_df$noise[i]      <- sum(w * diag(Sigma), na.rm = TRUE) -
+                                as.numeric(t(w) %*% Sigma %*% w)
         var_df$sigma2_hat[i] <- var_df$variance[i] - var_df$noise[i]
         var_df$Vhat[i]       <- 4 * as.numeric(t(wb) %*% Sigma %*% wb) -
-                                2 * sum(DSigmaD * Sigma)
+                                2 * sum(ASigma * t(ASigma))
         var_df$signal[i]     <- katz_correct(var_df$sigma2_hat[i], var_df$Vhat[i])
         var_df$t_stat[i]     <- ifelse(
           is.finite(var_df$Vhat[i]) & var_df$Vhat[i] > 0,
