@@ -14,7 +14,8 @@ dropbox_roots_by_user <- c(
   nicorotundo    = "/Users/nicorotundo/Dropbox/Survey/consolidated_code",
   monicahea      = "/Users/monicahea/Dropbox/Survey/consolidated_code",
   jordancammarota = "/Users/jordancammarota/Dropbox/consolidated_code",
-  "anh-huynguyen"  = "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code"
+  "anh-huynguyen"  = "/Users/anh-huynguyen/Dropbox/Survey/consolidated_code",
+  evanrose        = "/Users/evanrose/Library/CloudStorage/Dropbox/GSI-GSR-Reader/Audit/Survey/consolidated_code"
 )
 
 # Get current system user

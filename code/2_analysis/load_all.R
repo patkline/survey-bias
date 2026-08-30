@@ -21,3 +21,5 @@ source(file.path(analysis, "eeo1_eiv.R")) # EEO-1 industry-share EIV
 source(file.path(analysis, "eeo1_naics3_shares.R")) # EEO-1 NAICS3 share helpers
 source(file.path(analysis, "eeo1_naics3_eiv.R")) # EEO-1 NAICS3 share-control EIV
 source(file.path(analysis, "make_industry_means.R")) # EIV
+source(file.path(analysis, "within_respondent_correlations.R")) # Within-respondent belief correlations
+source(file.path(analysis, "within_respondent_cross_question_amad.R")) # Within-respondent cross-question AMAD

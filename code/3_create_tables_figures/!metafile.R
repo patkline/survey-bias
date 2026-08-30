@@ -107,6 +107,15 @@ if (!nzchar(Sys.getenv("CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS"))) {
 source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
 source(file.path(create_tables_figures, "firm_ratings_signal_correlation_heatmaps.R"))
 
+# Within-respondent correlation figures; require the correlation_within_respondent sheet
+# built by code/2_analysis/run_within_respondent_heatmap_inputs.R
+source(file.path(create_tables_figures, "firm_ratings_within_respondent_correlation_heatmaps.R"))
+source(file.path(create_tables_figures, "within_respondent_correlation_distribution_race_hire_contact.R"))
+
+# Within-respondent Borda AMAD heatmap; requires the belief_amad_within_respondent_borda_pairs
+# sheet built by code/2_analysis/run_within_respondent_amad_inputs.R
+source(file.path(create_tables_figures, "firm_ratings_within_respondent_borda_amad_heatmap.R"))
+
 # ------------------------------------------------------------------------------
 # Signal correlations across subsamples, models, and valences
 # ------------------------------------------------------------------------------
