@@ -2,7 +2,7 @@
 # Purpose: Compare latest-filing EEO-1 and Yimfor workforce shares
 # ------------------------------------------------------------------------------
 
-report_eeo1_yimfor_spearman <- function(
+report_eeo1_yimfor_correlations <- function(
     eeo1_path = file.path(processed, "eeo1_latest_firm_shares.csv"),
     linkedin_output_dir = output_dir
 ) {
@@ -39,24 +39,23 @@ report_eeo1_yimfor_spearman <- function(
     stop("Expected 114 firms with complete EEO-1 and Yimfor shares.")
   }
 
+  correlation <- function(x, y, method) {
+    stats::cor(x, y, method = method)
+  }
   results <- tibble::tibble(
     measure = c("Black share", "Female share"),
     n_firms = nrow(matched_shares),
+    pearson_correlation = c(
+      correlation(matched_shares$black_share, matched_shares$yimfor_black_share, "pearson"),
+      correlation(matched_shares$female_share, matched_shares$yimfor_female_share, "pearson")
+    ),
     spearman_correlation = c(
-      stats::cor(
-        matched_shares$black_share,
-        matched_shares$yimfor_black_share,
-        method = "spearman"
-      ),
-      stats::cor(
-        matched_shares$female_share,
-        matched_shares$yimfor_female_share,
-        method = "spearman"
-      )
+      correlation(matched_shares$black_share, matched_shares$yimfor_black_share, "spearman"),
+      correlation(matched_shares$female_share, matched_shares$yimfor_female_share, "spearman")
     )
   )
   print(results)
   invisible(results)
 }
 
-eeo1_yimfor_spearman <- report_eeo1_yimfor_spearman()
+eeo1_yimfor_correlations <- report_eeo1_yimfor_correlations()
