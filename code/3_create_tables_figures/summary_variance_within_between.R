@@ -1,18 +1,10 @@
 # -------------------------------------------------------------------
 # Within/between-industry SD / bias-corrected variance table.
-#
-# Two variants are written for each call:
-#   1) "unweighted": full firm sample. Reads the `variance` parquet
-#      sheet at subset == "all" for the *_dm (within) and *_im
-#      (between) outcomes (deviations / means computed with equal
-#      weights across firms). The between-industry variance components
-#      weight each industry by its number of underlying firms so they
-#      decompose the full firm-level variance.
-#   2) "njobs_weighted": selected firm sample (firms with valid
-#      njobs). Reads subset == "subset97" for *_dm_w / *_im_w
-#      outcomes, then reweights variance / noise / Vhat / signal /
-#      t-stat by njobs using the rcov sheet (logic preserved from
-#      the previous single-variant version).
+# Reads the `variance` parquet sheet at subset == "all" for the *_dm
+# (within) and *_im (between) outcomes. The between-industry variance
+# components weight each industry by its number of underlying firms so
+# they decompose the full firm-level variance. Only the LaTeX table used
+# in the draft is written.
 #
 # Auto-detects which models live in the variance sheet (Borda + OLS
 # today; PL etc. picked up automatically if added).
@@ -41,14 +33,10 @@ write_variance_within_between <- function(dir_path,
                                           outcomes,
                                           tables_dir,
                                           label_mapping = NULL,
-                                          csv_name = "variance_biascorrected_within_between_industry.csv",
                                           tex_name = "variance_biascorrected_within_between_industry.tex",
                                           latex_decimals = 3,
                                           borda_mult = 1,
-                                          outcome_groups = NULL,
-                                          variant = c("unweighted",
-                                                      "njobs_weighted")) {
-  variant <- match.arg(variant)
+                                          outcome_groups = NULL) {
 
   var_df <- tryCatch(read_parquet_sheet(dir_path, "variance"),
                      error = function(e) NULL)
@@ -65,16 +53,9 @@ write_variance_within_between <- function(dir_path,
     return(invisible(NULL))
   }
 
-  # Pick subset / outcome suffixes based on variant.
-  if (variant == "unweighted") {
-    subset_keep   <- "all"
-    suffix_dm     <- "_dm"
-    suffix_im     <- "_im"
-  } else {
-    subset_keep   <- "subset97"
-    suffix_dm     <- "_dm_w"
-    suffix_im     <- "_im_w"
-  }
+  subset_keep <- "all"
+  suffix_dm <- "_dm"
+  suffix_im <- "_im"
 
   target_outcomes <- c(paste0(outcomes, suffix_dm),
                        paste0(outcomes, suffix_im))
@@ -91,16 +72,13 @@ write_variance_within_between <- function(dir_path,
     )
 
   if (nrow(var_df) == 0) {
-    message("No within/between-industry outcomes found in variance sheet ",
-            "for variant '", variant, "'.")
+    message("No within/between-industry outcomes found in variance sheet.")
     return(invisible(NULL))
   }
 
   # Reweight the between-industry rows so each industry receives weight equal
-  # to the number of underlying firms. For the unweighted table, njobs on an
-  # *_im industry row stores that firm count (set in make_industry_means.R).
-  # The njobs-weighted table continues to use job counts for both panels.
-  if (variant %in% c("unweighted", "njobs_weighted")) {
+  # to the number of underlying firms. The njobs field on an *_im industry row
+  # stores that firm count (set in make_industry_means.R).
     coef_df <- tryCatch(read_parquet_sheet(dir_path, "Coefficients"),
                         error = function(e) NULL)
     rcov_df <- tryCatch(read_parquet_sheet(dir_path, "rcov"),
@@ -109,7 +87,6 @@ write_variance_within_between <- function(dir_path,
       stop("Firm-weighted within/between table requires Coefficients and rcov sheets.")
     }
 
-    if (!is.null(coef_df) && !is.null(rcov_df)) {
       dm_outcomes <- paste0(outcomes, suffix_dm)
       im_outcomes <- paste0(outcomes, suffix_im)
 
@@ -117,9 +94,9 @@ write_variance_within_between <- function(dir_path,
         mdl <- var_df$model[i]
         out <- var_df$outcome[i]
 
-        # In the unweighted table, retain the ordinary firm-level calculation
-        # for Panel A and reweight only Panel B by industry firm counts.
-        if (variant == "unweighted" && !out %in% im_outcomes) next
+        # Retain the ordinary firm-level calculation for Panel A and reweight
+        # only Panel B by industry firm counts.
+        if (!out %in% im_outcomes) next
 
         etype <- if (out %in% dm_outcomes) "Firm"
                  else if (out %in% im_outcomes) "Industry"
@@ -187,9 +164,7 @@ write_variance_within_between <- function(dir_path,
           var_df$sigma2_hat[i] / sqrt(var_df$Vhat[i]),
           NA_real_
         )
-      }
     }
-  }
 
   # ---- Build per-model column blocks (uses `models` from config) ----
   present_models <- intersect(summary_model_display_order, models)
@@ -266,26 +241,6 @@ write_variance_within_between <- function(dir_path,
       outcome_order = ifelse(is.na(.data$outcome_order), Inf, .data$outcome_order)
     ) %>%
     dplyr::arrange(.data$panel_order, .data$outcome_order, .data$base_outcome)
-
-  # ---- CSV ----
-  csv_cols <- list(Panel = tab$panel, Outcome = tab$Outcome_display)
-  for (mdl in present_models) {
-    disp <- if (mdl == "OLS") "Likert"
-            else if (mdl == "OLSC") "Likert Centered"
-            else mdl
-    csv_cols[[paste0(disp, ": sd")]]                <- tab[[paste0(mdl, "_sd")]]
-    csv_cols[[paste0(disp, ": bias corrected sd")]] <- tab[[paste0(mdl, "_sd_bias_corrected")]]
-    csv_cols[[paste0(disp, ": t-stat")]]            <- tab[[paste0(mdl, "_t_stat")]]
-    if (mdl %in% c("OLS", "Borda") && paste0(mdl, "_reliability") %in% names(tab)) {
-      csv_cols[[paste0(disp, ": reliability")]] <- tab[[paste0(mdl, "_reliability")]]
-    }
-    if (mdl == "PL"    && "PL_reliability"  %in% names(tab)) {
-      csv_cols[["PL: reliability"]] <- tab$PL_reliability
-    }
-  }
-  csv_out_path <- file.path(tables_dir, csv_name)
-  utils::write.csv(as.data.frame(csv_cols, check.names = FALSE),
-                   csv_out_path, row.names = FALSE)
 
   # ---- LaTeX (two-panel) ----
   hdr_groups <- character(0)
@@ -385,10 +340,9 @@ write_variance_within_between <- function(dir_path,
   tex_out_path <- file.path(tables_dir, tex_name)
   writeLines(latex_lines, tex_out_path)
 
-  cat("Within/between-industry variance table saved:",
-      basename(csv_out_path), "and", basename(tex_out_path), "\n")
+  cat("Within/between-industry variance table saved:", basename(tex_out_path), "\n")
 
-  invisible(list(csv = csv_out_path, tex = tex_out_path, data = tab))
+  invisible(list(tex = tex_out_path, data = tab))
 }
 
 # Full firm sample: unweighted firm residuals in Panel A and industry means
@@ -398,22 +352,7 @@ write_variance_within_between(
   outcomes      = outs,
   tables_dir    = tables,
   label_mapping = label_mapping,
-  csv_name      = "variance_biascorrected_within_between_industry.csv",
   tex_name      = "variance_biascorrected_within_between_industry.tex",
   borda_mult    = 1,
-  outcome_groups = standard_outcome_groups,
-  variant       = "unweighted"
-)
-
-# njobs-weighted (selected firm sample, _dm_w / _im_w at subset97)
-write_variance_within_between(
-  dir_path      = dir_path,
-  outcomes      = outs,
-  tables_dir    = tables,
-  label_mapping = label_mapping,
-  csv_name      = "variance_biascorrected_within_between_industry_njobs_weighted.csv",
-  tex_name      = "variance_biascorrected_within_between_industry_njobs_weighted.tex",
-  borda_mult    = 1,
-  outcome_groups = standard_outcome_groups,
-  variant       = "njobs_weighted"
+  outcome_groups = standard_outcome_groups
 )

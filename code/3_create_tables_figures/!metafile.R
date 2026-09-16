@@ -71,84 +71,71 @@ run_stata_fail_fast <- function(script_path) {
   invisible(status)
 }
 
-# ------------------------------------------------------------------------------
-# Summary statistics
-# ------------------------------------------------------------------------------
-
-# Summary statistics scripts
+# Tables 1 and 2
 source(file.path(create_tables_figures, "summary_statistics_tables.R"))
-source(file.path(create_tables_figures, "summary_statistics_bar_graphs.R"))
+
+# Figure 1
 source(file.path(create_tables_figures, "summary_statistics_histograms.R"))
 
-# ------------------------------------------------------------------------------
-# Belief variance summaries
-# ------------------------------------------------------------------------------
+# Figures 2--5 and Appendix Figures A1--A2
+source(file.path(create_tables_figures, "summary_statistics_bar_graphs.R"))
 
-# Shared outcome lists and helpers for the variance tables; must come first
-source(file.path(create_tables_figures, "summary_outcomes_config.R"))
-
-# Variance table scripts
-source(file.path(create_tables_figures, "summary_variance_table.R"))
+# Table 3
 source(file.path(create_tables_figures, "belief_summary_ols_borda.R"))
-source(file.path(create_tables_figures, "summary_variance_within_between.R"))
-source(file.path(create_tables_figures, "subgroup_belief_mean_signal_variance_table.R"))
 
-# ------------------------------------------------------------------------------
-# Firm and industry rating figures
-# ------------------------------------------------------------------------------
+# Table 4 and Appendix Table A1
+source(file.path(create_tables_figures, "summary_variance_table.R"))
 
-# Rating figure scripts
-source(file.path(create_tables_figures, "top_bottom_firm_ratings_dual_axis_figures.R"))
-source(file.path(create_tables_figures, "firm_likert_amad_scatterplots.R"))
+# Figure 6
+source(file.path(create_tables_figures, "firm_ratings_signal_correlation_heatmaps.R"))
+
 if (!nzchar(Sys.getenv("CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS"))) {
   Sys.setenv(CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS = "499")
 }
-source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
-source(file.path(create_tables_figures, "firm_ratings_signal_correlation_heatmaps.R"))
 
-# ------------------------------------------------------------------------------
-# Signal correlations across subsamples, models, and valences
-# ------------------------------------------------------------------------------
-
-# Signal correlation scripts
+# Table 5
 source(file.path(create_tables_figures, "cross_sample_signal_corr.R"))
-source(file.path(create_tables_figures, "cross_sample_signal_corr_raw.R"))
+
+# Figures 7--9
+source(file.path(create_tables_figures, "top_bottom_firm_ratings_dual_axis_figures.R"))
+
+# Figures 10--11
+source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
+
+# Table 6
+source(file.path(create_tables_figures, "average_beliefs_vs_linkedin_workforce_shares_table.R"))
+
+# Table 7
+source(file.path(create_tables_figures, "eiv_pooled_belief_selectivity_controls_table.R"))
+
+# Table 8
+source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
+
+# Appendix Figure A3
 source(file.path(create_tables_figures, "valence_correlation_bars.R"))
 
-# ------------------------------------------------------------------------------
-# EIV tables
-# ------------------------------------------------------------------------------
-
-# EIV table scripts
-source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
-source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix.R"))
-
-# ------------------------------------------------------------------------------
-# EIV tables with external data
-# ------------------------------------------------------------------------------
-
-# External workforce-composition table scripts
-source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
-source(file.path(create_tables_figures, "eiv_linkedin_share_controls_table.R"))
-
-# Yimfor LinkedIn workforce-share regressions
-source(file.path(
-  create_tables_figures,
-  "average_beliefs_vs_linkedin_workforce_shares_table.R"
-))
-
-# ------------------------------------------------------------------------------
-# EIV figures
-# ------------------------------------------------------------------------------
-
-# EIV figure scripts
+# Appendix Figure A4
 source(file.path(create_tables_figures, "eiv_coefplot_by_subgroup.R"))
 
-# ------------------------------------------------------------------------------
-# Appendix tables
-# ------------------------------------------------------------------------------
+# Appendix Figure A5
+source(file.path(create_tables_figures, "firm_likert_amad_scatterplots.R"))
 
-# Firm-level belief estimates by aggregation method (Stata)
+# Appendix Table A2
+source(file.path(create_tables_figures, "summary_variance_within_between.R"))
+
+# Appendix Table A3
+source(file.path(create_tables_figures, "subgroup_belief_mean_signal_variance_table.R"))
+
+# Appendix Table A4
+source(file.path(create_tables_figures, "cross_sample_signal_corr_raw.R"))
+
+# Appendix Table A5
+source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix.R"))
+
+# Appendix Table A6
+source(file.path(create_tables_figures, "eiv_linkedin_share_controls_table.R"))
+
+# Appendix Table A7
 run_stata_fail_fast(file.path(create_tables_figures, "firm_belief_estimates_by_aggregation_method_table.do"))
 
 message("🎃 Tables and figures complete")

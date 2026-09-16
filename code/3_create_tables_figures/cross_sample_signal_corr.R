@@ -1,8 +1,7 @@
 # -----------------------------------------------------------------------------------------------------------------------------
 # Purpose: Cross-sample signal correlation table --- for each respondent split, the debiased
 # correlation between the two subgroups' firm-level belief estimates, a Wald test of belief equality, and a
-# minimum distance test of perfect correlation --- plus the minimum distance scatterplots for the race and
-# gender splits, with animation stages for the race split
+# minimum distance test of perfect correlation
 #
 # Created: Jordan Cammarota
 # Edited: Nico Rotundo 2026-06-29
@@ -647,50 +646,6 @@ for (sample_name in sample_vector) {
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Construct the former scalar-Katz signal variances by sample. These are kept
-# only to report the pre-multivariate correlation in the diagnostics CSV.
-# -----------------------------------------------------------------------------------------------------------------------------
-# Define dataframe to store every sample's signal variance
-aggregated_sample_signal_variance <- data.frame()
-
-# Loop over each sample
-for (sample_name in sample_vector) {
-
-    # Load in given sample's signal variance sheet
-    sample_signal_variance <- read_parquet_sheet(file.path(intermediate, paste0("Subset_", sample_name)), "variance")
-
-    # Uniquely identified by subset x aggregation model x outcome, none missing
-    stopifnot(!anyDuplicated(sample_signal_variance[c("subset", "model", "outcome")]), !anyNA(sample_signal_variance[c("subset", "model", "outcome")]))
-
-    # Keep OLS and Borda observations
-    sample_signal_variance <- sample_signal_variance |> dplyr::filter(model %in% c("OLS", "Borda"))
-
-    # Keep just the two pooled belief measures
-    sample_signal_variance <- sample_signal_variance |> dplyr::filter(outcome %in% c("pooled_favor_white", "pooled_favor_male"))
-
-    # Keep the full firm sample
-    sample_signal_variance <- sample_signal_variance |> dplyr::filter(subset == "all")
-
-    # Should be 2 aggregation methods x 2 belief measures = 4 observations remaining
-    stopifnot(nrow(sample_signal_variance) == 4)
-
-    # Keep necessary variables
-    sample_signal_variance <- sample_signal_variance |> dplyr::select(model, outcome, signal)
-
-    # Rename variables to be more descriptive
-    sample_signal_variance <- sample_signal_variance |> dplyr::rename(aggregation_method = model, belief_measure = outcome, katz_corrected_signal_variance_across_firms = signal)
-
-    # Define a variable to indicate the sample
-    sample_signal_variance <- sample_signal_variance |> dplyr::mutate(sample = sample_name)
-
-    # Place the sample variable at the beginning of the dataset
-    sample_signal_variance <- sample_signal_variance |> dplyr::select(sample, dplyr::everything())
-
-    # Append the sample signal variance to the aggregated dataframe
-    aggregated_sample_signal_variance <- rbind(aggregated_sample_signal_variance, sample_signal_variance)
-}
-
-# -----------------------------------------------------------------------------------------------------------------------------
 # Compute the firm-level constants shared across all splits
 # -----------------------------------------------------------------------------------------------------------------------------
 # Firm ids sorted ascending, the order every belief vector and covariance matrix is aligned to
@@ -722,9 +677,6 @@ if (cross_sample_signal_corr_bootstrap_reps > 0) {
 # Define dataframe to store all correlation results
 aggregated_correlation_results <- data.frame()
 
-# Define dataframe to store observed beliefs and minimum-distance estimates
-minimum_distance_observed_belief_data <- data.frame()
-
 # Loop over each split
 for (sample_pair in sample_pair_list) {
     # Loop over aggregation method, using the non-recentered i.e., raw belief estimates
@@ -733,12 +685,11 @@ for (sample_pair in sample_pair_list) {
         for (belief_measure_value in c("pooled_favor_white", "pooled_favor_male")) {
 
             #### Collect each subsample's inputs
-            # Store each subsample's belief vector, scalar-Katz variance, and
-            # robust covariance matrices. The raw (non-recentered) matrix stays
+            # Store each subsample's belief vector and robust covariance matrices.
+            # The raw (non-recentered) matrix stays
             # on the Wald/CMD path; the recentered matrix matches the signal-
             # covariance calculation used in Section 2.
             belief_vector_by_subsample <- list()
-            signal_variance_by_subsample <- list()
             robust_covariance_matrix_by_subsample <- list()
             signal_robust_covariance_matrix_by_subsample <- list()
 
@@ -765,21 +716,6 @@ for (sample_pair in sample_pair_list) {
 
                 # Store this subsample's belief vector
                 belief_vector_by_subsample[[subsample]] <- subsample_beliefs$belief_estimate
-
-                # Keep this subsample's signal variance
-                subsample_signal_variance <- aggregated_sample_signal_variance |> dplyr::filter(sample == subsample)
-
-                # Keep this aggregation method, dropping the suffix since the signal variance is identical across the recentered and non-recentered estimates
-                subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(aggregation_method == sub("_not_recentered$", "", aggregation_method_value))
-
-                # Keep this belief measure
-                subsample_signal_variance <- subsample_signal_variance |> dplyr::filter(belief_measure == belief_measure_value)
-
-                # Should be a single row
-                stopifnot(nrow(subsample_signal_variance) == 1)
-
-                # Store this subsample's Katz-corrected signal variance
-                signal_variance_by_subsample[[subsample]] <- subsample_signal_variance$katz_corrected_signal_variance_across_firms
 
                 signal_aggregation_method_value <- sub(
                   "_not_recentered$", "", aggregation_method_value
@@ -813,12 +749,6 @@ for (sample_pair in sample_pair_list) {
 
             # Population covariance between the two subsamples' beliefs
             belief_covariance <- mean(belief_sample_1_centered * belief_sample_2_centered)
-
-            # Retain the former scalar-Katz ratio for a before/after audit.
-            signal_correlation_scalar_katz <- belief_covariance / sqrt(
-              signal_variance_by_subsample[[sample_pair$sample_1]] *
-                signal_variance_by_subsample[[sample_pair$sample_2]]
-            )
 
             # Pairwise multivariate Katz. Since each comparison uses disjoint
             # respondent samples, the cross-sample firm-by-firm covariance
@@ -923,11 +853,6 @@ for (sample_pair in sample_pair_list) {
               lower.tail = FALSE
             )
 
-            #### Minimum distance scatterplot data
-            # Store the minimum distance intercept and slope
-            minimum_distance_intercept <- minimum_distance_fit$intercept
-            minimum_distance_slope <- minimum_distance_fit$slope
-
             # Back out the sample beliefs implied by the final minimum distance intercept and slope
             minimum_distance_implied_belief_sample_1 <- minimum_distance_fit$fitted_belief_sample_1
             minimum_distance_implied_belief_sample_2 <- minimum_distance_fit$fitted_belief_sample_2
@@ -935,7 +860,7 @@ for (sample_pair in sample_pair_list) {
             #### Bootstrap null p-values
             if (cross_sample_signal_corr_bootstrap_reps > 0) {
               message(
-                "🎃 Bootstrapping Table 4 cell: ",
+                "🎃 Bootstrapping Table 5 cell: ",
                 sample_pair$row_label, " / ",
                 aggregation_method_value, " / ",
                 belief_measure_value
@@ -981,50 +906,6 @@ for (sample_pair in sample_pair_list) {
               aggregation_method = tolower(aggregation_method_value),
               belief_measure = belief_measure_value,
               signal_correlation = signal_correlation,
-              signal_correlation_scalar_katz = signal_correlation_scalar_katz,
-              multivariate_katz_signal_variance_sample_1 = multivariate_katz_result$signal_matrix[1, 1],
-              multivariate_katz_signal_covariance = multivariate_katz_result$signal_matrix[1, 2],
-              multivariate_katz_signal_variance_sample_2 = multivariate_katz_result$signal_matrix[2, 2],
-              multivariate_katz_acceptance_rate = multivariate_katz_result$multivariate_katz_acceptance_rate,
-              multivariate_katz_draws = multivariate_katz_result$multivariate_katz_draws,
-              multivariate_katz_accepts = multivariate_katz_result$multivariate_katz_accepts,
-              multivariate_katz_pd_rejects = multivariate_katz_result$multivariate_katz_pd_rejects,
-              multivariate_katz_pd_rejection_rate = multivariate_katz_result$multivariate_katz_pd_rejection_rate,
-              delta_method_scalar_acceptance_max_abs_diff = attr(
-                signal_vcov,
-                "scalar_vhat_acceptance_max_abs_diff"
-              ),
-              wald_statistic = wald_statistic,
-              wald_degrees_of_freedom = wald_degrees_of_freedom,
-              wald_p_value_chisq = wald_p_value_chisq,
-              wald_p_value_bootstrap = bootstrap_p_values$wald_p_value,
-              wald_p_value = wald_p_value,
-              minimum_distance_statistic = minimum_distance_statistic,
-              minimum_distance_degrees_of_freedom = minimum_distance_degrees_of_freedom,
-              minimum_distance_p_value_chisq = minimum_distance_p_value_chisq,
-              minimum_distance_p_value_bootstrap = bootstrap_p_values$cmd_p_value,
-              minimum_distance_p_value = minimum_distance_p_value,
-              bootstrap_reps_requested = cross_sample_signal_corr_bootstrap_reps,
-              wald_bootstrap_reps_used = bootstrap_p_values$wald_reps_used,
-              minimum_distance_bootstrap_reps_used = bootstrap_p_values$cmd_reps_used,
-              bootstrap_attempts = bootstrap_p_values$attempts
-            ))
-
-            # Append this cell's observed beliefs and minimum-distance estimates
-            minimum_distance_observed_belief_data <- rbind(minimum_distance_observed_belief_data, data.frame(
-              row_label = sample_pair$row_label,
-              sample_1 = sample_pair$sample_1,
-              sample_2 = sample_pair$sample_2,
-              aggregation_method = tolower(aggregation_method_value),
-              belief_measure = belief_measure_value,
-              firm_id = firm_id_vector,
-              belief_sample_1 = belief_vector_by_subsample[[sample_pair$sample_1]],
-              belief_sample_2 = belief_vector_by_subsample[[sample_pair$sample_2]],
-              minimum_distance_implied_belief_sample_1 = minimum_distance_implied_belief_sample_1,
-              minimum_distance_implied_belief_sample_2 = minimum_distance_implied_belief_sample_2,
-              minimum_distance_intercept = minimum_distance_intercept,
-              minimum_distance_slope = minimum_distance_slope,
-              signal_correlation = signal_correlation,
               wald_p_value = wald_p_value,
               minimum_distance_p_value = minimum_distance_p_value
             ))
@@ -1055,12 +936,6 @@ stopifnot(!anyNA(aggregated_correlation_results$minimum_distance_p_value))
 # Minimum distance p-values should be between zero and one
 stopifnot(all(dplyr::between(aggregated_correlation_results$minimum_distance_p_value, 0, 1)))
 
-# Minimum distance observed belief data should have one row per firm in each split x aggregation-method x belief-measure cell
-stopifnot(nrow(minimum_distance_observed_belief_data) == length(sample_pair_list) * 2 * 2 * length(firm_id_vector))
-
-# Minimum distance observed belief data should have non-missing observed beliefs and minimum-distance estimates
-stopifnot(!anyNA(minimum_distance_observed_belief_data[c("belief_sample_1", "belief_sample_2", "minimum_distance_intercept", "minimum_distance_slope")]))
-
 # Number of firms in each sample x aggregation-method x belief-measure cell
 number_of_firms_by_sample_cell <- aggregated_sample_beliefs |> dplyr::count(sample, aggregation_method, belief_measure, name = "number_of_firms")
 
@@ -1072,14 +947,6 @@ number_of_firms_in_table <- unique(number_of_firms_by_sample_cell$number_of_firm
 
 # There should be a single number of firms across all table cells
 stopifnot(length(number_of_firms_in_table) == 1)
-
-# Save diagnostics with both the original chi-squared p-values and the
-# bootstrap-calibrated p-values used in the LaTeX table.
-write.csv(
-  aggregated_correlation_results,
-  file.path(tables, "cross_sample_signal_corr_ols_borda_not_recentered.csv"),
-  row.names = FALSE
-)
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Build and write the cross-sample correlation table, with an OLS/Likert panel and a Borda panel
@@ -1144,153 +1011,3 @@ writeLines(latex_lines, file.path(tables, "cross_sample_signal_corr_ols_borda_no
 
 # Announce the written table
 message("🎃 Generated cross_sample_signal_corr_ols_borda_not_recentered.tex")
-
-# -----------------------------------------------------------------------------------------------------------------------------
-# Build and write the minimum distance fitted scatterplots
-# -----------------------------------------------------------------------------------------------------------------------------
-# Loop over each subgroup comparison
-for (subgroup_comparison in list(c("Black", "White"), c("Female", "Male"))) {
-    # Loop over aggregation method
-    for (aggregation_method in c("ols_not_recentered")) {
-        # Loop over the belief measure on the comparison's own demographic margin
-        for (belief_measure in c(Black = "pooled_favor_white", Female = "pooled_favor_male")[[subgroup_comparison[1]]]) {
-
-            # Restrict observed belief data to the given subgroup comparison
-            minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_data |> dplyr::filter(sample_1 == subgroup_comparison[1], sample_2 == subgroup_comparison[2])
-
-            # Keep this aggregation method
-            minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_scatterplot_data |> dplyr::filter(aggregation_method == .env$aggregation_method)
-
-            # Keep this belief measure
-            minimum_distance_observed_belief_scatterplot_data <- minimum_distance_observed_belief_scatterplot_data |> dplyr::filter(belief_measure == .env$belief_measure)
-
-            # Should be one row per firm
-            stopifnot(nrow(minimum_distance_observed_belief_scatterplot_data) == length(firm_id_vector))
-
-            # Should be one minimum-distance intercept for this scatterplot
-            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept)) == 1)
-
-            # Should be one minimum-distance slope for this scatterplot
-            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope)) == 1)
-
-            # Should be one signal correlation for this scatterplot
-            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$signal_correlation)) == 1)
-
-            # Should be one Wald p-value for this scatterplot
-            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value)) == 1)
-
-            # Should be one minimum-distance p-value for this scatterplot
-            stopifnot(length(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value)) == 1)
-
-            # Define scatterplot of observed beliefs i.e., the first animation stage
-            minimum_distance_observed_belief_scatterplot <- ggplot(minimum_distance_observed_belief_scatterplot_data, aes(x = belief_sample_2, y = belief_sample_1)) +
-
-                # Observed firm-level belief pairs
-                geom_point(color = "darkorange", size = 2.2, alpha = 0.7) +
-
-                # Axis labels name the belief measure and subsample
-                labs(
-                    x = paste0(c(pooled_favor_white = "Discrimination Black (Pooled)", pooled_favor_male = "Discrimination Female (Pooled)")[[belief_measure]], " for ", subgroup_comparison[2]),
-                    y = paste0(c(pooled_favor_white = "Discrimination Black (Pooled)", pooled_favor_male = "Discrimination Female (Pooled)")[[belief_measure]], " for ", subgroup_comparison[1])
-                ) +
-
-                # Theme baseline
-                theme_minimal(base_size = 11) +
-
-                # Theme adjustments
-                theme(
-                    # No grid lines
-                    panel.grid = element_blank(),
-
-                    # White background
-                    panel.background = element_rect(fill = "white", color = NA),
-                    plot.background = element_rect(fill = "white", color = NA),
-
-                    # Bottom and left axis spines, no ticks
-                    axis.line = element_line(color = "black"),
-                    axis.ticks = element_blank()
-                )
-
-            # Add the minimum-distance fit to the observed scatterplot i.e., the second animation stage
-            minimum_distance_fitted_belief_scatterplot <- minimum_distance_observed_belief_scatterplot +
-
-                # Minimum-distance fitted line
-                geom_abline(
-                    intercept = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept),
-                    slope = unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope),
-                    color = "steelblue",
-                    linewidth = 0.7
-                ) +
-
-                # Minimum-distance implied firm-level belief pairs
-                geom_point(aes(x = minimum_distance_implied_belief_sample_2, y = minimum_distance_implied_belief_sample_1), color = "steelblue", size = 1.4, alpha = 0.9)
-
-            # Add the statistic annotations to the fitted scatterplot i.e., the full figure
-            minimum_distance_annotated_belief_scatterplot <- minimum_distance_fitted_belief_scatterplot +
-
-                # Minimum-distance intercept and slope annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = bquote("CMD (intercept, slope)" == group("(", list(.(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_intercept), digits = 3, format = "f")), .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_slope), digits = 3, format = "f"))), ")")),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.975, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
-
-                # Minimum-distance p-value annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = if (unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value) < 0.001) bquote("CMD p-value"~(H[0]:~rho == 1) < 0.001) else bquote("CMD p-value"~(H[0]:~rho == 1) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$minimum_distance_p_value), digits = 3, format = "f"))),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.930, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
-
-                # Signal correlation annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = bquote("Signal corr." == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$signal_correlation), digits = 3, format = "f"))),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.885, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                ) +
-
-                # Wald p-value annotation
-                annotation_custom(
-                    grid::textGrob(
-                        label = if (unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value) < 0.001) bquote("Wald p-value"~(H[0]:~theta[1] == theta[2]) < 0.001) else bquote("Wald p-value"~(H[0]:~theta[1] == theta[2]) == .(formatC(unique(minimum_distance_observed_belief_scatterplot_data$wald_p_value), digits = 3, format = "f"))),
-                        x = grid::unit(0.015, "npc"),
-                        y = grid::unit(0.840, "npc"),
-                        hjust = 0,
-                        vjust = 1,
-                        gp = grid::gpar(fontsize = 11)
-                    )
-                )
-
-            # Export the scatterplot, one file per subgroup comparison x aggregation method x belief measure
-            ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, ".png")), plot = minimum_distance_annotated_belief_scatterplot, width = 10, height = 6, dpi = 300, bg = "white")
-
-            # Export the animation stages for the race comparison, pinning both stages to the full figure's axis ranges
-            if (identical(subgroup_comparison, c("Black", "White"))) {
-
-                # Extract the full figure's panel ranges, fixing the axes across the animation stages
-                minimum_distance_scatterplot_panel_ranges <- ggplot_build(minimum_distance_annotated_belief_scatterplot)$layout$panel_params[[1]]
-
-                # Export the observed-scatter stage
-                ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, "_animation_1.png")), plot = minimum_distance_observed_belief_scatterplot + coord_cartesian(xlim = minimum_distance_scatterplot_panel_ranges$x.range, ylim = minimum_distance_scatterplot_panel_ranges$y.range, expand = FALSE), width = 10, height = 6, dpi = 300, bg = "white")
-
-                # Export the fitted-scatter stage
-                ggsave(file.path(figures, paste0("cross_sample_signal_corr_minimum_distance_scatterplot_", tolower(subgroup_comparison[1]), "_vs_", tolower(subgroup_comparison[2]), "_", aggregation_method, "_", belief_measure, "_animation_2.png")), plot = minimum_distance_fitted_belief_scatterplot + coord_cartesian(xlim = minimum_distance_scatterplot_panel_ranges$x.range, ylim = minimum_distance_scatterplot_panel_ranges$y.range, expand = FALSE), width = 10, height = 6, dpi = 300, bg = "white")
-            }
-        }
-    }
-}

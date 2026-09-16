@@ -3,6 +3,7 @@
 #
 # This replaces the earlier EEO-1 NAICS3 share-control table.
 # ------------------------------------------------------------------------------
+source("code/globals.R")
 
 linkedin_eiv_full_sample_dir <- file.path(intermediate, "Full_Sample")
 linkedin_eiv_firm <- read_parquet_sheet(

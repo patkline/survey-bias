@@ -1,130 +1,13 @@
 source("code/globals.R")
 
-`%||%` <- function(x, y) if (is.null(x)) y else x
-
-# Pretty 3-decimal formatter
-fmt3 <- function(x) ifelse(is.na(x), "NA", sprintf("%.3f", as.numeric(x)))
-
-# Pull estimates from unified EIV_firm sheet with model + formula filters
-pull_eiv_firm_est <- function(root, subdir, lhs_var, rhs_var, coef_num,
-                              formula_var, model_filter = "OLS",
-                              sheet = "EIV_firm", divide_by_100 = FALSE) {
-  dir_path <- file.path(root, subdir)
-  dat <- tryCatch(read_parquet_sheet(dir_path, sheet),
-                  error = function(e) tibble())
-  if (!nrow(dat)) return("NA (NA)")
-
-  dat$coef <- suppressWarnings(as.numeric(dat$coef))
-
-  out <- dat[
-    dat$model == model_filter &
-      dat$lhs == lhs_var &
-      dat$rhs == rhs_var &
-      dat$formula == formula_var &
-      dat$coef == coef_num, ]
-
-  if (!nrow(out)) return("NA (NA)")
-
-  est <- suppressWarnings(as.numeric(out$sample_est))
-  se  <- suppressWarnings(as.numeric(out$sample_se))
-
-  if (isTRUE(divide_by_100)) {
-    est <- est / 100
-    se  <- se  / 100
-  }
-  paste0(fmt3(est), " (", fmt3(se), ")")
-}
-
 root_dir <- intermediate
-
-# ------------------------------------------------------------------------------
-# Build Table: EIV_univariate_wt_ols_borda.tex
-# Purpose: Likert + Borda panels; separate models only; race/gender only
-# ------------------------------------------------------------------------------
-
 table8_subdir <- "Full_Sample"
-
-table8_runs <- list(
-  ls_race = list(root = root_dir, lhs = "log_dif",        model_filter = "OLS"),
-  ls_gender = list(root = root_dir, lhs = "log_dif_gender", model_filter = "OLS"),
-  borda_race = list(root = root_dir, lhs = "log_dif",        model_filter = "Borda"),
-  borda_gender = list(root = root_dir, lhs = "log_dif_gender", model_filter = "Borda")
-)
-
-build_table8_row <- function(cfg) {
-  root <- cfg$root
-  lhs  <- cfg$lhs
-  model_filter <- cfg$model_filter
-
-  # Pull univariate rows from the unified EIV_firm sheet.
-  uni_nofe_sel <- pull_eiv_firm_est(root, table8_subdir, lhs, "FirmSelective", 1L,
-                                    formula_var = "FirmSelective",
-                                    model_filter = model_filter)
-  uni_nofe_dis <- pull_eiv_firm_est(root, table8_subdir, lhs, "discretion", 1L,
-                                    formula_var = "discretion",
-                                    model_filter = model_filter)
-  uni_fe_sel <- pull_eiv_firm_est(root, table8_subdir, lhs, "FirmSelective", 2L,
-                                  formula_var = "FirmSelective",
-                                  model_filter = model_filter)
-  uni_fe_dis <- pull_eiv_firm_est(root, table8_subdir, lhs, "discretion", 2L,
-                                  formula_var = "discretion",
-                                  model_filter = model_filter)
-
-  tibble(
-    Regressor = c("Selectivity", "Discretion"),
-    `Separate Models` = c(uni_nofe_sel, uni_nofe_dis),
-    `Separate Models (Industry FEs)` = c(uni_fe_sel, uni_fe_dis)
-  )
-}
-
-df_ls_race <- build_table8_row(table8_runs$ls_race)
-df_ls_gender <- build_table8_row(table8_runs$ls_gender)
-df_ls <- bind_rows(df_ls_race, df_ls_gender)
-
-df_borda_race <- build_table8_row(table8_runs$borda_race)
-df_borda_gender <- build_table8_row(table8_runs$borda_gender)
-df_borda <- bind_rows(df_borda_race, df_borda_gender)
-
-combined_df <- bind_rows(df_ls, df_borda)
-
-n_ls_race <- nrow(df_ls_race)
-n_ls_gender <- nrow(df_ls_gender)
-n_ls <- n_ls_race + n_ls_gender
-n_borda_race <- nrow(df_borda_race)
-n_borda_gender <- nrow(df_borda_gender)
-n_borda <- n_borda_race + n_borda_gender
-
-col_names <- colnames(combined_df)
-col_names <- gsub("Separate Models \\(Industry FEs\\)",
-                  "\\\\shortstack{Separate Models\\\\\\\\(Industry FEs)}",
-                  col_names)
-
-tex_code_table8 <- kable(
-  combined_df,
-  format    = "latex",
-  booktabs  = TRUE,
-  align     = c("l", rep("c", ncol(combined_df) - 1)),
-  col.names = col_names,
-  linesep   = "",
-  escape    = FALSE
-) %>%
-  pack_rows("Panel A: Likert", 1, n_ls) %>%
-  pack_rows("\\\\textit{Race}", 1, n_ls_race, italic = TRUE, escape = FALSE) %>%
-  pack_rows("\\\\textit{Gender}", n_ls_race + 1, n_ls, italic = TRUE, escape = FALSE) %>%
-  pack_rows("Panel B: Borda", n_ls + 1, n_ls + n_borda) %>%
-  pack_rows("\\\\textit{Race}", n_ls + 1, n_ls + n_borda_race, italic = TRUE, escape = FALSE) %>%
-  pack_rows("\\\\textit{Gender}", n_ls + n_borda_race + 1, n_ls + n_borda, italic = TRUE, escape = FALSE)
-
-out_tex_table8 <- file.path(tables, "EIV_univariate_wt_ols_borda.tex")
-write_lines_checked(tex_code_table8, out_tex_table8, label = "EIV LaTeX table")
-message("✓ LaTeX Table 8 saved to: ", out_tex_table8)
 
 # ------------------------------------------------------------------------------
 # Build Table: EIV_univariate_wt_ols_borda_w_gender_sq.tex
 # Purpose: Selectivity / Discretion univariate regressions, Likert and Borda
 # side by side, one panel for Race and one panel for Gender, coefficient over
-# standard error --- matching the regression-table layout used in
-# eiv_eeo1_share_tables.R's write_selectivity_controls_table(). No squared
+# standard error. No squared
 # regressors (kept the original output filename since it's what's referenced
 # downstream; flag if you'd like it renamed to drop the now-inaccurate "sq").
 # Selectivity and Discretion each get their own column (rather than sharing a

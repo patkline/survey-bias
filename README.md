@@ -223,30 +223,33 @@ for the lightweight firm-name match step.
 
 ### 3. Tables and figures --- `code/3_create_tables_figures/`
 
-**Input:** `output/intermediate/*/*.parquet`, plus the processed survey and external workforce-composition data used by the EEO-1 and LinkedIn tables
-**Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
+**Input:** `output/intermediate/*/*.parquet`, plus the processed survey and external LinkedIn workforce-composition data used by the tables
+**Output:** `output/tables/*.tex`, `output/figures/*.png`
 
 - `!metafile.R` --- sources each table/figure script in order
-  - `summary_statistics_tables.R` --- respondent demographic composition tables by probability/convenience sample split and the rating-confidence share table
-  - `summary_statistics_bar_graphs.R` --- survey response share bar graphs: 1-5 rating distributions, yes/no questions, feared-discrimination shares by race within each subsample, conduct-arm information sources
+  - `summary_statistics_tables.R` --- respondent demographic composition table and rating-confidence share table
   - `summary_statistics_histograms.R` --- response duration histogram
-  - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
-    - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
-    - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
-    - `belief_summary_ols_borda.R` --- formats the intermediate belief diagnostics into `belief_summary_ols_borda_different_ratings.tex`
-    - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
-  - `top_bottom_firm_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
-  - `firm_ratings_signal_correlation_heatmaps.R` --- across-measure signal-correlation heatmaps (Likert lower / Borda upper), full-sample + between/within-industry + purple highlight variants
-  - `eiv_table_selectivity_discretion.R` --- univariate selectivity/discretion EIV tables (`EIV_univariate_wt_ols_borda*.tex`)
-  - `eiv_contact_conduct_subsamples_appendix.R` --- contact vs. conduct EIV appendix table (`EIV_contact_conduct_subsamples_appendix.tex`)
+  - `summary_statistics_bar_graphs.R` --- draft survey-response bar graphs: contact/conduct ratings, feared-discrimination shares by race within each subsample, and conduct-arm information sources
+  - `belief_summary_ols_borda.R` --- belief-summary table by aggregation method
+  - `summary_variance_table.R` --- bias-corrected SD / signal-SD / reliability / t-stat tables for the standard and alternate outcomes
+  - `firm_ratings_signal_correlation_heatmaps.R` --- full-sample across-measure signal-correlation heatmap (Likert lower / Borda upper)
   - `cross_sample_signal_corr.R` --- signal correlation across paired subsamples + Wald test
-  - `cross_sample_signal_corr_raw.R` --- same, no noise correction
-  - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
+  - `top_bottom_firm_ratings_dual_axis_figures.R` --- draft Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
   - `industry_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for every industry and the within-industry top/bottom-25 firms
-  - `eiv_eeo1_share_tables.R` --- EIV tables using EEO-1 industry-level race/gender shares
-  - `eiv_linkedin_share_controls_table.R` --- full-sample EIV contact-gap table with 2023 Yimfor LinkedIn workforce-share controls and NAICS3-clustered standard errors in the share-control columns
+  - `average_beliefs_vs_linkedin_workforce_shares_table.R` --- average beliefs versus Yimfor LinkedIn workforce shares
+  - `eiv_pooled_belief_selectivity_controls_table.R` --- pooled-belief EIV table with belief-selectivity controls
+  - `eiv_table_selectivity_discretion.R` --- univariate selectivity/discretion EIV table (`EIV_univariate_wt_ols_borda_w_gender_sq.tex`)
+  - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
   - `eiv_coefplot_by_subgroup.R` --- coefplot of subgroup-split EIV slopes (njobs-weighted Katz noise), with slope-difference annotations
+  - `firm_likert_amad_scatterplots.R` --- firm-level Likert rating versus AMAD appendix figures
+  - `summary_variance_within_between.R` --- variance table decomposed into within- vs between-industry panels
+  - `subgroup_belief_mean_signal_variance_table.R` --- subgroup means and signal-variance appendix table
+  - `cross_sample_signal_corr_raw.R` --- cross-sample correlation table without noise correction
+  - `eiv_contact_conduct_subsamples_appendix.R` --- contact vs. conduct EIV appendix table (`EIV_contact_conduct_subsamples_appendix.tex`)
+  - `eiv_linkedin_share_controls_table.R` --- full-sample EIV contact-gap table with 2023 Yimfor LinkedIn workforce-share controls and NAICS3-clustered standard errors in the share-control columns
   - `firm_belief_estimates_by_aggregation_method_table.do` --- appendix table of firm-level belief estimates by aggregation method (Stata, run in batch mode via the metafile's `run_stata_fail_fast`)
+
+`summary_outcomes_config.R` is a sourced helper containing the shared outcome lists, labels, and formatting functions used by the variance-table scripts.
 
 ## Documentation on codebase
 

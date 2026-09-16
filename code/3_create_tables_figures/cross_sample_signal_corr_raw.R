@@ -353,10 +353,6 @@ write_latex_lines_checked <- function(latex_lines, out_tex) {
   invisible(out_tex)
 }
 
-for (out_tex in c(
-  file.path(tables, "cross_sample_corr_raw.tex"),
-  file.path(tables, "cross_sample_corr_raw_ols_borda.tex")
-)) {
-  write_latex_lines_checked(latex_lines_ols_borda, out_tex)
-  message("Raw correlation OLS+Borda LaTeX table written to: ", out_tex)
-}
+out_tex <- file.path(tables, "cross_sample_corr_raw_ols_borda.tex")
+write_latex_lines_checked(latex_lines_ols_borda, out_tex)
+message("Raw correlation OLS+Borda LaTeX table written to: ", out_tex)

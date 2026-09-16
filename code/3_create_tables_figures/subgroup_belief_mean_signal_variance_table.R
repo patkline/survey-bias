@@ -2,7 +2,7 @@
 # Purpose: Standalone table of the overall mean and (Katz bias-corrected) signal standard deviation of the
 # three key discrimination measures --- pooled_favor_white (Race), pooled_favor_male (Gender), and
 # conduct_favor_younger (Age) --- for the Full Sample and for each of the demographic subgroups used in the
-# cross-sample signal correlation table (Table 4), in both Likert and Borda units. One row per subgroup,
+# cross-sample signal correlation table (Table 5), in both Likert and Borda units. One row per subgroup,
 # grouped by comparison pair. Wide (16 columns) --- intended for a landscape page.
 #
 # Created: Nico Rotundo 2026-07-20
@@ -78,7 +78,7 @@ grouped_summary_table_rows <- function(row_keys,
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Define the subgroups --- same 18 demographic subsamples (9 comparison pairs) used by the cross-sample
-# signal correlation table (Table 4) --- and their display labels / pair groupings. The Full Sample row is
+# signal correlation table (Table 5) --- and their display labels / pair groupings. The Full Sample row is
 # intentionally omitted; it is already reported elsewhere.
 # -----------------------------------------------------------------------------------------------------------------------------
 sample_definition_table <- data.frame(
@@ -274,32 +274,6 @@ subgroup_wide <- subgroup_wide %>%
 stopifnot(nrow(subgroup_wide) == 18, !anyNA(subgroup_wide))
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Export machine-readable CSV (raw numeric values, unformatted)
-# -----------------------------------------------------------------------------------------------------------------------------
-csv_out <- subgroup_wide %>%
-  dplyr::transmute(
-    sample,
-    display_label,
-    race_respondents         = .data$respondents_pooled_favor_white,
-    race_likert_mean         = .data$mean_pooled_favor_white_Likert,
-    race_likert_signal_sd    = .data$signal_sd_pooled_favor_white_Likert,
-    race_borda_mean          = .data$mean_pooled_favor_white_Borda,
-    race_borda_signal_sd     = .data$signal_sd_pooled_favor_white_Borda,
-    gender_respondents       = .data$respondents_pooled_favor_male,
-    gender_likert_mean       = .data$mean_pooled_favor_male_Likert,
-    gender_likert_signal_sd  = .data$signal_sd_pooled_favor_male_Likert,
-    gender_borda_mean        = .data$mean_pooled_favor_male_Borda,
-    gender_borda_signal_sd   = .data$signal_sd_pooled_favor_male_Borda,
-    age_respondents           = .data$respondents_conduct_favor_younger,
-    age_likert_mean           = .data$mean_conduct_favor_younger_Likert,
-    age_likert_signal_sd      = .data$signal_sd_conduct_favor_younger_Likert,
-    age_borda_mean            = .data$mean_conduct_favor_younger_Borda,
-    age_borda_signal_sd       = .data$signal_sd_conduct_favor_younger_Borda
-  )
-
-write.csv(csv_out, file.path(tables, "subgroup_belief_mean_signal_variance.csv"), row.names = FALSE)
-
-# -----------------------------------------------------------------------------------------------------------------------------
 # Build LaTeX table: one row per subgroup, grouped by comparison pair, columns for Race/Gender x Likert/Borda
 # -----------------------------------------------------------------------------------------------------------------------------
 latex_decimals <- 3
@@ -385,4 +359,3 @@ tex_out_path <- file.path(tables, "subgroup_belief_mean_signal_variance.tex")
 write_lines_checked(latex_lines, tex_out_path, label = "subgroup belief mean / signal SD LaTeX")
 
 cat("Subgroup belief mean / signal SD table saved:", basename(tex_out_path), "\n")
-cat("Subgroup belief mean / signal SD CSV saved:", "subgroup_belief_mean_signal_variance.csv", "\n")

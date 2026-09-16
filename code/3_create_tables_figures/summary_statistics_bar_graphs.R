@@ -25,7 +25,7 @@ stopifnot(nrow(survey_responses) == 32575, dplyr::n_distinct(survey_responses$Re
 survey_responses <- survey_responses |> dplyr::group_by(ResponseId) |> dplyr::mutate(conduct_arm = any(!is.na(conduct_white) | !is.na(conduct_male) | !is.na(conduct_favor_white) | !is.na(conduct_favor_male))) |> dplyr::ungroup()
 
 # Keep one row per respondent with the respondent-level variables
-survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, feared_discrim, any_entry_lev_exp, fear, gender, race_recode, looking_job, information_source, conduct_arm)
+survey_respondents <- survey_responses |> dplyr::distinct(ResponseId, fear, gender, race_recode, looking_job, information_source, conduct_arm)
 
 # Should be one row per respondent i.e., every kept variable is respondent-constant
 stopifnot(!anyDuplicated(survey_respondents$ResponseId), !anyNA(survey_respondents$ResponseId))
@@ -43,7 +43,7 @@ rating_answer_labels <- list(
 )
 
 # Scale wording for each rating variable
-rating_scale_wordings <- c(FirmCont_white = "gap", FirmCont_black = "gap", FirmHire_white = "gap", FirmHire_black = "gap", FirmCont_male = "gap", FirmCont_female = "gap", FirmHire_male = "gap", FirmHire_female = "gap", conduct_white = "level", conduct_black = "level", conduct_female = "level", conduct_male = "level", conduct_older = "level", conduct_younger = "level")
+rating_scale_wordings <- c(FirmCont_white = "gap", FirmCont_black = "gap", conduct_white = "level", conduct_black = "level", conduct_female = "level", conduct_male = "level", conduct_older = "level", conduct_younger = "level")
 
 # Loop over the belief rating variables
 for (rating_variable in names(rating_scale_wordings)) {
@@ -138,101 +138,6 @@ for (rating_variable in names(rating_scale_wordings)) {
 
     # Export the bar graph, one file per rating variable
     ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_", rating_variable, "_share.png")), plot = rating_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
-}
-
-# -----------------------------------------------------------------------------------------------------------------------------
-# Yes/no question bar graphs i.e., the answer-category distribution of each respondent-level yes/no question
-# -----------------------------------------------------------------------------------------------------------------------------
-# Answer categories in display order
-yes_no_answer_categories <- c("No", "Yes", "Prefer not to answer", "Missing")
-
-# Loop over the yes/no question variables
-for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
-
-    # Assert the question takes only the yes/no/prefer-not answers or the empty-string missing code
-    stopifnot(all(survey_respondents[[yes_no_variable]] %in% c("", "No", "Yes", "Prefer not to answer")))
-
-    # Label each respondent with their answer category, the empty-string missing code as Missing
-    yes_no_respondents <- survey_respondents |> dplyr::mutate(answer_category = dplyr::if_else(.data[[yes_no_variable]] == "", "Missing", .data[[yes_no_variable]]))
-
-    # Count respondents by answer category
-    category_shares <- yes_no_respondents |> dplyr::count(answer_category)
-
-    # Add zero-count rows for answer categories with no respondents, in display order
-    category_shares <- data.frame(answer_category = yes_no_answer_categories) |> dplyr::left_join(category_shares, by = "answer_category") |> dplyr::mutate(n = dplyr::coalesce(n, 0L))
-
-    # Should be one row per answer category, counts summing to all respondents
-    stopifnot(nrow(category_shares) == 4, sum(category_shares$n) == nrow(survey_respondents))
-
-    # Share of respondents in each answer category, in percent, with its binomial standard error
-    category_shares <- category_shares |> dplyr::mutate(proportion = n / nrow(survey_respondents), share = 100 * proportion, share_standard_error = sqrt(proportion * (1 - proportion) / nrow(survey_respondents)) * 100)
-
-    # 95% confidence interval margin for each share
-    category_shares <- category_shares |> dplyr::mutate(share_margin_of_error = 1.96 * share_standard_error)
-
-    # Order the answer categories for display
-    category_shares <- category_shares |> dplyr::mutate(answer_category = factor(answer_category, levels = yes_no_answer_categories))
-
-    # Define the share bar graph
-    yes_no_share_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = share)) +
-
-        # Steelblue respondent-share bars
-        geom_col(width = 0.8, fill = "steelblue") +
-
-        # 95% confidence interval error bars
-        geom_errorbar(aes(ymin = pmax(0, share - share_margin_of_error), ymax = share + share_margin_of_error), width = 0.15, linewidth = 0.6) +
-
-        # Axis labels; the tick labels carry the percent sign
-        labs(x = "", y = "Share of Respondents") +
-
-        # Fix the share axis to 0-100%
-        scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 10), labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
-
-        # Theme baseline
-        theme_classic(base_size = 13) +
-
-        # Theme adjustments
-        theme(
-            # No grid lines
-            panel.grid = element_blank(),
-
-            # Bottom and left axis spines; thin tick marks on the share axis only
-            axis.line = element_line(color = "black"),
-            axis.ticks.x = element_blank(),
-            axis.ticks.y = element_line(color = "black")
-        )
-
-    # Export the share bar graph
-    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_", yes_no_variable, "_share.png")), plot = yes_no_share_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
-
-    # Define the count bar graph
-    yes_no_count_bar_graph <- ggplot(category_shares, aes(x = answer_category, y = n)) +
-
-        # Steelblue respondent-count bars
-        geom_col(width = 0.8, fill = "steelblue") +
-
-        # Axis labels
-        labs(x = "", y = "Number of Respondents") +
-
-        # Anchor the bars at zero with headroom above
-        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-
-        # Theme baseline
-        theme_classic(base_size = 13) +
-
-        # Theme adjustments
-        theme(
-            # No grid lines
-            panel.grid = element_blank(),
-
-            # Bottom and left axis spines; thin tick marks on the count axis only
-            axis.line = element_line(color = "black"),
-            axis.ticks.x = element_blank(),
-            axis.ticks.y = element_line(color = "black")
-        )
-
-    # Export the count bar graph
-    ggsave(file.path(figures, paste0("summary_statistics_bar_graphs_", yes_no_variable, "_count.png")), plot = yes_no_count_bar_graph, width = 8, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------

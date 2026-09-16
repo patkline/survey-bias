@@ -32,64 +32,30 @@ survey_measure_display_names <- c(
 survey_measure_display_order <- unname(survey_measure_display_names)
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Import each correlation sheet and build its heatmap-cell dataframe --- one row per off-diagonal axis
-# position, with Likert correlations below the diagonal and Borda correlations above it
+# Build the full-sample heatmap-cell dataframe --- one row per off-diagonal axis position,
+# with Likert correlations below the diagonal and Borda correlations above it
 # -----------------------------------------------------------------------------------------------------------------------------
-# Loop over correlation sheets
-for (correlation_sheet in c("correlation", "correlation_between_industry", "correlation_within_industry")) {
+selected_outcomes <- names(survey_measure_display_names)
 
-    # Define the sheet's measure-name suffix,
-    measure_suffix <- c("correlation" = "", "correlation_between_industry" = "_im_w", "correlation_within_industry" = "_dm_w")[[correlation_sheet]]
-
-    subset_value <- c(
-        "correlation" = "all",
-        "correlation_between_industry" = "subset97",
-        "correlation_within_industry" = "subset97"
-    )[[correlation_sheet]]
-    selected_outcomes <- paste0(names(survey_measure_display_names), measure_suffix)
-
-    if (correlation_sheet == "correlation") {
-        # Build only the 100 correlations displayed in the paper's full-sample
-        # heatmap. This applies Katz jointly to each pair's two variances and
-        # covariance instead of using the stored scalar-Katz ratios.
-        variance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "variance")
-        covariance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "covariance") |>
-            dplyr::filter(
-                subset == subset_value,
-                (model %in% c("OLS", "Borda") & lhs %in% selected_outcomes & rhs %in% selected_outcomes) |
-                    (model == "OLS_x_Borda" & lhs == rhs & lhs %in% selected_outcomes)
-            )
-        stopifnot(nrow(covariance_input) == 10 * 9 + 10)
-        sheet_correlations <- build_correlation_from_varcov(
-            var_df = variance_input,
-            cov_df = covariance_input,
-            use_multivariate_katz = TRUE
-        )
-        stopifnot(all(dplyr::between(sheet_correlations$corr_c, -1, 1)))
-    } else {
-        # These ancillary decompositions are not Figure 6 and can contain
-        # signal matrices so far outside the PD cone that rejection sampling
-        # has effectively zero probability. Preserve their existing estimates.
-        sheet_correlations <- read_parquet_sheet(
-            file.path(intermediate, "Full_Sample"),
-            correlation_sheet
-        ) |>
-            dplyr::filter(
-                subset == subset_value,
-                (model %in% c("OLS", "Borda") & lhs %in% selected_outcomes & rhs %in% selected_outcomes) |
-                    (model == "OLS_x_Borda" & lhs == rhs & lhs %in% selected_outcomes)
-            )
-    }
+# Build only the 100 correlations displayed in Figure 6. This applies Katz jointly
+# to each pair's two variances and covariance instead of using stored scalar-Katz ratios.
+variance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "variance")
+covariance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "covariance") |>
+    dplyr::filter(
+        subset == "all",
+        (model %in% c("OLS", "Borda") & lhs %in% selected_outcomes & rhs %in% selected_outcomes) |
+            (model == "OLS_x_Borda" & lhs == rhs & lhs %in% selected_outcomes)
+    )
+stopifnot(nrow(covariance_input) == 10 * 9 + 10)
+sheet_correlations <- build_correlation_from_varcov(
+    var_df = variance_input,
+    cov_df = covariance_input,
+    use_multivariate_katz = TRUE
+)
+stopifnot(all(dplyr::between(sheet_correlations$corr_c, -1, 1)))
 
     # Assert one row per survey measure pair x aggregation method
     stopifnot(!anyDuplicated(sheet_correlations[c("lhs", "rhs", "model")]), !anyNA(sheet_correlations[c("lhs", "rhs", "model")]))
-
-    # Assert every survey measure name carries the sheet's suffix
-    stopifnot(all(endsWith(sheet_correlations$lhs, measure_suffix)), all(endsWith(sheet_correlations$rhs, measure_suffix)))
-
-    # Strip the survey measure so all sheets share the same survey measure name
-    sheet_correlations$lhs <- sub(paste0(measure_suffix, "$"), "", sheet_correlations$lhs)
-    sheet_correlations$rhs <- sub(paste0(measure_suffix, "$"), "", sheet_correlations$rhs)
 
     # Split out the cross-model rows i.e., the Likert x Borda signal correlation of each survey measure, shown on the diagonal
     sheet_diagonal_correlations <- sheet_correlations[sheet_correlations$model == "OLS_x_Borda", ]
@@ -153,53 +119,14 @@ for (correlation_sheet in c("correlation", "correlation_between_industry", "corr
     # Assert one cell per axis position: 90 off-diagonal plus 10 diagonal
     stopifnot(nrow(sheet_correlations) == 10 * 9 + 10, !anyDuplicated(sheet_correlations[c("row_position", "column_position")]), !anyNA(sheet_correlations[c("row_position", "column_position")]))
 
-    # Store the dataframe under the figure-family name
-    assign(paste0("heatmap_cells_", c("correlation" = "full_sample", "correlation_between_industry" = "between_industry", "correlation_within_industry" = "within_industry")[[correlation_sheet]]), sheet_correlations)
-}
+# Store the completed Figure 6 cells
+heatmap_cells_full_sample <- sheet_correlations
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Define one specification per heatmap figure --- the input dataframe, the export-name suffix, and the purple highlight cells in 1-indexed matrix coordinates (row = top to bottom, col = left to right)
+# Draw Figure 6
 # -----------------------------------------------------------------------------------------------------------------------------
-heatmap_figure_specifications <- list(
-    # Full-sample heatmap
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample", highlight_cells = NULL),
-    
-    # Full-sample heatmap highlighting the Black within-measure block
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_1", highlight_cells = data.frame(row = c(2, 3, 3), col = c(1, 1, 2))),
-    
-    # Full-sample heatmap highlighting the Female within-measure block
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_2", highlight_cells = data.frame(row = c(5, 6, 6), col = c(4, 4, 5))),
-    
-    # Full-sample heatmap highlighting the Female x Black cross-measure block
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_3", highlight_cells = data.frame(row = rep(4:6, each = 3), col = rep(1:3, times = 3))),
-    
-    # Full-sample heatmap highlighting the firm-characteristics x Black block
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_4", highlight_cells = data.frame(row = rep(8:10, each = 3), col = rep(1:3, times = 3))),
-    
-    # Full-sample heatmap highlighting the Older x Black and Older x Female cells
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_5", highlight_cells = data.frame(row = rep(7, times = 6), col = 1:6)),
-
-    # Full-sample heatmap highlighting the firm-characteristics x Female block
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_6", highlight_cells = data.frame(row = rep(8:10, each = 3), col = rep(4:6, times = 3))),
-
-    # Full-sample heatmap highlighting the firm-characteristics within-block
-    list(heatmap_cells_dataframe = "heatmap_cells_full_sample", export_suffix = "full_sample_highlight_7", highlight_cells = data.frame(row = rep(8:10, each = 3), col = rep(8:10, times = 3))),
-
-    # Between-industry heatmap
-    list(heatmap_cells_dataframe = "heatmap_cells_between_industry", export_suffix = "between_industry", highlight_cells = NULL),
-    
-    # Within-industry heatmap
-    list(heatmap_cells_dataframe = "heatmap_cells_within_industry", export_suffix = "within_industry", highlight_cells = NULL)
-)
-
-# -----------------------------------------------------------------------------------------------------------------------------
-# Draw each heatmap figure
-# -----------------------------------------------------------------------------------------------------------------------------
-# Loop over figure specifications
-for (heatmap_figure_specification in heatmap_figure_specifications) {
-
-    # Pull the figure's heatmap cells
-    figure_cells <- get(heatmap_figure_specification$heatmap_cells_dataframe)
+# Pull the figure's heatmap cells
+figure_cells <- heatmap_cells_full_sample
 
     # Convert each survey measure to its display-name factor; y levels reversed so axis row 1 sits at the top
     figure_cells$display_measure_1 <- factor(survey_measure_display_names[figure_cells$survey_measure_1], levels = survey_measure_display_order)
@@ -219,44 +146,6 @@ for (heatmap_figure_specification in heatmap_figure_specifications) {
         ) +
         labs(title = "", x = NULL, y = NULL)
 
-    # Outline the union of the highlight cells when the figure specifies them
-    if (!is.null(heatmap_figure_specification$highlight_cells)) {
-
-        # Convert the highlight cells from matrix coordinates to plot coordinates
-        highlight_horizontal_positions <- heatmap_figure_specification$highlight_cells$col
-        highlight_vertical_positions <- 10 - heatmap_figure_specification$highlight_cells$row + 1
-
-        # Assert every highlight cell is unique and sits on the heatmap
-        stopifnot(!anyDuplicated(paste(highlight_horizontal_positions, highlight_vertical_positions)), all(highlight_horizontal_positions %in% 1:10), all(highlight_vertical_positions %in% 1:10))
-
-        # Build the four tile edges of every highlight cell
-        highlight_edges <- rbind(
-            # Left edges
-            data.frame(horizontal_start = highlight_horizontal_positions - 0.5, vertical_start = highlight_vertical_positions - 0.5,
-                       horizontal_end   = highlight_horizontal_positions - 0.5, vertical_end   = highlight_vertical_positions + 0.5),
-            # Right edges
-            data.frame(horizontal_start = highlight_horizontal_positions + 0.5, vertical_start = highlight_vertical_positions - 0.5,
-                       horizontal_end   = highlight_horizontal_positions + 0.5, vertical_end   = highlight_vertical_positions + 0.5),
-            # Bottom edges
-            data.frame(horizontal_start = highlight_horizontal_positions - 0.5, vertical_start = highlight_vertical_positions - 0.5,
-                       horizontal_end   = highlight_horizontal_positions + 0.5, vertical_end   = highlight_vertical_positions - 0.5),
-            # Top edges
-            data.frame(horizontal_start = highlight_horizontal_positions - 0.5, vertical_start = highlight_vertical_positions + 0.5,
-                       horizontal_end   = highlight_horizontal_positions + 0.5, vertical_end   = highlight_vertical_positions + 0.5)
-        )
-
-        # Keep edges appearing exactly once; an edge shared by two highlight cells is interior to the union
-        highlight_edges <- highlight_edges |>
-            dplyr::group_by(horizontal_start, vertical_start, horizontal_end, vertical_end) |>
-            dplyr::filter(dplyr::n() == 1) |>
-            dplyr::ungroup()
-
-        # Add the purple boundary outline to the heatmap
-        figure_heatmap <- figure_heatmap +
-            geom_segment(data = highlight_edges, aes(x = horizontal_start, y = vertical_start, xend = horizontal_end, yend = vertical_end),
-                         inherit.aes = FALSE, color = "purple", linewidth = 2, lineend = "square")
-    }
-
     # Widen the outside margins, allow drawing beyond the panel, and add one aggregation-method arrow per triangle
     figure_heatmap <- figure_heatmap +
         theme(plot.margin = margin(t = 40, r = 24, b = 190, l = 12)) +
@@ -275,11 +164,10 @@ for (heatmap_figure_specification in heatmap_figure_specifications) {
     magick::image_write(magick::image_trim(magick::image_read(heatmap_temporary_png)), path = heatmap_temporary_png)
 
     # Copy the trimmed heatmap into the figures directory, asserting the copy succeeds
-    stopifnot(file.copy(heatmap_temporary_png, file.path(figures, paste0("firm_ratings_signal_correlation_heatmaps_", heatmap_figure_specification$export_suffix, ".png")), overwrite = TRUE))
+    stopifnot(file.copy(heatmap_temporary_png, file.path(figures, "firm_ratings_signal_correlation_heatmaps_full_sample.png"), overwrite = TRUE))
 
     # Delete the temporary file
     unlink(heatmap_temporary_png)
 
     # Report the export
-    message("🎃 Exported firm_ratings_signal_correlation_heatmaps_", heatmap_figure_specification$export_suffix, ".png")
-}
+    message("🎃 Exported firm_ratings_signal_correlation_heatmaps_full_sample.png")

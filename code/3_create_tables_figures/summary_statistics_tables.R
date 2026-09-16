@@ -136,12 +136,9 @@ demographic_table_sections <- list(
     "Income" = c("Less Than $5,000", "$5,000 To $29,999", "$30,000 To $59,999", "$60,000 To $99,999", "$100,000 Or More")
 )
 
-# Specifications for the three demographic tables: sample split, column labels, table sections, export name
-# The demographics_education panel keeps only the slide-displayed categories; shares stay relative to all respondents
+# Specification for the demographic table used as Table 1 in the draft
 demographic_table_specifications <- list(
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = demographic_table_sections, export_name = "summary_statistics_tables_demographics_by_probability_convenience.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = list("Demographics" = c("Female", "Black", "White", "Hispanic", "[18,25)", "[25,40)", "[40,65)"), "Education" = c("High School Diploma", "Some College / Associate Degree", "Bachelor's / Graduate Degree")), export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_demographics_education.tex"),
-    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = demographic_table_sections[c("Employment", "Income")], export_name = "summary_statistics_tables_demographics_by_probability_convenience_panel_work_income.tex")
+    list(split_variable = "sample", column_labels = c("Probability", "Convenience"), sections = demographic_table_sections, export_name = "summary_statistics_tables_demographics_by_probability_convenience.tex")
 )
 
 # Loop over the demographic table specifications
