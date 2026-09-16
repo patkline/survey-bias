@@ -236,21 +236,26 @@ for (yes_no_variable in c("any_entry_lev_exp", "feared_discrim")) {
 }
 
 # -----------------------------------------------------------------------------------------------------------------------------
-# Feared-discrimination subsample-means bar graph i.e., the share fearing discrimination overall and within each subsample
+# Feared-discrimination subsample bar graph i.e., the share fearing discrimination by race within each subsample
 # -----------------------------------------------------------------------------------------------------------------------------
 # Assert the subsample split variables and fear are 0/1 indicators and race takes only its three categories, none missing
 stopifnot(all(survey_respondents$gender %in% c(0, 1)), all(survey_respondents$looking_job %in% c(0, 1)), all(survey_respondents$fear %in% c(0, 1)), all(survey_respondents$race_recode %in% c("Black", "White", "Other")))
 
-# Stack one row per bar: the overall mean, then the means by race, sex, and job-search status
-subsample_shares <- dplyr::bind_rows(
-    survey_respondents |> dplyr::summarise(subsample = "Overall", respondent_count = dplyr::n(), fear_share = mean(fear)),
-    survey_respondents |> dplyr::filter(race_recode != "Other") |> dplyr::group_by(subsample = race_recode) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"),
-    survey_respondents |> dplyr::group_by(subsample = c("0" = "Male", "1" = "Female")[as.character(gender)]) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"),
-    survey_respondents |> dplyr::group_by(subsample = c("0" = "Not Looking", "1" = "Looking for Job")[as.character(looking_job)]) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop")
-)
+# Define empty subsample shares dataframe
+subsample_shares <- data.frame()
 
-# Should be 1 overall + 2 race + 2 sex + 2 job-search = 7 bars; every split covers all respondents except the race pair, which drops Other
-stopifnot(nrow(subsample_shares) == 7, sum(subsample_shares$respondent_count) == 4 * nrow(survey_respondents) - sum(survey_respondents$race_recode == "Other"), !anyNA(subsample_shares))
+# Loop over the subsample split variables
+for (subsample_split_variable in c("gender", "looking_job")) {
+
+    # Label the subsamples for display
+    split_respondents <- survey_respondents |> dplyr::mutate(subsample = list(gender = c("1" = "Female", "0" = "Male"), looking_job = c("1" = "Looking for Job", "0" = "Not Looking"))[[subsample_split_variable]][as.character(.data[[subsample_split_variable]])])
+
+    # Append the share of respondents fearing discrimination by subsample x race, with the respondent count
+    subsample_shares <- dplyr::bind_rows(subsample_shares, split_respondents |> dplyr::group_by(subsample, race_recode) |> dplyr::summarise(respondent_count = dplyr::n(), fear_share = mean(fear), .groups = "drop"))
+}
+
+# Should be 4 subsamples x 3 races = 12 bars covering every respondent once per split, none missing
+stopifnot(nrow(subsample_shares) == 12, sum(subsample_shares$respondent_count) == 2 * nrow(survey_respondents), !anyNA(subsample_shares))
 
 # Binomial standard error of each share
 subsample_shares <- subsample_shares |> dplyr::mutate(share_standard_error = sqrt(fear_share * (1 - fear_share) / respondent_count))
@@ -258,26 +263,32 @@ subsample_shares <- subsample_shares |> dplyr::mutate(share_standard_error = sqr
 # 95% confidence interval bounds, capped at the 0-1 share range
 subsample_shares <- subsample_shares |> dplyr::mutate(share_lower_bound = pmax(0, fear_share - 1.96 * share_standard_error), share_upper_bound = pmin(1, fear_share + 1.96 * share_standard_error))
 
-# Order the bars: overall, then the race, sex, and job-search segments
-subsample_shares <- subsample_shares |> dplyr::mutate(subsample = factor(subsample, levels = c("Overall", "Black", "White", "Female", "Male", "Looking for Job", "Not Looking")))
+# Order the subsamples and races for the bar and legend order
+subsample_shares <- subsample_shares |> dplyr::mutate(subsample = factor(subsample, levels = c("Female", "Male", "Looking for Job", "Not Looking")), race_recode = factor(race_recode, levels = c("Black", "White", "Other")))
 
-# Define the subsample-means bar graph
-subsample_bar_graph <- ggplot(subsample_shares, aes(x = subsample, y = fear_share)) +
+# Define the subsample bar graph
+subsample_bar_graph <- ggplot(subsample_shares, aes(x = subsample, y = fear_share, fill = race_recode)) +
 
-    # Steelblue share bars on a single discrete axis, so gaps within and between segments are identical
-    geom_col(width = 0.6, fill = "steelblue") +
+    # Race-colored share bars, dodged within each subsample; bar width below the dodge width leaves a small gap within each set
+    geom_col(position = position_dodge(width = 0.66), width = 0.6) +
 
     # 95% confidence interval error bars
-    geom_errorbar(aes(ymin = share_lower_bound, ymax = share_upper_bound), width = 0.15, linewidth = 0.6) +
+    geom_errorbar(aes(ymin = share_lower_bound, ymax = share_upper_bound), position = position_dodge(width = 0.66), width = 0.18, linewidth = 0.6) +
 
-    # Dashed separators between the overall, race, sex, and job-search segments; grey44 matches Stata gs7
-    geom_vline(xintercept = c(1.5, 3.5, 5.5), linetype = "dashed", color = "grey44") +
+    # Dashed separator between the gender and job-search subsample pairs; grey44 matches Stata gs7
+    geom_vline(xintercept = 2.5, linetype = "dashed", color = "grey44") +
+
+    # Bar color for each race
+    scale_fill_manual(values = c("Black" = "steelblue", "White" = "darkorange", "Other" = "grey55")) +
+
+    # Draw all four subsample slots
+    scale_x_discrete(drop = FALSE) +
 
     # Fix the share axis to 0-100%
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1), labels = scales::percent_format(accuracy = 1), expand = c(0, 0)) +
 
-    # Axis labels name the plotted share; the tick labels carry the percent sign
-    labs(x = "", y = "Share Fearing Discrimination") +
+    # Axis labels name the plotted share, without a legend title; the tick labels carry the percent sign
+    labs(x = "Subsample", y = "Share Fearing Discrimination", fill = NULL) +
 
     # Theme baseline
     theme_classic(base_size = 13) +
@@ -290,11 +301,17 @@ subsample_bar_graph <- ggplot(subsample_shares, aes(x = subsample, y = fear_shar
         # Bottom and left axis spines; thin tick marks on the share axis only
         axis.line = element_line(color = "black"),
         axis.ticks.x = element_blank(),
-        axis.ticks.y = element_line(color = "black")
+        axis.ticks.y = element_line(color = "black"),
+
+        # Legend inside the plot, top-right
+        legend.position = "inside",
+        legend.position.inside = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_blank()
     )
 
-# Export the subsample-means bar graph
-ggsave(file.path(figures, "summary_statistics_bar_graphs_y_fear_x_subsample_means.png"), plot = subsample_bar_graph, width = 9.5, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
+# Export the subsample-by-race bar graph used in the draft
+ggsave(file.path(figures, "summary_statistics_bar_graphs_y_fear_x_subsample_group_race.png"), plot = subsample_bar_graph, width = 9.5, height = 5, dpi = 300, device = ragg::agg_png, bg = "white")
 
 # -----------------------------------------------------------------------------------------------------------------------------
 # Information source bar graph i.e., the share of conduct-arm respondents citing each source about firm conduct

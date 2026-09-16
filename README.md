@@ -228,7 +228,7 @@ for the lightweight firm-name match step.
 
 - `!metafile.R` --- sources each table/figure script in order
   - `summary_statistics_tables.R` --- respondent demographic composition tables by probability/convenience sample split and the rating-confidence share table
-  - `summary_statistics_bar_graphs.R` --- survey response share bar graphs: 1-5 rating distributions, yes/no questions, feared-discrimination shares by race within each subsample (+ animation stage), conduct-arm information sources
+  - `summary_statistics_bar_graphs.R` --- survey response share bar graphs: 1-5 rating distributions, yes/no questions, feared-discrimination shares by race within each subsample, conduct-arm information sources
   - `summary_statistics_histograms.R` --- response duration histogram
   - **Item-worth summaries** (ex-`summary_item_worths.R`, split into model-aware blocks --- each loops over the `models` list defined in `summary_outcomes_config.R`, currently `c("Borda", "OLS")`)
     - `summary_outcomes_config.R` --- shared `dir_path`, `outs` / `alternate_framings` outcome lists, label maps, and the `to_wide_coef` / `fmt_dec` / `map_label` helpers used by the scripts below
