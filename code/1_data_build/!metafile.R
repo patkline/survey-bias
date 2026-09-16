@@ -125,6 +125,9 @@ run_python_fail_fast(file.path(build, "create_firm_industry_crosswalk_industry_m
 # Create final working datasets
 source(file.path(build, "sample_prep.R"))
 
+# Build latest-filing EEO-1 Black and female shares for the matched firms
+source(file.path(build, "build_eeo1_latest_firm_shares.R"))
+
 # Build crosswalk from 2022 NAICS 3-digit to SIC bins from aer paper
 run_stata_fail_fast(file.path(build, "create_naics_2022_three_digit_sic_bin_aer_crosswalk.do"))
 

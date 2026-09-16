@@ -102,6 +102,9 @@ system.time({
   source(file.path(analysis, "linkedin_share_analysis.R"))
 })
 
+# Compare latest-filing EEO-1 shares with the 2023 Yimfor LinkedIn shares
+source(file.path(analysis, "eeo1_yimfor_spearman.R"))
+
 message("🎃 Full_Sample write check:")
 for (sheet in analysis_check_sheets) {
   check_path <- parquet_sheet_path(file.path(intermediate, "Full_Sample"), sheet)
