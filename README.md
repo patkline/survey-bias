@@ -223,7 +223,7 @@ for the lightweight firm-name match step.
 
 ### 3. Tables and figures --- `code/3_create_tables_figures/`
 
-**Input:** `output/intermediate/*/*.parquet`; the Revelio/EEO-1 scripts also read `data/processed/long_survey_final.csv`, `data/external/*.csv` (git-lfs — run `git lfs pull` first), and `data/dump/*.csv`
+**Input:** `output/intermediate/*/*.parquet`, plus the processed survey and external workforce-composition data used by the EEO-1 and LinkedIn tables
 **Output:** `output/tables/*.{tex,csv}`, `output/figures/*.png`
 
 - `!metafile.R` --- sources each table/figure script in order
@@ -235,29 +235,16 @@ for the lightweight firm-name match step.
     - `summary_variance_table.R` --- bias-corrected SD / signal-SD / t-stat table per model (standard outcomes + alternate framings)
     - `belief_summary_ols_borda.R` --- formats the intermediate belief diagnostics into `belief_summary_ols_borda_different_ratings.tex`
     - `summary_variance_within_between.R` --- same table decomposed into within- vs between-industry panels (njobs-reweighted)
-    - `firm_average_likert_histograms.R` --- firm-level average Likert-score histograms for pooled Black- and gender-discrimination beliefs, annotated with the mean, sample SD, and signal SD
   - `top_bottom_firm_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for the 25 highest / 25 lowest firms by Borda EB
   - `firm_ratings_signal_correlation_heatmaps.R` --- across-measure signal-correlation heatmaps (Likert lower / Borda upper), full-sample + between/within-industry + purple highlight variants
-  - `eiv_table_panels.R` --- main EIV table (Black, Female, etc.) + bivariate EIV (favor-x + control)
-  - `eiv_table_discretion.R` --- discretion-as-LHS EIV panel
   - `eiv_table_selectivity_discretion.R` --- univariate selectivity/discretion EIV tables (`EIV_univariate_wt_ols_borda*.tex`)
-  - `eiv_table_within_between.R` --- within/between-industry EIV decomposition
-  - `eiv_table_within_between_selectivity.R` --- same, for selectivity (`EIV_race_within_between_selectivity_ols_borda.tex`)
   - `eiv_contact_conduct_subsamples_appendix.R` --- contact vs. conduct EIV appendix table (`EIV_contact_conduct_subsamples_appendix.tex`)
   - `cross_sample_signal_corr.R` --- signal correlation across paired subsamples + Wald test
   - `cross_sample_signal_corr_raw.R` --- same, no noise correction
-  - `cross_sample_signal_corr_placebo.R` --- same, random-split placebo
-  - `cross_model_corr.R` --- agreement between OLS / Borda / OL firm rankings
   - `valence_correlation_bars.R` --- bar chart of `corr_c` for valence pairs
-  - `opposite_valence_corr_table.R` --- Black-vs-White, Male-vs-Female pair correlations
   - `industry_ratings_dual_axis_figures.R` --- Likert + Borda dual-axis ratings for every industry and the within-industry top/bottom-25 firms
-  - `eiv_revelio_outcome_tables.R` --- Controlling for Revelio workforce shares on the RHS of main EIV regs 
-  - `eiv_revelio_composition_tables.R` --- Revelio outcomes (race/gender workforce share and paygaps as LHS)
   - `eiv_eeo1_share_tables.R` --- EIV tables using EEO-1 industry-level race/gender shares
   - `eiv_linkedin_share_controls_table.R` --- full-sample EIV contact-gap table with 2023 Yimfor LinkedIn workforce-share controls and NAICS3-clustered standard errors in the share-control columns
-  - `naics3_beliefs_on_eeo1_shares_table.R` --- firm-level beliefs-on-NAICS3-share regression table
-  - `revelio_eeo1_frontline_share_correlations.R` --- firm-level Revelio workforce shares vs EEO-1 industry shares: comparison CSV, correlations, industry black-share scatterplots
-  - `eiv_scatterplots.R` --- audit contact gaps on raw firm-level beliefs, scatter with naive (weighted OLS, robust SE) and EIV fitted lines
   - `eiv_coefplot_by_subgroup.R` --- coefplot of subgroup-split EIV slopes (njobs-weighted Katz noise), with slope-difference annotations
   - `firm_belief_estimates_by_aggregation_method_table.do` --- appendix table of firm-level belief estimates by aggregation method (Stata, run in batch mode via the metafile's `run_stata_fail_fast`)
 

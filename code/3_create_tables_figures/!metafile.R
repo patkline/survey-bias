@@ -92,7 +92,6 @@ source(file.path(create_tables_figures, "summary_variance_table.R"))
 source(file.path(create_tables_figures, "belief_summary_ols_borda.R"))
 source(file.path(create_tables_figures, "summary_variance_within_between.R"))
 source(file.path(create_tables_figures, "subgroup_belief_mean_signal_variance_table.R"))
-source(file.path(create_tables_figures, "firm_average_likert_histograms.R"))
 
 # ------------------------------------------------------------------------------
 # Firm and industry rating figures
@@ -107,15 +106,6 @@ if (!nzchar(Sys.getenv("CROSS_SAMPLE_SIGNAL_CORR_BOOTSTRAP_REPS"))) {
 source(file.path(create_tables_figures, "industry_ratings_dual_axis_figures.R"))
 source(file.path(create_tables_figures, "firm_ratings_signal_correlation_heatmaps.R"))
 
-# Within-respondent correlation figures; require the correlation_within_respondent sheet
-# built by code/2_analysis/run_within_respondent_heatmap_inputs.R
-source(file.path(create_tables_figures, "firm_ratings_within_respondent_correlation_heatmaps.R"))
-source(file.path(create_tables_figures, "within_respondent_correlation_distribution_race_hire_contact.R"))
-
-# Within-respondent Borda AMAD heatmap; requires the belief_amad_within_respondent_borda_pairs
-# sheet built by code/2_analysis/run_within_respondent_amad_inputs.R
-source(file.path(create_tables_figures, "firm_ratings_within_respondent_borda_amad_heatmap.R"))
-
 # ------------------------------------------------------------------------------
 # Signal correlations across subsamples, models, and valences
 # ------------------------------------------------------------------------------
@@ -123,33 +113,21 @@ source(file.path(create_tables_figures, "firm_ratings_within_respondent_borda_am
 # Signal correlation scripts
 source(file.path(create_tables_figures, "cross_sample_signal_corr.R"))
 source(file.path(create_tables_figures, "cross_sample_signal_corr_raw.R"))
-source(file.path(create_tables_figures, "cross_sample_signal_corr_placebo.R"))
-source(file.path(create_tables_figures, "cross_model_corr.R"))
 source(file.path(create_tables_figures, "valence_correlation_bars.R"))
-source(file.path(create_tables_figures, "opposite_valence_corr_table.R"))
 
 # ------------------------------------------------------------------------------
 # EIV tables
 # ------------------------------------------------------------------------------
 
 # EIV table scripts
-source(file.path(create_tables_figures, "eiv_table_panels.R"))
-source(file.path(create_tables_figures, "eiv_table_discretion.R"))
 source(file.path(create_tables_figures, "eiv_table_selectivity_discretion.R"))
-source(file.path(create_tables_figures, "eiv_table_within_between.R"))
-source(file.path(create_tables_figures, "eiv_table_within_between_selectivity.R"))
 source(file.path(create_tables_figures, "eiv_contact_conduct_subsamples_appendix.R"))
 
 # ------------------------------------------------------------------------------
 # EIV tables with external data
 # ------------------------------------------------------------------------------
 
-# External workforce-composition table and figure scripts
-# Revelio outputs are retired on this branch. Its analysis stage does not
-# produce the EIV_revelio_* intermediate sheets, and Section 3 should not
-# require the legacy Revelio source files.
-# source(file.path(create_tables_figures, "eiv_revelio_composition_tables.R"))
-# source(file.path(create_tables_figures, "eiv_revelio_outcome_tables.R"))
+# External workforce-composition table scripts
 source(file.path(create_tables_figures, "eiv_eeo1_share_tables.R"))
 source(file.path(create_tables_figures, "eiv_linkedin_share_controls_table.R"))
 
@@ -159,15 +137,11 @@ source(file.path(
   "average_beliefs_vs_linkedin_workforce_shares_table.R"
 ))
 
-# NAICS3 belief-share regressions
-source(file.path(create_tables_figures, "naics3_beliefs_on_eeo1_shares_table.R"))
-
 # ------------------------------------------------------------------------------
 # EIV figures
 # ------------------------------------------------------------------------------
 
 # EIV figure scripts
-source(file.path(create_tables_figures, "eiv_scatterplots.R"))
 source(file.path(create_tables_figures, "eiv_coefplot_by_subgroup.R"))
 
 # ------------------------------------------------------------------------------
