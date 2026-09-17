@@ -43,34 +43,16 @@ Edited: Anh-Huy Nguyen 2026-06-07
 ## Important general notes 
 
 ### I. Data and output storage system
-This project stores data using Git LFS --- however, we have a backup storage plan in place in the (rare) case that we run out of Git LFS storage or bandwidth, 
 
-   1. *To set the system, just set the value of the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to the intended value (i.e., usually `github`; but `dropbox` if space constrained on Git LFS)*
-   2. *If switching from Github to Dropbox, one person needs to do the following,*
-      
-      i. Make sure your local `data/` and `/output` folders are exactly the versions you want to mirror in Dropbox --- if needed, run `git lfs pull` to get the latest versions of files tracked in LFS
+Bulk data are tracked with Git LFS and also mirrored in Dropbox. Generated output is not versioned: the repository's `output/` directory is ignored and can be deleted and recreated safely.
 
-      ii. Copy the `data/` and `output/` folders to `/Survey/consolidated_code/github_data_and_output_mirrors`
+1. Set `data_and_output_storage_location` consistently in `globals.R`, `globals.py`, and `globals.do`. The current setting is `dropbox`.
+2. In `dropbox` mode, the `data` and `output` path variables resolve beneath `/Survey/consolidated_code/github_data_and_output_mirrors/`.
+3. In `github` mode, `data` resolves to the repository's Git-LFS-backed `data/` directory and generated results are written to the ignored local `output/` directory.
+4. Two curated Yimfor inputs are deliberately repository-owned and are read from `data/external/` even in Dropbox mode: `yimfor_firm_crosswalk.csv` and `race_shares_fortune1000_kline97.xlsx`.
+5. To refresh the GitHub data snapshot from Dropbox, copy only the reviewed `data/` contents into the repository, inspect the changes, and commit the resulting Git LFS pointers. Do not copy generated `output/` files into version control.
 
-      iii. Switch the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to `dropbox`
-
-      iv. Source `globals.R` in your R terminal
-
-   3. *If switching from Dropbox to Github, one person needs to do the following,*
-      
-      i. Make sure the Dropbox `/Survey/consolidated_code/github_data_and_output_mirrors` folder contains the correct `data/` and `output/` folders
-
-      ii. Copy the `data/` and `output/` folders from `/Survey/consolidated_code/github_data_and_output_mirrors` to the corresponding local folders in the repository
-
-      iii. Review the set of changes and double-check that the local `data/` and `/output` folders are exactly how you want them to be in the repository (since these will be what gets pushed to Github and tracked in Git LFS)
-
-      iv. Commit and push the changes to Github (which will also push the relevant LFS objects)
-
-      v. Switch the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to `github`
-
-      vi. Source `globals.R` in your R terminal
-
-   4. After doing so, the backround processes for (i) syncing data and outputs to the intended storage location and (ii) zeroing LFS bandwidth use (in the case of switching to Dropbox) will be automatically set up
+References to `data/...` and `output/...` below mean paths beneath the storage root selected by these globals unless a script explicitly uses the repository root.
 
 ### II. Sourcing globals at the top of scripts
 

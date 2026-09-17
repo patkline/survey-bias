@@ -7,6 +7,11 @@
 # Run globals
 source("code/globals.R")
 
+# Generated output is intentionally not stored in the repository. Create the
+# destination directories so a clean checkout also works in GitHub mode.
+dir.create(figures, recursive = TRUE, showWarnings = FALSE)
+dir.create(tables, recursive = TRUE, showWarnings = FALSE)
+
 # ------------------------------------------------------------------------------------------------
 # Define wrapper for running Stata scripts that stops metafile execution if the
 #given script fails
