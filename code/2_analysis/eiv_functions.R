@@ -162,21 +162,6 @@ compute_njobs_weighted_signal_components <- function(
 }
 
 # ----------------------------------------------------------------------------------------
-# compute_njobs_weighted_katz_noise() --- backwards-compatible scalar helper
-# ----------------------------------------------------------------------------------------
-compute_njobs_weighted_katz_noise <- function(
-  firm_regressor_vector,
-  firm_number_of_jobs_vector,
-  firm_robust_covariance_matrix
-) {
-  compute_njobs_weighted_signal_components(
-    firm_regressor_vector = firm_regressor_vector,
-    firm_number_of_jobs_vector = firm_number_of_jobs_vector,
-    firm_robust_covariance_matrix = firm_robust_covariance_matrix
-  )$noise_njobs_weighted_katz
-}
-
-# ----------------------------------------------------------------------------------------
 # Matrix helpers for the multivariate Katz correction.
 # ----------------------------------------------------------------------------------------
 symmetrize_matrix <- function(x) {
@@ -1018,9 +1003,6 @@ run_eiv_one <- function(
     rhs_vars_noise_variance_covariance_matrix_fe[rhs_vars, rhs_vars] <- rhs_vars_noise_variance_covariance_matrix
   }
   
-  # Report the EIV run
-  message("🎃 Running EIV: Model = ", model_value, ", LHS = ", lhs_var, ", RHS = ", rhs_formula_text)
-  
   # Run the no-FE EIV regression
   eiv_regression_result_no_fe <- tryCatch(
     eivreg(
@@ -1248,7 +1230,7 @@ write_eiv_sheet <- function(
   # Directory the parquet sheet is written into
   output_dir,
 
-  # Name of the parquet sheet, e.g., "EIV_firm", "EIV_between"
+  # Name of the parquet sheet, e.g., "EIV_firm"
   sheet_name = "EIV",
 
   # List of regression specifications; passed through to run_eiv_suite()

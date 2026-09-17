@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import path globals
-from globals import processed, external, dump, code
+from globals import processed, external, dump
 
 # ------------------------------------------------------------------------------
 # Import and prepare long survey data for crosswalk construction
@@ -42,9 +42,6 @@ long_survey["firm_clean"] = long_survey["firm_clean"].astype("string").str.strip
 long_survey = long_survey[
     long_survey["firm_clean"].notna() & (long_survey["firm_clean"] != "")
 ].copy()
-
-# Confirm firm_clean is never missing i.e., confirm that all rows have non-NA and non-blank firm_clean values
-assert long_survey["firm_clean"].notna().all() and (long_survey["firm_clean"] != "").all()
 
 # Keep one observation per unique firm_clean value to recover list of unique firms in our data, and keep only the firm_clean variable
 long_survey = long_survey.drop_duplicates(subset=["firm_clean"]).reset_index(drop=True)
@@ -498,14 +495,8 @@ if len(primary_sic_code_refusa_count_by_firm) > 0:
         r"[0-9]+"
     ).all()
 
-# Output firm-by-SIC count table to scratch folder for inspection
-primary_sic_code_refusa_count_by_firm.to_csv(code / "scratch_nico" / "temp_refusa_firm_by_sic_counts.csv", index=False)
-
-# Count number of firms where ties in modal SIC code are being broken
+# Select one modal SIC code per firm, breaking ties deterministically below.
 if len(primary_sic_code_refusa_count_by_firm) == 0:
-    # Keep tie count as zero when there are no matched firm-by-SIC rows
-    primary_sic_code_refusa_modal_tie_count = 0
-
     # Initialize empty modal-by-firm dataframe
     primary_sic_code_refusa_modal_by_firm = pd.DataFrame(
         columns=["firm_clean", "primary_sic_code_refusa"]
@@ -521,15 +512,6 @@ else:
         primary_sic_code_refusa_count_by_firm["primary_sic_code_count"]
         == max_sic_count_by_firm
     ].copy()
-
-    # Count firms with more than one modal SIC candidate
-    primary_sic_code_refusa_modal_tie_count = int(
-        (
-            primary_sic_code_refusa_modal_candidates.groupby("firm_clean")
-            .size()
-            .gt(1)
-        ).sum()
-    )
 
     # Convert modal candidate SIC strings to numeric for deterministic tie-breaking on smallest SIC value
     primary_sic_code_refusa_modal_candidates["primary_sic_code_refusa_numeric"] = (
@@ -547,11 +529,6 @@ else:
         .drop_duplicates(subset=["firm_clean"], keep="first")
         .loc[:, ["firm_clean", "primary_sic_code_refusa"]]
     )
-
-# Report number of firm_clean values where tie-breaking is required for modal SIC code selection
-print(
-    f"Modal primary_sic_code_refusa tie-break applied for {primary_sic_code_refusa_modal_tie_count} firm_clean values."
-)
 
 # Merge modal raw SIC values onto long_survey firm list to keep long_survey row order and unmatched firms as missing
 primary_sic_code_refusa_modal = (
@@ -659,20 +636,6 @@ firm_industry_crosswalk_refusa = long_survey.assign(
 
 # Check that firm_industry_crosswalk_refusa is unique on firm_clean
 assert firm_industry_crosswalk_refusa["firm_clean"].nunique() == len(firm_industry_crosswalk_refusa)
-
-# ------------------------------------------------------------------------------
-# Export firm-industry crosswalk diagnostics
-# ------------------------------------------------------------------------------
-# Output non-matching firms csv to scratch folder for inspection
-firm_industry_crosswalk_refusa[firm_industry_crosswalk_refusa["primary_sic_code_refusa_modal_two_digit"].isna()].to_csv(
-    code / "scratch_nico" / "temp_refusa_non_matches.csv", index=False
-)
-
-# Output matched firms that were not matched on uppercase_name to scratch folder for inspection
-firm_industry_crosswalk_refusa[
-    firm_industry_crosswalk_refusa["merge_match_method_refusa"].notna()
-    & (firm_industry_crosswalk_refusa["merge_match_method_refusa"] != "uppercase_name")
-].to_csv(code / "scratch_nico" / "temp_refusa_matches_non_uppercase.csv", index=False)
 
 # ------------------------------------------------------------------------------
 # Export firm-industry crosswalk

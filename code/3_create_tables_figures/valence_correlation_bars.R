@@ -56,7 +56,7 @@ stopifnot(all(dplyr::between(corr_df$corr_c, -1, 1)))
 
 models <- intersect(c("OLS", "Borda"), unique(as.character(corr_df$model)))
 if (length(models) == 0L) {
-  stop("No OLS/Borda rows found in correlation sheet: ", full_sample_dir)
+  stop("No OLS/Borda correlation rows could be built from: ", full_sample_dir)
 }
 
 # --- Helper: look up corr_c for a pair -------------------------------

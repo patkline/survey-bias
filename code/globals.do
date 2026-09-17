@@ -76,14 +76,12 @@ global data_and_output_storage_location "dropbox"
 if "${data_and_output_storage_location}" == "github" {
     global data "${git_survey_bias_root}/data"
     global output "${git_survey_bias_root}/output"
-    global qje_2022_data_and_outputs "${git_survey_bias_root}/qje_2022_replication_data_and_outputs"
 }
 else if "${data_and_output_storage_location}" == "dropbox" {
     * Canonical Dropbox data/output mirror, matching globals.R and globals.py.
     global db_data_output_mirror "${dropbox_survey_bias_root}/github_data_and_output_mirrors"
     global data "${db_data_output_mirror}/data"
     global output "${db_data_output_mirror}/output"
-    global qje_2022_data_and_outputs "${db_data_output_mirror}/qje_2022_replication_data_and_outputs"
 }
 else {
     di as error "🧌 Invalid value for data_and_output_storage_location. Must be 'github' or 'dropbox'"
@@ -117,25 +115,6 @@ global excel "${output}/excel"
 global intermediate "${output}/intermediate"
 global figures "${output}/figures"
 global tables "${output}/tables"
-
-/* ---------------------------------------------------------------------------------------------
-QJE 2022 replication paths
-----------------------------------------------------------------------------------------------*/
-* Code folder for the QJE 2022 (Kline-Rose-Walters) Figure 9 replication
-global qje_2022_replication_code "${code}/qje_2022_replication"
-
-* Data and outputs subfolders 
-global qje_2022_replication_data    "${qje_2022_data_and_outputs}/data"
-global qje_2022_replication_outputs "${qje_2022_data_and_outputs}/outputs"
-
-* Original replication package files
-global qje_2022_replication_raw "${qje_2022_replication_data}/raw"
-global qje_2022_replication_package "${qje_2022_replication_raw}/qje_2022_full_replication_package"
-
-* Output subfolders
-global qje_2022_replication_figures "${qje_2022_replication_outputs}/figures"
-global qje_2022_replication_tables  "${qje_2022_replication_outputs}/tables"
-global qje_2022_replication_dump    "${qje_2022_replication_data}/dump"
 
 /* ---------------------------------------------------------------------------------------------
 Python virtual environment

@@ -6,114 +6,74 @@
 
 # Run globals
 source("code/globals.R")
-message("🎃 2_analysis working directory: ", getwd())
-message("🎃 2_analysis intermediate path: ", intermediate)
-message("🎃 2_analysis tables path: ", tables)
 
 # Load Necessary Functions
 source(file.path(analysis, "load_all.R"))
-source(file.path(analysis, "analysis_pipeline.R"))
-
-# 
-# ## 0) parse args -------------------------------------------------------------
-# args <- commandArgs(trailingOnly = TRUE)
-# if (length(args) != 3) {
-#   stop("Usage: Rscript run_wrapper.R <subset_var> <subset_value> <output_filename>")
-# }
-# 
-# subset_var      <- args[[1]]                   # still a string
-# subset_value    <- as.integer(args[[2]])       # coerce to integer
-# if (is.na(subset_value)) {
-#   stop("`<subset_value>` must be an integer")
-# }
-# output_filename <- args[[3]]                   # still a string
-
 
 ## Read in Data
 file_path <- file.path(processed, "long_survey_final.csv")
 data <- read.csv(file_path, stringsAsFactors = FALSE)
 
-# Define outcomes and relevant columns
-survey_vars <- c("FirmCont_favor_white", "FirmCont_black", "FirmCont_white", 
-                 "FirmHire_favor_white", "FirmHire_black", "FirmHire_white",
-                 "conduct_favor_white", "conduct_black", "conduct_white",
-                 "FirmCont_favor_male", "FirmCont_male", "FirmCont_female", 
-                 "FirmHire_favor_male", "FirmHire_male", "FirmHire_female", 
-                 "conduct_favor_male", "conduct_male", "conduct_female",
-                 "conduct_favor_younger", "conduct_younger", "conduct_older", 
-                 "discretion", "FirmSelective", "FirmDesire",
-                 "pooled_favor_white","pooled_favor_male", 
-                 "pooled_white", "pooled_black",
-                 "pooled_male", "pooled_female")
-
-valence_triples <- list(
-  list(valence1 = "FirmCont_black",    valence2 = "FirmCont_white",    new_outcome = "FirmCont_favor_white_ep"),
-  list(valence1 = "FirmHire_black",    valence2 = "FirmHire_white",    new_outcome = "FirmHire_favor_white_ep"),
-  list(valence1 = "pooled_black",      valence2 = "pooled_white",    new_outcome = "pooled_favor_white_ep"),
-  list(valence1 = "conduct_female",     valence2 = "conduct_male",     new_outcome = "conduct_favor_male_ep"),
-  list(valence1 = "FirmCont_female",    valence2 = "FirmCont_male",    new_outcome = "FirmCont_favor_male_ep"),
-  list(valence1 = "FirmHire_female",    valence2 = "FirmHire_male",    new_outcome = "FirmHire_favor_male_ep"),
-  list(valence1 = "pooled_female",      valence2 = "pooled_male",    new_outcome = "pooled_favor_male_ep"),
-  list(valence1 = "conduct_older",     valence2 = "conduct_younger",     new_outcome = "conduct_favor_younger_ep")
+# Outcomes used in the main draft exhibits and the within/between-industry table.
+standard_survey_vars <- c(
+  "FirmCont_favor_white", "FirmHire_favor_white", "conduct_favor_white",
+  "FirmCont_favor_male", "FirmHire_favor_male", "conduct_favor_male",
+  "conduct_favor_younger", "discretion", "FirmSelective", "FirmDesire",
+  "pooled_favor_white", "pooled_favor_male"
 )
 
-experimental_vars <- c("dif", "log_dif", "dif_gender", "log_dif_gender", "dif_age", "log_dif_age", "log_dif_gender_sq", "log_dif_sq", "cb_central_full")
-respondent_col <- "ResponseId"
-firm_col <- "firm"
+# Additional raw framing outcomes used by Appendix Table A1 and Figure A3.
+alternate_framing_vars <- c(
+  "FirmCont_black", "FirmCont_white", "FirmHire_black", "FirmHire_white",
+  "conduct_black", "conduct_white", "FirmCont_male", "FirmCont_female",
+  "FirmHire_male", "FirmHire_female", "conduct_male", "conduct_female",
+  "conduct_younger", "conduct_older"
+)
 
-firms97 <- data %>% dplyr::filter(!is.na(dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
+# Preserve the established outcome order so the orientation of pairwise
+# covariance rows remains stable across replication runs.
+survey_vars <- c(
+  "FirmCont_favor_white", "FirmCont_black", "FirmCont_white",
+  "FirmHire_favor_white", "FirmHire_black", "FirmHire_white",
+  "conduct_favor_white", "conduct_black", "conduct_white",
+  "FirmCont_favor_male", "FirmCont_male", "FirmCont_female",
+  "FirmHire_favor_male", "FirmHire_male", "FirmHire_female",
+  "conduct_favor_male", "conduct_male", "conduct_female",
+  "conduct_favor_younger", "conduct_younger", "conduct_older",
+  "discretion", "FirmSelective", "FirmDesire",
+  "pooled_favor_white", "pooled_favor_male"
+)
+stopifnot(setequal(survey_vars, unique(c(standard_survey_vars, alternate_framing_vars))))
+subgroup_survey_vars <- c(
+  "pooled_favor_white", "pooled_favor_male", "conduct_favor_younger"
+)
+experimental_vars <- c("log_dif", "log_dif_gender")
+
+firms97 <- data %>% dplyr::filter(!is.na(log_dif)) %>% select(firm_id) %>% distinct() %>% pull(firm_id)
 
 subset_var <- NULL
 subset_value <- NULL
 output_dir <- file.path(intermediate, "Full_Sample")
-analysis_check_sheets <- c(
-  "Coefficients", "rcov", "variance", "covariance", "correlation",
-  "covariance_within_industry", "correlation_within_industry",
-  "covariance_between_industry", "correlation_between_industry",
-  "belief_amad_summary",
-  "LinkedIn_firm_shares",
-  "LinkedIn_belief_share_regressions",
-  "EIV_linkedin_shares",
-  "EIV_firm", "EIV_within", "EIV_between",
-  "EIV_within_selectivity", "EIV_between_selectivity"
+
+run_analysis_pipeline(
+  data, survey_vars, experimental_vars,
+  subset_var = subset_var, subset_value = subset_value,
+  output_dir = output_dir, firms97 = firms97,
+  run_borda = TRUE, run_ols = TRUE,
+  industry_mean_outcomes = standard_survey_vars,
+  seed = 123
 )
 
-# Function Call Female
-system.time({
-  run_analysis_pipeline(
-    data, respondent_col, survey_vars, experimental_vars,
-    subset_var = subset_var, subset_value = subset_value,
-    output_dir = output_dir, firms97 = firms97,
-    run_ol = FALSE, run_pl = FALSE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = FALSE,
-    combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
-    seed = 123
-  )
-})
-
-# Respondent-pair AMAD diagnostics used by the belief summary tables.
+# Respondent-pair AMAD statistics used by the belief summary tables.
 # This is intentionally computed in section 2; section 3 only formats outputs.
-system.time({
-  run_belief_summary_amad_analysis(data, output_dir)
-})
+run_belief_summary_amad_analysis(data, output_dir)
 
 # Merge the 2023 Yimfor LinkedIn shares and run the firm-level belief
 # regressions used by the corresponding section 3 table.
-system.time({
-  source(file.path(analysis, "linkedin_share_analysis.R"))
-})
+source(file.path(analysis, "linkedin_share_analysis.R"))
 
 # Compare latest-filing EEO-1 shares with the 2023 Yimfor LinkedIn shares
 source(file.path(analysis, "eeo1_yimfor_correlations.R"))
-
-message("🎃 Full_Sample write check:")
-for (sheet in analysis_check_sheets) {
-  check_path <- parquet_sheet_path(file.path(intermediate, "Full_Sample"), sheet)
-  check_info <- file.info(check_path)
-  message("  ", basename(check_path), " | exists=", file.exists(check_path),
-          " | size=", check_info$size,
-          " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
-}
-
 
 #---- 1) Define the subset runs (mirrors your bash VARS/VALS/OUTS) ----
 runs <- tibble::tribble(
@@ -140,8 +100,6 @@ runs <- tibble::tribble(
 
 
 # ---- 3) Run them all ----
-results <- vector("list", nrow(runs))
-
 for (i in seq_len(nrow(runs))) {
   subset_var   <- runs$subset_var[i]
   subset_value <- runs$subset_value[i]
@@ -153,59 +111,16 @@ for (i in seq_len(nrow(runs))) {
       "| subset_value =", subset_value,
       "===\n")
 
-  results[[i]] <- system.time({
-    run_analysis_pipeline(
-      data, respondent_col, survey_vars, experimental_vars,
-      subset_var = subset_var, subset_value = subset_value,
-      output_dir = output_dir, firms97 = firms97,
-      run_ol = FALSE, run_pl = FALSE, run_borda = TRUE, run_ols = TRUE, run_ols_centered = FALSE,
-      combine_valences = TRUE, valence_triples = valence_triples, industry_means = TRUE,
-      seed = 123
-    )
-  })
-
-  message("🎃 Subset write check: ", runs$output_stub[i])
-  for (sheet in analysis_check_sheets) {
-    check_path <- parquet_sheet_path(file.path(intermediate, runs$output_stub[i]), sheet)
-    check_info <- file.info(check_path)
-    message("  ", basename(check_path), " | exists=", file.exists(check_path),
-            " | size=", check_info$size,
-            " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
-  }
+  run_analysis_pipeline(
+    data, subgroup_survey_vars,
+    experimental_vars = NULL,
+    subset_var = subset_var, subset_value = subset_value,
+    output_dir = output_dir, firms97 = firms97,
+    run_borda = TRUE, run_ols = TRUE,
+    industry_mean_outcomes = NULL,
+    seed = 123
+  )
 }
 
 message("Running full-sample belief-selectivity EIV output")
-belief_selectivity_eiv <- run_belief_selectivity_eiv_for_subdir("Full_Sample")
-
-belief_selectivity_eiv_path <- parquet_sheet_path(
-  file.path(intermediate, "Full_Sample"),
-  belief_selectivity_eiv_sheet
-)
-belief_selectivity_eiv_info <- file.info(belief_selectivity_eiv_path)
-message(
-  "  ", basename(belief_selectivity_eiv_path),
-  " | exists=", file.exists(belief_selectivity_eiv_path),
-  " | size=", belief_selectivity_eiv_info$size,
-  " | mtime=", format(belief_selectivity_eiv_info$mtime, "%Y-%m-%d %H:%M:%S")
-)
-
-# ------------------------------------------------------------------------------
-# EEO-1 NAICS3 share controls and belief-share regressions
-# ------------------------------------------------------------------------------
-
-message("Running EEO-1 NAICS3 share-control EIV output")
-eeo1_naics3_eiv <- run_eeo1_naics3_eiv_for_subdir("Full_Sample")
-
-eeo1_naics3_eiv_path <- parquet_sheet_path(
-  file.path(intermediate, "Full_Sample"),
-  eeo1_naics3_eiv_sheet
-)
-eeo1_naics3_eiv_info <- file.info(eeo1_naics3_eiv_path)
-message(
-  "  ", basename(eeo1_naics3_eiv_path),
-  " | exists=", file.exists(eeo1_naics3_eiv_path),
-  " | size=", eeo1_naics3_eiv_info$size,
-  " | mtime=", format(eeo1_naics3_eiv_info$mtime, "%Y-%m-%d %H:%M:%S")
-)
-
-source(file.path(analysis, "regress_beliefs_on_eeo1_naics3_shares.R"))
+run_belief_selectivity_eiv_for_subdir("Full_Sample")

@@ -50,7 +50,7 @@ This project stores data using Git LFS --- however, we have a backup storage pla
       
       i. Make sure your local `data/` and `/output` folders are exactly the versions you want to mirror in Dropbox --- if needed, run `git lfs pull` to get the latest versions of files tracked in LFS
 
-      ii. Copy the `data/`, `output/`, and `qje_2022_replication_data_and_outputs/` folders to `/Survey/consolidated_code/github_data_and_output_mirrors`
+      ii. Copy the `data/` and `output/` folders to `/Survey/consolidated_code/github_data_and_output_mirrors`
 
       iii. Switch the `data_and_output_storage_location` variable in `globals.R` and `globals.py` to `dropbox`
 
@@ -58,9 +58,9 @@ This project stores data using Git LFS --- however, we have a backup storage pla
 
    3. *If switching from Dropbox to Github, one person needs to do the following,*
       
-      i. Make sure the Dropbox `/Survey/consolidated_code/github_data_and_output_mirrors` folder contains the correct `data/`, `output/`, and `qje_2022_replication_data_and_outputs/` folders
+      i. Make sure the Dropbox `/Survey/consolidated_code/github_data_and_output_mirrors` folder contains the correct `data/` and `output/` folders
 
-      ii. Copy the `data/`, `output/`, and `qje_2022_replication_data_and_outputs/` folders from `/Survey/consolidated_code/github_data_and_output_mirrors` to the corresponding local folders in the repository
+      ii. Copy the `data/` and `output/` folders from `/Survey/consolidated_code/github_data_and_output_mirrors` to the corresponding local folders in the repository
 
       iii. Review the set of changes and double-check that the local `data/` and `/output` folders are exactly how you want them to be in the repository (since these will be what gets pushed to Github and tracked in Git LFS)
 
@@ -76,69 +76,6 @@ This project stores data using Git LFS --- however, we have a backup storage pla
 
 - *For R scripts, run `source("code/globals.R")` at the top of your script to load global variables and packages*
 - *For Stata scripts, run `do "${github}/survey-bias/code/globals.do"` at the top of your script. This requires `${github}` to be defined in your personal `profile.do` (pointing at your local GitHub root, e.g. `global github "/Users/<username>/GitHub"`). Place `profile.do` in Stata's personal ado directory --- run `display c(sysdir_personal)` in Stata to find the path.*
-
-### III. Comparing results across code changes
-Use `code/tools/results_rerun_compare.R` from the project root to compare outputs before vs after code changes
-
-#### Option definitions and prompt notes
-1. `--run-name` (optional): this option defines a suffix added to the run subfolder name under `output/results_build_runs/` (or Dropbox mirror output path when in Dropbox mode)
-   - If not provided, no run-name suffix is added
-   
-2. `--baseline` (optional): this command sets what branch's `/output` folder to use as a baseline for comparison
-   - Defaults to using the `/output` files in `/origin/main` (i.e., the `/output` files you see if you go to Github and look at `/main`) as the baseline files you are comparing against 
-   - Can also be set to `origin-current`, which will use the `/output` files in `/origin/<current_branch>` (i.e., the `/output` files you see if you go to Github and look at `/<current_branch>`) as the baseline files you are comparing against 
-   - We can eventually add more baseline options if they become relevant
-  <!-- - Can also be set to `current`, which uses your current local `/output` folder at runtime as the baseline snapshot -->
-
-3. `--skip-rerun` (optional flag): do not run the `code/3_create_tables_figures/!metafile.R` file
-   - Compares current outputs against baseline snapshot i.e., what you see in `/output` currently is what you compare against baseline
-
-4. `--with-xlsx-cell-diffs` (optional flag): compute cell-level diffs for changed `.xlsx` files
-   - Default behavior is off (only file-level diffs are written for Excel files)
-   - Turn this on when you specifically need cell-level spreadsheet change details (you most likely will not)
-
-5. *Reasons the script may abort before doing anything,*
-   - The script first checks whether the local tracking ref is synced with `origin/main` or `origin/<current_branch>` (depending on baseline mode)
-   - The script then checks whether baseline LFS objects for `/output/{tables,figures,excel}` are already in local LFS cache
-     - In github mode, if either check fails, the script prompts before running `git fetch` and/or `git lfs fetch` (and reports estimated LFS download size when needed)
-     - In dropbox mode, if either check fails, the script aborts, since downloading files from Github is not an option with the space constraints 
-
-6. *Local output note.* The script compares against whatever is currently in your local `/output` folder on the “new” side of the comparison
-   - If your local `/output` folder contains stale files from earlier runs, manually edited files, or extra untracked files, those may appear in the comparison
-     - In github storage mode (output inside repository), the script warns when this is the case and continues
-     - In dropbox storage mode (output outside repository), the script cannot warn you using Git since the Dropbox `/output` folder is outside the repository
-
-#### Common use cases and their respective commands (where <> denotes things to fill in)
-1. You want to rerun the entire set of code that creates outputs (i.e., `code/3_create_tables_figures/!metafile.R`) and compare against `origin/main` as the baseline,
-   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test>`
-2. You want to rerun the entire set of code that creates outputs and compare against your current branch on GitHub (`origin/<current_branch>`) as the baseline,
-   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline origin-current`
-3. You want to compare your local `/output` folder as-is (e.g., you have already generated a subset of new results) against `origin/main` as the baseline,
-   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --skip-rerun`
-4. You want to compare your local `/output` folder as-is (e.g., you have already generated a subset of new results) against `origin/<current_branch>` as the baseline,
-   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline origin-current --skip-rerun`
-<!-- 5. You have already generated a subset of new results in the `/output` folder and want to compare against your local current branch's `/output` folder + unpushed commits as the baseline,
-   - `Rscript code/tools/results_rerun_compare.R --run-name <my_test> --baseline current --skip-rerun` -->
-<!--6. You want cell-level diffs for changed Excel outputs in any of the above workflows,
-   - add `--with-xlsx-cell-diffs` to the command-->
-   
-#### How the script works 
-1. Creates a run subfolder under `output/results_build_runs/` (or Dropbox mirror output path when in Dropbox mode i.e., `/Survey/consolidated_code/github_data_and_output_mirrors`)
-2. Sets baseline source paths based on `--baseline` option
-   - `main` -> `origin/main`
-   - `origin-current` -> `origin/<current_branch>`
-3. Runs the following preflight checks before copying the `/output` files from the baseline you chose, 
-   - Your local copy of the baseline branch matches what is currently on GitHub
-   - Required baseline LFS objects for `output/{tables,figures,excel}` are available locally
-   - In github mode, the script can prompt to run `git fetch` / `git lfs fetch`; in dropbox mode, preflight failures abort
-4. Creates `old_full/{tables,figures,excel}` by copying baseline output files into the run folder
-5. Creates `new_full/{tables,figures,excel}` only when `--skip-rerun` is set, by copying current local output into the run folder; otherwise, runs `code/3_create_tables_figures/!metafile.R` and treats the active output root as the "new" side.
-6. Compares `old_full` vs new side
-   - If there are zero differences, deletes the run folder and exits
-   - Otherwise writes file-level diffs to `changes.csv` and continues
-7. Copies changed files into run-level `old/` and `new/`, writes `comparison.tex`, and generates `comparison.pdf`
-8. Appends `.xlsx` cell-level diffs to `changes.csv` only when `--with-xlsx-cell-diffs` is set
-9.  Writes metadata (`meta.json`) describing baseline mode/ref and run counts
 
 ---
 # For any issues on the above or below, reach out to me at `nrotundo@berkeley.edu`
@@ -163,49 +100,50 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
   - `create_firm_industry_crosswalk_refusa.py` --- RefUSA → SIC mapping
   - `create_firm_industry_crosswalk_industry_map.py` --- harmonizes across sources, writes final crosswalk
   - `sample_prep.R` --- applies sample restrictions; writes `long_survey_final.csv`
-    - `helper_functions/1_preprocessing_v3.R` --- builds outcome variables (favor-x, dif, log_dif, etc.)
+    - `helper_functions/sample_eligibility_helpers.R` --- identifies respondents with at least three valid firm ratings for an outcome
   - `build_eeo1_latest_firm_shares.R` --- builds the latest-filing firm EEO-1 shares used in the EEO-1/Yimfor comparison
 
 ### 2. Analysis --- `code/2_analysis/`
 
 **Input:** `data/processed/long_survey_final.csv`; the Yimfor analysis also uses the curated `data/external/yimfor_firm_crosswalk.csv` and `data/external/race_shares_fortune1000_kline97.xlsx`
-**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet` --- `Coefficients` (with both MLE `estimate` and EB-shrunk `eb` columns), `variance`, `covariance`, `correlation`, `rcov`, `belief_amad_summary`, `EIV_firm`, `EIV_within`, `EIV_between`, `EIV_belief_selectivity`, `EIV_eeo1_naics3_shares`, `NAICS3_belief_share_regressions`
+**Output:** `output/intermediate/{Full_Sample, Subset_*}/*.parquet`
 
-**Models currently enabled** in `!metafile.R`: **Borda + OLS** only (`run_pl = run_ol = run_ols_centered = FALSE`). The PL / OL / OLSC fitters below still exist and can be toggled back on; downstream `3_create_tables_figures/` scripts auto-detect whichever models the `variance` / `Coefficients` sheets contain.
+- Each `Subset_*` run writes only `Coefficients` (with MLE `estimate` and EB-shrunk `eb` columns), `rcov`, and `variance`, and only for the pooled race, pooled gender, and conduct-age outcomes used by subgroup exhibits.
+- The `Full_Sample` run writes those three sheets for the full outcome set and additionally writes `covariance`, `EIV_firm`, `belief_amad_summary`, `belief_likert_amad_firm`, `LinkedIn_firm_shares`, `LinkedIn_belief_share_regressions`, `EIV_linkedin_shares`, and `EIV_belief_selectivity`.
+- Correlations are not stored as an intermediate sheet. Section 3 builds the needed correlation rows on demand from the full-sample `variance` and `covariance` sheets.
 
-- `!metafile.R` --- runs `run_analysis_pipeline()` for full sample, then loops over 18 subsets
+**Models implemented and enabled:** **Borda + OLS**. Downstream `3_create_tables_figures/` scripts use the models present in the `variance` and `Coefficients` sheets.
+
+- `!metafile.R` --- runs the full-sample pipeline and AMAD/Yimfor add-ons, runs the reduced pipeline for 18 subgroups, then writes the full-sample belief-selectivity EIV sheet
   - `load_all.R` --- sources every helper below (no work itself)
-    - `analysis_pipeline.R` --- orchestrates fit → variance → covariance → correlation → EIV per subset
-    - **Model fitters** (long/wide data → `firm_table` + score/cov matrices)
-      - `run_model_ols.R` --- OLS on Likert ratings *(enabled)*
-      - `run_model_borda.R` --- pairwise-win Borda from ranks *(enabled)*
-      - `run_model_ol.R` --- ordered logit on ratings *(disabled)*
-      - `run_model_pl.R` --- Plackett-Luce on ranks *(disabled)*
-      - `run_models_helpers.R`
+    - `analysis_pipeline.R` --- writes coefficients, robust covariance matrices, and variance components for every run; only the full-sample run continues to pairwise covariance and `EIV_firm`
+    - **Model fitting**
+      - `run_models_helpers.R` --- orchestrates Borda and OLS estimation across outcomes and samples
+      - `construct_firm_level_estimates.R` --- constructs firm estimates, covariance matrices, and empirical-Bayes estimates
+      - `compute_firm_mean_ratings.R` --- mean-estimator and influence-function calculations
     - **Data prep**
       - `prep_outcomes.R` --- per-model outcome construction
       - `create_wide_rankings.R` --- long ranks → wide ranking matrix
     - **Score helpers**
-      - `mean_estimator_bread_and_score.R` --- bread/score/robust cov for mean-based estimators (OLS, Borda)
       - `borda_score.R` --- per-respondent Borda computation with reference-firm normalization
     - **Variance / covariance / correlation** (post-fit aggregation across firms)
       - `variance_functions.R` --- per-outcome `variance`, `noise`, `signal`
       - `covariance_functions.R` --- pairwise covariance + cross-sample noise
-      - `correlation_function.R` --- `corr`, `corr_den`, `corr_c` (noise-corrected)
+      - `correlation_function.R` --- builds `corr`, `corr_den`, and noise-corrected `corr_c` in memory when a Section 3 exhibit requests them
       - `katz_correct.R` --- positivity correction for variance components
       - `EB_procedure.R` --- two-step empirical Bayes shrinkage of firm estimates (writes the `eb` column on `Coefficients`)
-      - `belief_summary_amad.R` --- arm/framing-restricted Likert and Borda respondent-pair AMADs, analytical SEs, and decompositions
+      - `belief_summary_amad.R` --- writes `belief_amad_summary` and `belief_likert_amad_firm` from arm/framing-restricted Likert and Borda respondent-pair statistics
     - **EIV regressions**
       - `eivreg.R` --- measurement-error regression with `Σ_error`
       - `eiv_functions.R` --- shared EIV reshaping, measurement-error, and regression helpers
       - `belief_selectivity_eiv.R` --- full-sample belief/selectivity EIV regressions with AER industry fixed effects used by Table 7
-      - `eeo1_naics3_shares.R` --- loads the firm crosswalk and national EEO-1 NAICS3 workforce shares
-      - `eeo1_naics3_eiv.R` --- EIV contact-gap regressions with NAICS3 workforce-share controls
-      - `regress_beliefs_on_eeo1_naics3_shares.R` --- firm-level belief regressions with NAICS3-clustered SEs plus equal-industry specifications
-      - `make_industry_means.R` --- njobs-weighted within/between industry decomposition
+      - `eeo1_naics3_shares.R` --- loads the national EEO-1 NAICS3 shares used for three Yimfor fallback firms
+      - `make_industry_means.R` --- constructs equal-weight industry means and within-industry firm deviations
     - **Misc**
-      - `experimental.R` --- ad-hoc outcome transforms (dif, log_dif, etc.)
+      - `experimental.R` --- validates and selects the retained firm-level race and gender log contact gaps
       - `helper_functions/sheet_functions.R` --- `read_parquet_sheet` / `write_parquet_sheet`
+  - `linkedin_share_analysis.R` --- writes the full-sample Yimfor share, belief/share-regression, and EIV-control sheets
+  - `eeo1_yimfor_correlations.R` --- reports the latest-filing EEO-1/Yimfor correlations used in the draft footnote
 
 ### 3. Tables and figures --- `code/3_create_tables_figures/`
 
@@ -271,21 +209,15 @@ The pipeline runs in three stages, each with its own metafile. The trees below s
    2. `/code/XX/metafile.R` --- File that executes all R scripts in a given subdirectory in the correct order
       1. Whenever a new code file is created, it should be added to the appropriate sub-metafile in the correct order
 
-3. QJE 2022 Figure 9 replication
-   1. `/code/qje_2022_replication` --- Folder that contains self-contained code for reproducing exhibits in Kline-Rose-Walters (2022)
-      1. Includes the Stata metafile, original rr_misc cleaning baseline, corrected-cleaning variant, figure construction scripts, and comparison scripts
-      2. Large inputs and generated outputs live in `qje_2022_replication_data_and_outputs/`, routed through the same GitHub-vs-Dropbox storage switch as `data/` and `output/`
-      3. The full paper replication package lives at `qje_2022_replication_data_and_outputs/data/raw/qje_2022_full_replication_package/` for provenance checks and line diffs against the authors' original code
-
-4. Git LFS hook policy (fail-closed)
+3. Git LFS hook policy (fail-closed)
    1. This repo uses fail-closed hooks in `.githooks/` for `post-checkout`, `post-merge`, and `pre-push`
    2. If a hook cannot parse/validate `data_and_output_storage_location` in `code/globals.R` or cannot apply the expected LFS mode, the Git operation is blocked
    3. Hook changes are repo-local (`git lfs install --local --skip-repo ...` and `git config --local ...`), so this does not modify global Git behavior on a machine 
    
-5. External data files (i.e., not generated by the codebase here) --- stored in the `/data/external` folder 
+4. External data files (i.e., not generated by the codebase here) --- stored in the `/data/external` folder
    1. `2019_Business_Academic_QCQ.txt.gz` --- RefUSA data used for the `A Discrimination Report Card` AER industry code classifications
 
-6. Archive files in `/data/archive`
+5. Archive files in `/data/archive`
    1. `industry_map.xlsx` is a deprecated file that we used to draw our industry codes, `aer_naics2`, from
       1. However, it was unclear where this file and these industry codes came from, so added a file in `data_build` that draws the industry codes directly from the RefUSA data
       2. Added this file to the archive folder for comparison 

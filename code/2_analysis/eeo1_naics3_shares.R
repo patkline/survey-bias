@@ -109,31 +109,3 @@ load_eeo1_naics3_shares <- function(
 
   shares
 }
-
-add_eeo1_naics3_shares_to_firms <- function(
-    data,
-    firm_name_col = "entity",
-    crosswalk = load_firm_naics3_crosswalk(),
-    shares = load_eeo1_naics3_shares()
-) {
-  if (!firm_name_col %in% names(data)) {
-    stop("Firm-name column is missing from the firm-level data: ", firm_name_col)
-  }
-
-  out <- data |>
-    dplyr::left_join(
-      crosswalk,
-      by = stats::setNames("firm_name", firm_name_col)
-    ) |>
-    dplyr::left_join(shares, by = "naics3")
-
-  if (any(is.na(out$naics3))) {
-    stop("At least one firm is missing from the NAICS3 crosswalk.")
-  }
-  if (any(is.na(out$eeo1_black_all_jobs_share)) ||
-      any(is.na(out$eeo1_female_all_jobs_share))) {
-    stop("At least one firm NAICS3 is missing its all-jobs EEO-1 shares.")
-  }
-
-  out
-}

@@ -73,8 +73,9 @@ write_variance_sheet <- function(results, output_dir, sheet_name = "variance") {
   
   models <- intersect(c("OL", "PL", "Borda", "OLS", "OLSC"), names(results$all))
 
-  # infer outcomes present (union over models AND sets — _dm_w/_im_w are only
-  # built for subset97 since njobs is NA for firms outside the subset)
+  # Infer outcomes present across models and both estimation sets. Full-sample
+  # runs also contain the equal-weight industry-mean (_im) and demeaned (_dm)
+  # outcomes constructed before this sheet is written.
   sets_present <- intersect(c("all", "subset97"), names(results))
   survey_vars <- unique(unlist(lapply(sets_present, function(s)
     unlist(lapply(models, function(m) names(results[[s]][[m]])))

@@ -2,14 +2,16 @@
 # Belief-summary AMAD analysis
 # ------------------------------------------------------------------------------
 # Computes respondent-pair statistics used by belief_summary_ols_borda.R and
-# writes one Full_Sample intermediate parquet sheet:
+# writes two Full_Sample intermediate parquet sheets:
 #   - belief_amad_summary
+#   - belief_likert_amad_firm
 #
 # Respondent pairs for discrimination outcomes must share the same question
 # framing. Pooled outcomes must additionally share the same survey arm.
 # ------------------------------------------------------------------------------
 
 BELIEF_AMAD_SUMMARY_SHEET <- "belief_amad_summary"
+BELIEF_LIKERT_AMAD_FIRM_SHEET <- "belief_likert_amad_firm"
 BELIEF_AMAD_EXPECTED_FIRM_COUNT <- 164L
 BELIEF_AMAD_ANCHOR_FIRM_IDS <- c(38L, 76L, 90L)
 
@@ -126,16 +128,6 @@ add_belief_amad_pairing_cells <- function(prep, survey_data, outcome) {
     stop("Failed to attach AMAD pairing cells for ", outcome)
   }
   prep
-}
-
-# For sorted x, each value's coefficient in sum_{i<i'} |x_i-x_i'| is
-# 2i-n-1. This avoids constructing the full pairwise-distance matrix.
-belief_amad_pairwise_abs_sum <- function(x) {
-  x <- sort(suppressWarnings(as.numeric(x)))
-  x <- x[is.finite(x)]
-  n <- length(x)
-  if (n < 2L) return(0)
-  sum((2 * seq_len(n) - n - 1) * x)
 }
 
 # Return sum_{i' != i} |x_i-x_i'| for every input observation.
@@ -512,10 +504,11 @@ run_belief_summary_amad_analysis <- function(
     output_dir = file.path(intermediate, "Full_Sample"),
     outcomes = BELIEF_AMAD_OUTCOMES) {
   summary_rows <- vector("list", length(outcomes))
+  likert_firm_rows <- vector("list", length(outcomes))
 
   for (position in seq_along(outcomes)) {
     outcome <- outcomes[position]
-    message("Computing belief AMAD diagnostics: ", outcome)
+    message("Computing belief AMAD statistics: ", outcome)
     prep <- prepare_pltree_data(
       survey_data, outcome, subgroup_var = NULL, subgroup_filter = NULL
     )
@@ -554,6 +547,8 @@ run_belief_summary_amad_analysis <- function(
         unname(borda_different$summary["firm_count"]),
       stringsAsFactors = FALSE
     )
+    likert_firm_rows[[position]] <- likert$firms %>%
+      dplyr::mutate(outcome = .env$outcome, .before = 1L)
   }
 
   summary_data <- dplyr::bind_rows(summary_rows)
@@ -562,6 +557,77 @@ run_belief_summary_amad_analysis <- function(
     stop("Belief AMAD summary output has incomplete or duplicated outcomes")
   }
 
+  likert_firm_data <- dplyr::bind_rows(likert_firm_rows) %>%
+    dplyr::select(dplyr::all_of(c(
+      "outcome", "firm_id", "probability_different", "amad"
+    )))
+  likert_firm_keys <- c("outcome", "firm_id")
+  if (anyNA(likert_firm_data) ||
+      anyDuplicated(likert_firm_data[likert_firm_keys])) {
+    stop("Firm-level Likert AMAD output has missing or duplicated keys/values")
+  }
+
+  expected_firm_rows <- length(outcomes) * BELIEF_AMAD_EXPECTED_FIRM_COUNT
+  outcome_firm_counts <- table(
+    factor(likert_firm_data$outcome, levels = outcomes)
+  )
+  reference_firm_ids <- sort(unique(likert_firm_data$firm_id))
+  firm_ids_match <- all(vapply(
+    outcomes,
+    function(current_outcome) {
+      identical(
+        sort(likert_firm_data$firm_id[
+          likert_firm_data$outcome == current_outcome
+        ]),
+        reference_firm_ids
+      )
+    },
+    logical(1)
+  ))
+  if (nrow(likert_firm_data) != expected_firm_rows ||
+      any(outcome_firm_counts != BELIEF_AMAD_EXPECTED_FIRM_COUNT) ||
+      length(reference_firm_ids) != BELIEF_AMAD_EXPECTED_FIRM_COUNT ||
+      !firm_ids_match ||
+      !setequal(unique(likert_firm_data$outcome), outcomes)) {
+    stop("Firm-level Likert AMAD output has incomplete outcome-firm coverage")
+  }
+
+  firm_summary_check <- likert_firm_data %>%
+    dplyr::group_by(.data$outcome) %>%
+    dplyr::summarise(
+      likert_amad = mean(.data$amad),
+      likert_probability_different = mean(.data$probability_different),
+      .groups = "drop"
+    ) %>%
+    dplyr::left_join(
+      summary_data %>%
+        dplyr::transmute(
+          outcome = .data$outcome,
+          summary_likert_amad = .data$likert_amad,
+          summary_likert_probability_different =
+            .data$likert_probability_different
+        ),
+      by = "outcome"
+    )
+  if (nrow(firm_summary_check) != length(outcomes) ||
+      !isTRUE(all.equal(
+        firm_summary_check$likert_amad,
+        firm_summary_check$summary_likert_amad,
+        tolerance = sqrt(.Machine$double.eps),
+        check.attributes = FALSE
+      )) ||
+      !isTRUE(all.equal(
+        firm_summary_check$likert_probability_different,
+        firm_summary_check$summary_likert_probability_different,
+        tolerance = sqrt(.Machine$double.eps),
+        check.attributes = FALSE
+      ))) {
+    stop("Firm-level Likert AMAD output does not reconcile to its summary")
+  }
+
   write_parquet_sheet(output_dir, BELIEF_AMAD_SUMMARY_SHEET, summary_data)
-  invisible(list(summary = summary_data))
+  write_parquet_sheet(
+    output_dir, BELIEF_LIKERT_AMAD_FIRM_SHEET, likert_firm_data
+  )
+  invisible(list(summary = summary_data, likert_firms = likert_firm_data))
 }

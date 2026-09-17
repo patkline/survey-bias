@@ -4,7 +4,6 @@ prep_outcomes <- function(data, survey_vars) {
   id_map_list    <- list()
   
   for (outcome in survey_vars) {
-    cat("Preparing:", outcome, "\n")
     prep <- prepare_pltree_data(
       data            = data,
       rank_col        = outcome,

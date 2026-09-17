@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import path globals
-from globals import code, external, dump 
+from globals import external, dump
 
 # ------------------------------------------------------------------------------
 # Import csv of estimation sample of firms, their sic codes, and 
@@ -38,9 +38,6 @@ theta_estimates_race = theta_estimates_race[["firm_id", "sic_combined", "sic_gro
         "sic_combined": "sic_code_two_digit_aer_replication_package", 
         "sic_grouped_code": "sic_code_aer_two_digit_aggregated_aer_replication_package"}
     )
-
-# Export cleaned dataframe to csv in my scratch folder to view 
-#theta_estimates_race.to_csv(code / "scratch_nico" / "firm_industry_crosswalk_aer_replication_package.csv", index = False)
 
 # ------------------------------------------------------------------------------
 # Merge names from aer replication package 

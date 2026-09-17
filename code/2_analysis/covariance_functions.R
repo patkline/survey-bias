@@ -393,7 +393,6 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
         v2 <- pair[[2]]
         
         if (!is.null(model_all[[v1]]) && !is.null(model_all[[v2]])) {
-          message("Covariance Calculation for model = ", model, ", subset = all, outcome1 = ", v1, ", outcome2 = ", v2)
           out <- compute_pairwise_cov_and_noise(model_all[[v1]], model_all[[v2]])
           rows[[k]] <- pairwise_covariance_row(v1, v2, "all", model, out)
           k <- k + 1L
@@ -414,7 +413,6 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
         v2 <- pair[[2]]
         
         if (!is.null(model_97[[v1]]) && !is.null(model_97[[v2]])) {
-          message("Covariance Calculation for model = ", model, ", subset = 97, outcome1 = ", v1, ", outcome2 = ", v2)
           out <- compute_pairwise_cov_and_noise(model_97[[v1]], model_97[[v2]])
           rows[[k]] <- pairwise_covariance_row(v1, v2, "subset97", model, out)
           k <- k + 1L
@@ -434,8 +432,6 @@ write_covariance_sheet <- function(results, output_dir, sheet_name = "covariance
       for (outcome_name in unique(survey_vars[!is.na(survey_vars) & nzchar(survey_vars)])) {
 
         if (!is.null(level_results[["OLS"]][[outcome_name]]) && !is.null(level_results[["Borda"]][[outcome_name]])) {
-          message("Covariance Calculation for model = OLS_x_Borda, subset = ", sub("^subset", "", level_name), ", outcome = ", outcome_name)
-
           # The two aggregation methods must cover identical firm sets; the pairwise machinery silently intersects otherwise
           stopifnot(identical(
             sort(grep("^entity\\d+$", names(level_results[["OLS"]][[outcome_name]]$mats$S), value = TRUE)),

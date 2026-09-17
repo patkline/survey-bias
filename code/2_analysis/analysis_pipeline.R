@@ -4,105 +4,12 @@
 #
 # Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-# PIPELINE
-# ------------------------------------------------------------------------------
-write_between_industry_correlation_sheets <- function(
-    results,
-    output_dir,
-    survey_vars,
-    variance_df = NULL
-) {
-  if (is.null(variance_df)) {
-    variance_df <- read_parquet_sheet(output_dir, "variance")
-  }
-
-  between_industry_vars <- paste0(survey_vars, "_im_w")
-  between_industry_vars <- intersect(
-    between_industry_vars,
-    unique(as.character(variance_df$outcome))
-  )
-
-  if (length(between_industry_vars) < 2L) {
-    stop(
-      "Cannot build between-industry correlation sheet: fewer than two _im_w ",
-      "outcomes were found in the variance sheet.",
-      call. = FALSE
-    )
-  }
-
-  covariance_between_industry_df <- write_covariance_sheet(
-    results = results,
-    output_dir = output_dir,
-    sheet_name = "covariance_between_industry",
-    survey_vars = between_industry_vars
-  )
-
-  corr_between_industry_df <- build_correlation_from_varcov(
-    variance_df,
-    covariance_between_industry_df
-  )
-
-  write_parquet_sheet(
-    output_dir,
-    "correlation_between_industry",
-    corr_between_industry_df
-  )
-
-  invisible(corr_between_industry_df)
-}
-
-write_within_industry_correlation_sheets <- function(
-    results,
-    output_dir,
-    survey_vars,
-    variance_df = NULL
-) {
-  if (is.null(variance_df)) {
-    variance_df <- read_parquet_sheet(output_dir, "variance")
-  }
-
-  within_industry_vars <- paste0(survey_vars, "_dm_w")
-  within_industry_vars <- intersect(
-    within_industry_vars,
-    unique(as.character(variance_df$outcome))
-  )
-
-  if (length(within_industry_vars) < 2L) {
-    stop(
-      "Cannot build within-industry correlation sheet: fewer than two _dm_w ",
-      "outcomes were found in the variance sheet.",
-      call. = FALSE
-    )
-  }
-
-  covariance_within_industry_df <- write_covariance_sheet(
-    results = results,
-    output_dir = output_dir,
-    sheet_name = "covariance_within_industry",
-    survey_vars = within_industry_vars
-  )
-
-  corr_within_industry_df <- build_correlation_from_varcov(
-    variance_df,
-    covariance_within_industry_df
-  )
-
-  write_parquet_sheet(
-    output_dir,
-    "correlation_within_industry",
-    corr_within_industry_df
-  )
-
-  invisible(corr_within_industry_df)
-}
-
 run_analysis_pipeline <- function(
-    data, respondent_col, survey_vars, experimental_vars = NULL,
+    data, survey_vars, experimental_vars = NULL,
     subset_var = NULL, subset_value = NULL,
     output_dir, firms97 = NULL,
-    run_ol = FALSE, run_pl = FALSE, run_borda = FALSE, run_ols = FALSE, run_ols_centered = FALSE,
-    combine_valences = FALSE, valence_triples = NULL, industry_means = FALSE,
+    run_borda = TRUE, run_ols = TRUE,
+    industry_mean_outcomes = NULL,
     seed = 123
 ) {
 
@@ -118,27 +25,26 @@ run_analysis_pipeline <- function(
     data <- data %>% dplyr::filter(!!sym(subset_var) == subset_value)
   }
 
-  prefix_map <- list(OL = "ol", PL = "pl", Borda = "b", OLS = "ols", OLSC = "olsc")
+  is_full_sample <- is.null(subset_var) && is.null(subset_value)
 
   # Ensure output directory exists (one parquet file per sheet lives here)
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   }
 
-  # Map from firms to industries using aer_naics2 + AER bin name already merged into analysis data
-  industry_map <- data %>%
-    dplyr::select(firm_id, aer_naics2, aer_naics2_name) %>%
-    dplyr::distinct() %>%
-    dplyr::mutate(firm_id = as.integer(firm_id))
+  # Industry information is needed only for full-sample industry means and EIV.
+  industry_map <- NULL
+  if (is_full_sample) {
+    stopifnot(all(c("firm_id", "aer_naics2", "aer_naics2_name") %in% names(data)))
 
-  # Assert firm_id, aer_naics2, and aer_naics2_name variables exist in analysis data
-  stopifnot(all(c("firm_id", "aer_naics2", "aer_naics2_name") %in% names(data)))
+    industry_map <- data %>%
+      dplyr::select(firm_id, aer_naics2, aer_naics2_name) %>%
+      dplyr::distinct() %>%
+      dplyr::mutate(firm_id = as.integer(firm_id))
 
-  # Assert there is one unique aer_naics2 value per firm_id in industry map
-  stopifnot(nrow(industry_map) == dplyr::n_distinct(industry_map$firm_id))
-
-  # Assert aer_naics2 is non-missing for all firm_id values in industry map
-  stopifnot(sum(is.na(industry_map$aer_naics2)) == 0)
+    stopifnot(nrow(industry_map) == dplyr::n_distinct(industry_map$firm_id))
+    stopifnot(!anyNA(industry_map$aer_naics2))
+  }
   
   # Prepare Outcomes for Analysis
   prep <- prep_outcomes(data, survey_vars)
@@ -151,19 +57,14 @@ run_analysis_pipeline <- function(
 ################################################################################ 
   results <- run_models(
     survey_vars = survey_vars,
-    respondent_col = respondent_col,
     data_wide_list = data_wide_list,
     data_long_list = data_long_list,
     id_map_list    = id_map_list,
-    experimental_vars = experimental_vars,
-    data_for_experimental = data,   # only if your subset97 writer needs it
     run_borda = run_borda,
     run_ols = run_ols,
     firms97 = firms97,
     seed = seed,
-    build_subset97 = TRUE,
-    combine_valences = combine_valences,
-    valence_triples = valence_triples
+    build_subset97 = TRUE
   )
 
   message("✅ Step 1 Complete. Output directory: ", output_dir)
@@ -171,31 +72,26 @@ run_analysis_pipeline <- function(
 ################################################################################
 ## Step 1b: Industry means + demeaned outcomes
 ################################################################################
-  if (isTRUE(industry_means)) {
+  if (!is.null(industry_mean_outcomes) && length(industry_mean_outcomes) > 0L) {
+    if (!is_full_sample) {
+      stop("Industry-mean outcomes are only generated for the full-sample run.")
+    }
+    if (!all(industry_mean_outcomes %in% survey_vars)) {
+      stop("Every industry_mean_outcome must also appear in survey_vars.")
+    }
     message("Adding industry means + demeaned outcomes")
-    
-    models_to_transform <- character(0)
-    if (isTRUE(run_ol))           models_to_transform <- c(models_to_transform, "OL")
-    if (isTRUE(run_pl))           models_to_transform <- c(models_to_transform, "PL")
-    if (isTRUE(run_borda))        models_to_transform <- c(models_to_transform, "Borda")
-    if (isTRUE(run_ols))          models_to_transform <- c(models_to_transform, "OLS")
-    if (isTRUE(run_ols_centered)) models_to_transform <- c(models_to_transform, "OLSC")
+    models_to_transform <- c(if (isTRUE(run_borda)) "Borda", if (isTRUE(run_ols)) "OLS")
     
     results <- add_industry_means_to_results(
       results       = results,
       industry_map  = industry_map,
-      outcomes      = survey_vars,
+      outcomes      = industry_mean_outcomes,
       model_names   = models_to_transform,
       which_sets    = c("all", "subset97"),
       industry_col  = "aer_naics2",
       suffix_dm     = "_dm",
       suffix_im     = "_im",
-      
-      # NEW: weighted versions using firm_table$njobs
-      weight_col    = "njobs",
-      suffix_dm_w   = "_dm_w",
-      suffix_im_w   = "_im_w",
-      require_positive_weights = TRUE
+      entity_weight_col = "njobs"
     )
   }
   
@@ -209,8 +105,7 @@ run_analysis_pipeline <- function(
     sheet_name = "Coefficients",
     include_sets = c("all","subset97"),
     data_for_experimental = data,
-    experimental_vars = experimental_vars,
-    industry_map = industry_map
+    experimental_vars = experimental_vars
   )
 
   message("Writing rcov outputs after Step 2")
@@ -230,68 +125,29 @@ run_analysis_pipeline <- function(
 
   message("✅ Step 2 Complete. Output directory: ", output_dir)
 
+  # Subgroup draft exhibits use only Coefficients, rcov, and variance.
+  if (!is_full_sample) {
+    return(invisible(NULL))
+  }
+
 ################################################################################
 ## Step 3: Covariance, Noise, Signal Covariance
 ################################################################################
-  # Step 3: Covariance + noise12
   message("Covariance Denoising")
-  
-  if (!is.null(valence_triples)) {
-    new_outcomes <- vapply(valence_triples, `[[`, character(1), "new_outcome")
-    variables <- c(survey_vars, new_outcomes)
-  } else {
-    variables <- survey_vars
-  }
-  covariance_df <- write_covariance_sheet(results, output_dir, sheet_name = "covariance", survey_vars = variables)
+  covariance_df <- write_covariance_sheet(
+    results,
+    output_dir,
+    sheet_name = "covariance",
+    survey_vars = survey_vars
+  )
 
   message("✅ Step 3 Complete. Output directory: ", output_dir)
 
 ################################################################################
-## Step 4: Correlation
-################################################################################
-  message("Correlation Calculations")
-  corr_df <- build_correlation_from_varcov(variance_df, covariance_df)
-
-  write_parquet_sheet(output_dir, "correlation", corr_df)
-
-  if (isTRUE(industry_means)) {
-    message("Within-industry Correlation Calculations")
-    write_within_industry_correlation_sheets(
-      results = results,
-      output_dir = output_dir,
-      survey_vars = survey_vars,
-      variance_df = variance_df
-    )
-
-    message("Between-industry Correlation Calculations")
-    write_between_industry_correlation_sheets(
-      results = results,
-      output_dir = output_dir,
-      survey_vars = survey_vars,
-      variance_df = variance_df
-    )
-  }
-
-  message("✅ Step 4 Complete. Output directory: ", output_dir)
-
-################################################################################
-## Step 5: EIV
+## Step 4: EIV
 ################################################################################
   message("Building Noise Matrices for EIV")
-  if (!is.null(valence_triples)) {
-    new_outcomes <- vapply(valence_triples, `[[`, character(1), "new_outcome")
-    variables <- c(survey_vars, new_outcomes)
-  } else {
-    variables <- survey_vars
-  }
-
-  # which models were run?
-  models_to_build <- character(0)
-  if (isTRUE(run_pl))    models_to_build <- c(models_to_build, "PL")
-  if (isTRUE(run_borda)) models_to_build <- c(models_to_build, "Borda")
-  if (isTRUE(run_ol))    models_to_build <- c(models_to_build, "OL")
-  if (isTRUE(run_ols))    models_to_build <- c(models_to_build, "OLS")
-  if (isTRUE(run_ols_centered))    models_to_build <- c(models_to_build, "OLSC")
+  models_to_build <- c(if (isTRUE(run_borda)) "Borda", if (isTRUE(run_ols)) "OLS")
   
   # build one noise matrix per model (subset97)
   noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
@@ -300,70 +156,31 @@ run_analysis_pipeline <- function(
     noise_mats_97[[m]] <- build_noise_matrix(
       variance_df   = variance_df,
       covariance_df = covariance_df,
-      outcomes      = variables,
+      outcomes      = survey_vars,
       subset_value  = "subset97",
       model_value   = m
     )
   }
 
-  # Optional convenience objects if you still want them:
-  N97_PL    <- if ("PL"    %in% names(noise_mats_97)) noise_mats_97[["PL"]]    else NULL
-  N97_Borda <- if ("Borda" %in% names(noise_mats_97)) noise_mats_97[["Borda"]] else NULL
-  N97_OL    <- if ("OL"    %in% names(noise_mats_97)) noise_mats_97[["OL"]]    else NULL
-  N97_OLS    <- if ("OLS"    %in% names(noise_mats_97)) noise_mats_97[["OLS"]]    else NULL
-  N97_OLSC    <- if ("OLSC"    %in% names(noise_mats_97)) noise_mats_97[["OLSC"]]    else NULL
-
-  # List of Specifications
-  regs_uni <- list(
-    list(lhs = "cb_central_full",   rhs = c("discretion")),
+  # EIV specifications used by Tables 7--8 and Appendix Tables A5--A6.
+  eiv_specs <- list(
     list(lhs = "log_dif",           rhs = c("FirmCont_favor_white")),
     list(lhs = "log_dif",           rhs = c("conduct_favor_white")),
     list(lhs = "log_dif",           rhs = c("pooled_favor_white")),
-    list(lhs = "log_dif",           rhs = c("FirmCont_favor_white_ep")),
-    list(lhs = "log_dif",           rhs = c("pooled_favor_white_ep")),
     list(lhs = "log_dif",           rhs = c("FirmSelective")),
     list(lhs = "log_dif",           rhs = c("discretion")),
     list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male")),
     list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male")),
     list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male")),
-    list(lhs = "log_dif_gender",    rhs = c("FirmCont_favor_male_ep")),
-    list(lhs = "log_dif_gender",    rhs = c("conduct_favor_male_ep")),
-    list(lhs = "log_dif_gender",    rhs = c("pooled_favor_male_ep")),
     list(lhs = "log_dif_gender",    rhs = c("FirmSelective")),
-    list(lhs = "log_dif_gender",    rhs = c("discretion")),
-    list(lhs = "log_dif_gender_sq", rhs = c("FirmCont_favor_male")),
-    list(lhs = "log_dif_gender_sq", rhs = c("conduct_favor_male")),
-    list(lhs = "log_dif_gender_sq", rhs = c("pooled_favor_male")),
-    list(lhs = "log_dif_gender_sq", rhs = c("FirmSelective")),
-    list(lhs = "log_dif_gender_sq", rhs = c("discretion")),
-    list(lhs = "log_dif_sq",        rhs = c("FirmCont_favor_white")),
-    list(lhs = "log_dif_sq",        rhs = c("conduct_favor_white")),
-    list(lhs = "log_dif_sq",        rhs = c("pooled_favor_white")),
-    list(lhs = "log_dif_sq",        rhs = c("FirmSelective")),
-    list(lhs = "log_dif_sq",        rhs = c("discretion")),
-    list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger")),
-    list(lhs = "log_dif_age",       rhs = c("conduct_favor_younger_ep")),
-    list(lhs = "log_dif_age",       rhs = c("FirmSelective")),
-    list(lhs = "log_dif_age",       rhs = c("discretion"))
+    list(lhs = "log_dif_gender",    rhs = c("discretion"))
   )
-
-  # Bivariate (joint Selectivity + Discretion) specs --- computed into EIV_firm but no results script consumes them; the bivariate result tables were removed
-  regs_bi <- list(
-    list(lhs = "log_dif",        rhs = c("FirmSelective", "discretion")),
-    list(lhs = "log_dif_gender", rhs = c("FirmSelective", "discretion")),
-    list(lhs = "log_dif_age",    rhs = c("FirmSelective", "discretion"))
-  )
-
-  regs_all <- c(regs_uni, regs_bi)
   
   message("Build EIV Dataframes")
-  # (optional) filter to a subset for EIV
   coef_long_97 <- coef_long_df |> dplyr::filter(.data$subset == "subset97")
-  
   coef_firm <- coef_long_97 |> dplyr::filter(.data$entity_type == "Firm")
-  coef_ind  <- coef_long_97 |> dplyr::filter(.data$entity_type == "Industry")
   
-  to_wide_by_outcome <- function(df_long, data) {
+  to_wide_by_outcome <- function(df_long) {
     df_wide <- df_long |>
       dplyr::filter(model != "EXPERIMENTAL") |>
       dplyr::select(model, entity_id, entity, outcome, estimate, njobs) |>
@@ -376,188 +193,38 @@ run_analysis_pipeline <- function(
     
     experimental <- df_long |>
       dplyr::filter(model == "EXPERIMENTAL") |>
-      dplyr::select(entity_id, entity, outcome, estimate) |>
+      dplyr::select(entity_id, outcome, estimate) |>
       dplyr::distinct() |>
       tidyr::pivot_wider(
-        id_cols = c(entity_id, entity),
+        id_cols = entity_id,
         names_from = outcome,
         values_from = estimate
       )
     
-    df_final <- left_join(df_wide, experimental, by="entity_id")
-    
-    return(df_final)
+    dplyr::left_join(df_wide, experimental, by = "entity_id")
   }
   
-  coef_firm_wide <- to_wide_by_outcome(coef_firm) %>% left_join(industry_map %>% rename(entity_id = firm_id), by="entity_id")
-  coef_ind_wide  <- to_wide_by_outcome(coef_ind)
+  coef_firm_wide <- to_wide_by_outcome(coef_firm) %>%
+    dplyr::left_join(
+      industry_map %>% dplyr::rename(entity_id = firm_id),
+      by = "entity_id"
+    )
 
   message("Running EIV")
 
-  models_to_run_eiv <- intersect(c("PL", "Borda", "OL", "OLS", "OLSC"), names(noise_mats_97))
-
-  eiv_df_firm <- write_eiv_sheet(
+  write_eiv_sheet(
     output_dir,
     sheet_name = "EIV_firm",
-    regs = regs_all,
+    regs = eiv_specs,
     coef_df_wide = coef_firm_wide,
     noise_mats_97 = noise_mats_97,
-    models = names(noise_mats_97),
+    models = models_to_build,
     id_col = "entity_id",
     model_col = "model",
     fe_col = "aer_naics2",
     weights_col = "njobs"
   )
 
-  message("✅ Step 5 Complete. Output directory: ", output_dir)
-
-################################################################################
-## Step 5b: Within/Between Industry EIV
-################################################################################
-  message("Building Within/Between Industry EIV")
-
-  # RHS outcomes for within (demeaned) and between (industry means) — njobs-weighted
-  dm_rhs_outcomes <- c(
-    "FirmCont_favor_white_dm_w", "conduct_favor_white_dm_w", "pooled_favor_white_dm_w",
-    "FirmCont_favor_male_dm_w",  "conduct_favor_male_dm_w",  "pooled_favor_male_dm_w",
-    "conduct_favor_younger_dm_w", "FirmSelective_dm_w"
-  )
-  im_rhs_outcomes <- c(
-    "FirmCont_favor_white_im_w", "conduct_favor_white_im_w", "pooled_favor_white_im_w",
-    "FirmCont_favor_male_im_w",  "conduct_favor_male_im_w",  "pooled_favor_male_im_w",
-    "conduct_favor_younger_im_w", "FirmSelective_im_w"
-  )
-
-  # Build noise matrices for _dm and _im outcomes
-  covariance_dm_df <- read_parquet_sheet(output_dir, "covariance_within_industry")
-  covariance_im_df <- read_parquet_sheet(output_dir, "covariance_between_industry")
-
-  noise_dm_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
-  noise_im_97 <- setNames(vector("list", length(models_to_build)), models_to_build)
-
-  for (m in models_to_build) {
-    noise_dm_97[[m]] <- build_noise_matrix(
-      variance_df, covariance_dm_df, outcomes = dm_rhs_outcomes,
-      subset_value = "subset97", model_value = m
-    )
-    noise_im_97[[m]] <- build_noise_matrix(
-      variance_df, covariance_im_df, outcomes = im_rhs_outcomes,
-      subset_value = "subset97", model_value = m
-    )
-  }
-
-  # Compute demeaned LHS vars (experimental outcomes demeaned by njobs-weighted industry mean)
-  lhs_to_demean <- c("log_dif", "log_dif_gender", "log_dif_age")
-  for (lv in lhs_to_demean) {
-    if (lv %in% names(coef_firm_wide)) {
-      coef_firm_wide <- coef_firm_wide |>
-        dplyr::group_by(model, aer_naics2) |>
-        dplyr::mutate(
-          !!paste0(lv, "_dm_w") := .data[[lv]] -
-            stats::weighted.mean(.data[[lv]], w = njobs, na.rm = TRUE)
-        ) |>
-        dplyr::ungroup()
-    }
-  }
-
-  # Within-industry EIV specs (no industry FE — already demeaned)
-  regs_within <- list(
-    list(lhs = "log_dif_dm_w",        rhs = c("FirmCont_favor_white_dm_w")),
-    list(lhs = "log_dif_dm_w",        rhs = c("conduct_favor_white_dm_w")),
-    list(lhs = "log_dif_dm_w",        rhs = c("pooled_favor_white_dm_w")),
-    list(lhs = "log_dif_gender_dm_w", rhs = c("FirmCont_favor_male_dm_w")),
-    list(lhs = "log_dif_gender_dm_w", rhs = c("conduct_favor_male_dm_w")),
-    list(lhs = "log_dif_gender_dm_w", rhs = c("pooled_favor_male_dm_w")),
-    list(lhs = "log_dif_age_dm_w",    rhs = c("conduct_favor_younger_dm_w"))
-  )
-
-  write_eiv_sheet(
-    output_dir, sheet_name = "EIV_within",
-    regs = regs_within,
-    coef_df_wide = coef_firm_wide,
-    noise_mats_97 = noise_dm_97,
-    models = models_to_run_eiv,
-    id_col = "entity_id",
-    model_col = "model",
-    use_fe = FALSE,
-    weights_col = "njobs"
-  )
-
-  regs_within_selectivity <- list(
-    list(lhs = "log_dif_dm_w",
-         rhs = c("pooled_favor_white_dm_w", "FirmSelective_dm_w"))
-  )
-
-  write_eiv_sheet(
-    output_dir, sheet_name = "EIV_within_selectivity",
-    regs = regs_within_selectivity,
-    coef_df_wide = coef_firm_wide,
-    noise_mats_97 = noise_dm_97,
-    models = models_to_run_eiv,
-    id_col = "entity_id",
-    model_col = "model",
-    use_fe = FALSE,
-    weights_col = "njobs"
-  )
-
-  # Between-industry: build industry-level dataframe
-  # Compute njobs-weighted industry means of experimental LHS vars from firm data
-  lhs_im <- coef_firm_wide |>
-    dplyr::group_by(model, aer_naics2) |>
-    dplyr::summarize(
-      log_dif_im_w        = stats::weighted.mean(log_dif,        w = njobs, na.rm = TRUE),
-      log_dif_gender_im_w = stats::weighted.mean(log_dif_gender, w = njobs, na.rm = TRUE),
-      log_dif_age_im_w    = stats::weighted.mean(log_dif_age,    w = njobs, na.rm = TRUE),
-      .groups = "drop"
-    ) |>
-    dplyr::mutate(entity_id = as.integer(aer_naics2)) |>
-    dplyr::select(-aer_naics2)
-
-  # Drop experimental LHS columns from coef_ind_wide before join to avoid .x/.y collision
-  lhs_im_cols <- setdiff(names(lhs_im), c("model", "entity_id"))
-  coef_ind_wide_clean <- coef_ind_wide[, !(names(coef_ind_wide) %in% lhs_im_cols), drop = FALSE]
-  coef_ind_eiv <- dplyr::left_join(coef_ind_wide_clean, lhs_im, by = c("model", "entity_id"))
-
-  # Between-industry EIV specs (no FE — each row is an industry)
-  regs_between <- list(
-    list(lhs = "log_dif_im_w",        rhs = c("FirmCont_favor_white_im_w")),
-    list(lhs = "log_dif_im_w",        rhs = c("conduct_favor_white_im_w")),
-    list(lhs = "log_dif_im_w",        rhs = c("pooled_favor_white_im_w")),
-    list(lhs = "log_dif_gender_im_w", rhs = c("FirmCont_favor_male_im_w")),
-    list(lhs = "log_dif_gender_im_w", rhs = c("conduct_favor_male_im_w")),
-    list(lhs = "log_dif_gender_im_w", rhs = c("pooled_favor_male_im_w")),
-    list(lhs = "log_dif_age_im_w",    rhs = c("conduct_favor_younger_im_w"))
-  )
-
-  write_eiv_sheet(
-    output_dir, sheet_name = "EIV_between",
-    regs = regs_between,
-    coef_df_wide = coef_ind_eiv,
-    noise_mats_97 = noise_im_97,
-    models = models_to_run_eiv,
-    id_col = "entity_id",
-    model_col = "model",
-    use_fe = FALSE,
-    weights_col = "njobs"
-  )
-
-  regs_between_selectivity <- list(
-    list(lhs = "log_dif_im_w",
-         rhs = c("pooled_favor_white_im_w", "FirmSelective_im_w"))
-  )
-
-  write_eiv_sheet(
-    output_dir, sheet_name = "EIV_between_selectivity",
-    regs = regs_between_selectivity,
-    coef_df_wide = coef_ind_eiv,
-    noise_mats_97 = noise_im_97,
-    models = models_to_run_eiv,
-    id_col = "entity_id",
-    model_col = "model",
-    use_fe = FALSE,
-    weights_col = "njobs"
-  )
-
-  message("✅ Step 5b Complete. Output directory: ", output_dir)
-
+  message("✅ Step 4 Complete. Output directory: ", output_dir)
+  invisible(NULL)
 }

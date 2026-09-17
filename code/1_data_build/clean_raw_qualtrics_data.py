@@ -20,45 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import path globals
-from globals import raw, processed, external, dump
-
-#XXremove these once I replace the paths below 
-#project_dir = "~/Documents/consolidated_code_server"
-#path_to_raw = project_dir + "/raw"
-#path_to_data = project_dir + "/data"
-#path_to_processed =  project_dir + "/processed"
-#path_to_external =  project_dir + "/external"
-#path_to_dump =  project_dir + "/dump"
-
-# ------------------------------------------------------------------------------
-# Adjust python settings
-# ------------------------------------------------------------------------------
-
-#warnings.simplefilter("ignore") XX
-
-# Show up to 200 columns when printing dataframes
-pd.options.display.max_columns = 200
-
-# Show up to 1000 rows when printing dataframes
-pd.options.display.max_rows = 1000
-
-# Show up to 200 columns when using df.info()
-pd.set_option('max_info_columns', 200)
-
-# Don't wrap dataframe display across multiple lines (contradicted by next line) XX
-#pd.set_option('expand_frame_repr', False)
-
-# Do wrap dataframe display across multiple lines (overrides previous line)
-pd.set_option('expand_frame_repr', True)
-
-# Allow up to 1000 characters per column when displaying
-pd.set_option('max_colwidth',1000)
-
-# No width limit for display
-pd.set_option('display.width',None)
-
-# Format floating point numbers to 3 decimal places
-pd.set_option('display.float_format', lambda x: '%.3f' % x)
+from globals import raw, processed, external
 
 # ------------------------------------------------------------------------------
 # Import and clean raw survey data
@@ -66,9 +28,6 @@ pd.set_option('display.float_format', lambda x: '%.3f' % x)
 
 # Load the probability samples
 df = pd.read_csv(raw / 'prob/RR_Qualtrics_September 5, 2023_10.16.csv')
-
-# The first rows contains the actual question, save it in a separate object
-questions = df.iloc[0]
 
 # Confirm that the first two rows are not actual observations
 assert df.iloc[0]['Status'] != 'IP Address', "First row should be metadata, not an observation"
@@ -129,11 +88,8 @@ for col in dem.columns:
         df.loc[df._merge == 'both','Q110'] = df.loc[df._merge == 'both','Q110_missdem']
         df.drop(columns='Q110_missdem', inplace=True)
     
-    # For all other variables in the dem dataframe and for all observations that exist in both datasets, replace value in df dataframe with those in dem dataframe, and drop the dem variables
-    
-    # XXfor cases where both datasets have non-missing values, should check whether we want to replace the original value in the df dataframe with the value in the dem dataframe, since there are cases where they are different
+    # Treat the demographic append as authoritative for matched responses.
     else:
-        #XX assert (df.loc[df['*Q111'].notna() & df['Q111'].notna(), '*Q111'] == df.loc[df['*Q111'].notna() & df['Q111'].notna(), 'Q111']).all()
         df.loc[df._merge == 'both',f'*{col}'] = df.loc[df._merge == 'both', f'{col}']
         df.drop(columns =col, inplace=True)
 
@@ -147,37 +103,16 @@ df_app = pd.read_csv(raw / 'RR_Qualtrics_February 5, 2024_11.05.csv')
 assert df_app.iloc[0]['Status'] != 'IP Address', "First row should be metadata, not an observation"
 assert df_app.iloc[1]['Status'] != 'IP Address', "Second row should be metadata, not an observation"
 
-# Remove observations where status variable is "Response Type", "{"ImportId":"status"}", "Survey Preview", or "Spam"
-# XXCheck that I should be doing this --- checked from observation that this removes the 10 obsesrvations, but this code is a bit too ad-hoc 
+# Remove metadata, preview, and spam rows from the appended export.
 df_app = df_app.loc[~df_app['Status'].isin(['Response Type', '{"ImportId":"status"}', 'Survey Preview', 'Spam'])]
 
-# Remove the first two rows --- XXthis strikes me as just having been copied from the code that cleans the original df dataframe, but I think the new data has a different structure such that the index-based removal is not appropriate
-#df_app = df_app.iloc[2:]
-
 # Confirm that all remaining rows are actual observations
-assert (df_app.iloc[2:]['Status'] == 'IP Address').all(), "All rows aside from the first two should be observations"
+assert (df_app['Status'] == 'IP Address').all(), "All remaining rows should be observations"
 
 # Define "sample" variable with value 1 for the "prob" sample and 0 for the "conv" sample
 df_app['sample'] = df_app['S'].apply(lambda x: 1 if x == "prob" else 0)
 
-# Check how many ResponseIds in df_app are also in df
-# 9189 responses exist in both datasets; 1071 are new responses in df_app
-print(df_app.ResponseId.isin(df.ResponseId).value_counts())
-
-# Check how many responses in df are also in df_app
-# 9189 responses exist in both datasets
-print(df.ResponseId.isin(df_app.ResponseId).value_counts())
-
-#Note. Preceding two commands indicate that the new survey round is a superset of the prior one 
-
-# Define new dataframe containing only new responses in df_app that were recorded before the chronological last date in the original df dataframe 
-# XXWhat does excluded mean here?
-# XXShould we be doing anything with these excluded observations? Looks like this variable is not used at all after this point
-excluded = df_app.loc[~df_app.ResponseId.isin(df.ResponseId) 
-    & (df_app.StartDate <= df.StartDate.max())]
-
-# Keep only observations in the df_app dataframe that were recorded after the last date in the original df dataframe
-#XXonly 44 observations get kept here; is that what we want?
+# Keep appended observations recorded after the last date in the original export.
 df_app = df_app.loc[df_app.StartDate > df.StartDate.max()]
   
 # Append the 44 new observations in df_app to the original df dataframe
@@ -186,16 +121,11 @@ df = pd.concat([df, df_app], ignore_index=True)
 # Check that the dataset is unique on ResponseId
 assert df.ResponseId.nunique() == df.shape[0]
 
-# Remove preview answers
-#XXdo not need this anymore since I removed preview answers above
-#df = df.loc[df.DistributionChannel != 'preview']
-
 # Check that distribution channel is never preview 
 assert (df.DistributionChannel != 'preview').all()
 
 # ------------------------------------------------------------------------------
 # Rename and recode variables
-# XXstopped checking carefully here --- should go back and do so
 # ------------------------------------------------------------------------------
 
 # Rename question columns
@@ -224,7 +154,6 @@ df.rename(columns={
                      }, inplace = True)
 
 for var, name in [
-            ('Q88','name_contact'),
             ('Q210','conduct_female'),
             ('Q127','conduct_male'),
             ('Q248','conduct_older'),
@@ -233,25 +162,14 @@ for var, name in [
     for k in range(1,6):
         df.rename(columns={f"{var}_{k}":f"{name}_{k}"}, inplace=True)
 
-for var in ['firm','name']:
-    for k in range(1,6):
-        df.rename(columns={f"{var}{k}":f"{var}_{k}"}, inplace=True)
-
-# Map observations with anonymous distribution channel to convenience sample 
-df.loc[df.DistributionChannel == 'anonymous', 'sample_type'] = 'conv'
-
-# Map observations with gl distribution channel to prob sample
-df.loc[df.DistributionChannel == 'gl', 'sample_type'] = 'prob'
-
-# Check that there are no missing values in sample_type
-assert df.sample_type.isnull().sum() == 0
+for k in range(1,6):
+    df.rename(columns={f"firm{k}":f"firm_{k}"}, inplace=True)
 
 # Check that there are no missing values in the sample variable
 assert df['sample'].isnull().sum() == 0
 
 # ------------------------------------------------------------------------------
-# Generate long version of conduct and name questions, then 
-# merge together  
+# Generate long version of conduct questions
 # ------------------------------------------------------------------------------
 
 ###  Generate long version of conduct questions
@@ -286,29 +204,6 @@ dflong = pd.wide_to_long(dflong, tokeep,
 
 # Convert option_number from string to integer
 dflong['option_number'] = dflong.option_number.apply(lambda x: int(x[1:]))
-
-###  Generate long version of name questions
-# Define list of the 4 firm evaluation/conduct questions
-tokeep = [  'name',
-            'name_contact',
-            'NameRace_wfirst0',
-            'NameRace_wfirst1'
-            ]
-
-# Create dataframe with only the unique response id + 4 base name variables x 5 names = 20 total name variables 
-nameslong = df[['ResponseId'] +
-    [c + f"_{k}" for c in tokeep for k in range(1,6)]].copy()
-
-# Reshape dataframe to long format, with one row per respondent-name number combination
-nameslong = pd.wide_to_long(nameslong, tokeep, 
-            i='ResponseId', j='option_number', suffix=r'_([0-5])').reset_index()
-
-# Convert option_number from string to integer
-nameslong['option_number'] = nameslong.option_number.apply(lambda x: int(x[1:]))
-
-# Merge long conduct and name dataframes together
-dflong = dflong.merge(nameslong, how='left',
-        on=['ResponseId','option_number'], validate='1:1')
 
 # ------------------------------------------------------------------------------
 # Recode responses in the long dataframe 
@@ -347,12 +242,11 @@ for var in ['FirmSelective','FirmDesire',
             'conduct_female','conduct_male',
             'conduct_older','conduct_younger',
             'discretion',
-            'name_contact',
-            'NameRace_wfirst0','NameRace_wfirst1',
              ]:
     dflong[var] = dflong[var].replace(replace_dict)
     dflong[var] = pd.to_numeric(dflong[var])
-    print(dflong[var].value_counts())
+    invalid_values = set(dflong[var].dropna().unique()) - {-1, 1, 2, 3, 4, 5}
+    assert not invalid_values, f"Unexpected recoded values in {var}: {invalid_values}"
 
 # ------------------------------------------------------------------
 # Flip FirmSelective (only 1..5; preserve NA and -1)
@@ -435,71 +329,31 @@ dflong['conduct_favor_younger'] = np.where(
 )
 
 
-# ------------------------------------------------------------------
-# Name race variable
-# ------------------------------------------------------------------
-dflong['name_likely_white'] = np.where(
-    dflong['NameRace_wfirst1'].isin([1,2,3,4,5]),
-    dflong['NameRace_wfirst1'],
-    np.where(
-        dflong['NameRace_wfirst0'].isin([1,2,3,4,5]),
-        6 - dflong['NameRace_wfirst0'],
-        dflong['NameRace_wfirst0']
-    )
-)
-
 # ------------------------------------------------------------------------------
 # Clean and merge experimental datasets together, and merge 
 # onto long data 
 # ------------------------------------------------------------------------------
 
-# Store various experimental estimates in Python objects
-exp_ev = pd.read_csv(external / 'theta_estimates_wjobs_v7.csv')
-exp_ev_g = pd.read_csv(external / 'theta_estimates_wjobs_v7gender.csv')
-exp_ev_40 = pd.read_csv(external / 'theta_estimates_wjobs_v7over40.csv')
-exp_ev_ranking = pd.read_csv(external / 'theta_estimates_wjobs_v7_ranking.csv')
-exp_cb_central = pd.read_csv(external / 'centralization.csv')
+# Load the race and gender log contact gaps used by the retained EIV tables.
+race_audit_estimates = pd.read_csv(external / 'theta_estimates_wjobs_v7.csv')[
+    ['firm_id', 'njobs', 'log_dif']
+]
+gender_audit_estimates = (
+    pd.read_csv(external / 'theta_estimates_wjobs_v7gender.csv')[['firm_id', 'log_dif']]
+    .rename(columns={'log_dif': 'log_dif_gender'})
+)
 
-#XX looks like this is created from a dofile? if so, just making a note to include this further upsteam in the /data_build/metafile.R and edit the data/export filepaths 
-exp_cb_central_se = pd.read_csv(external / 'centralization_w_se.csv')
-
-# Rename variables in the exp_ev_g dataframe 
-exp_ev_g['dif_gender'] = exp_ev_g.dif
-exp_ev_g['log_dif_gender'] = exp_ev_g.log_dif
-exp_ev_g['dif_se_gender'] = exp_ev_g.dif_se
-exp_ev_g['log_dif_se_gender'] = exp_ev_g.log_dif_se
-exp_ev_g['njobs'] = exp_ev_g.njobs
-
-# Rename variables in the exp_ev_40 dataframe
-exp_ev_40['dif_age'] = exp_ev_40.dif
-exp_ev_40['log_dif_age'] = exp_ev_40.log_dif
-exp_ev_40['dif_se_age'] = exp_ev_40.dif_se
-exp_ev_40['log_dif_se_age'] = exp_ev_40.log_dif_se
-
-# Rename variables in the exp_cb_central dataframe
-exp_cb_central['cb_central_full'] = exp_cb_central.cb_central
-exp_cb_central_se['cb_central_full_se'] = exp_cb_central_se.cb_central_se
-
-# Merge secondary dataframes onto the main exp_ev dataframe
-exp_ev = exp_ev.merge(exp_ev_g[['firm_id', 'dif_gender', 'dif_se_gender', 'log_dif_gender', 'log_dif_se_gender','njobs']], how = 'left', validate = '1:1')
-exp_ev = exp_ev.merge(exp_ev_40[['firm_id', 'dif_age', 'dif_se_age', 'log_dif_age', 'log_dif_se_age']], how = 'left', validate = '1:1')
-exp_ev = exp_ev.merge(exp_ev_ranking[['firm_id', 'groups_lambda0.25']], how = 'left', validate = '1:1')
-exp_ev = exp_ev.merge(exp_cb_central[['firm_id','cb_central_full']], how = 'outer', validate = '1:1')
-exp_ev = exp_ev.merge(exp_cb_central_se[['firm_id','cb_central_full_se']], how = 'outer', validate = '1:1')
-
-# Store firm names in a Python object
+# Use the complete firm-name key as the base so firms without audit estimates
+# retain their firm IDs.
 firms = pd.read_csv(external / 'formatted_firm_names.csv')
-
-# Merge firm names onto exp_ev dataframe 
-exp_ev = exp_ev.merge(firms, how = 'left', validate = '1:1')
+exp_ev = firms.merge(race_audit_estimates, on='firm_id', how='left', validate='1:1')
+exp_ev = exp_ev.merge(gender_audit_estimates, on='firm_id', how='left', validate='1:1')
 
 # Standardize firm codes 
 exp_ev.rename(columns = {'firm_code': 'firm'}, inplace = True)
 
 # Keep necessary variables
-exp_ev = exp_ev[['dif', 'dif_gender', 'log_dif', 'log_dif_gender', 'groups_lambda0.25',
-                 'dif_se', 'dif_se_gender', 'log_dif_se', 'log_dif_se_gender'
-                 , 'dif_age', 'dif_se_age', 'log_dif_age', 'log_dif_se_age', 'firm', 'firm_id','cb_central_full', 'cb_central_full_se','njobs']]
+exp_ev = exp_ev[['log_dif', 'log_dif_gender', 'firm', 'firm_id', 'njobs']]
 
 # Define dictionary to normalize firm names between datasets
 replace_firms = {
@@ -556,20 +410,8 @@ replace_firms = {
 # Apply firm name standardization
 exp_ev.firm.replace(replace_firms, inplace = True)
 
-# Check that all firms in the long dataframe are in the experimental estimates dataframe
-firm_check = dflong[['firm']].drop_duplicates().merge(exp_ev, how = 'outer', validate = '1:1', indicator = True)
-
-# Save the firm check dataframe for review
-firm_check.to_csv(dump / 'check_firms1.csv', index = False)
-
-# Confirm that there are no firms in dflong that are not in exp_ev
-# assert firm_check._merge.value_counts()['right_only'] == 0
-
 # Merge experimental estimates onto long dataframe
 dflong = dflong.merge(exp_ev, how = 'left', validate = 'm:1')
-
-# Confirm that the merge worked correctly by checking number of unique firms with non-missing dif and log_dif values
-# assert dflong.loc[dflong.log_dif.notnull(), ['firm','log_dif']].drop_duplicates().shape[0] == 97
 
 # ------------------------------------------------------------------------------
 # Clean demographic variables and those from other survey 
@@ -586,8 +428,6 @@ df.loc[df.race == 'White', 'race_recode'] = 'White'
 # Replace values for race_recode with Black if original race variable is "Black or African American"
 df.loc[df.race == 'Black or African American', 'race_recode'] = 'Black'
 
-# Convert all characters in the race variable to only letters and spaces 
-# df['race'] = df['race'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z]', ' ', x)).str.strip()
 # Convert all characters in the race variable to only letters and spaces (vectorized, preserves NaN)
 df['race'] = df['race'].astype('object') \
                      .str.replace(r'[^a-zA-Z]', ' ', regex=True) \
@@ -597,7 +437,6 @@ df.loc[df['race'].str.lower() == 'nan', 'race'] = np.nan
 
 ## Education
 # Convert all characters in the educ variable to only letters, numbers, and spaces
-# df['educ'] = df['educ'].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', ' ', x)).str.strip()
 df['educ'] = df['educ'].astype('object') \
                        .str.replace(r'[^a-zA-Z0-9]', ' ', regex=True) \
                        .str.strip()
@@ -614,19 +453,16 @@ df['educ'].replace({'Some college  no degree': 'Some college, no degree',
                      '12th grade no diploma': 'Some years of high school'}, inplace = True)
 
 # Replace "nan" strings with missing values
-# df.loc[df.educ == "nan", 'educ'] = ""
 df.loc[df['educ'].str.lower() == 'nan', 'educ'] = ""
 
 ## Employment
 
 # Convert all characters in the empstat variable to only letters, underscores, numbers, and spaces
-# df['empstat'] = df['empstat'].astype(str).apply(lambda x: re.sub(r'[^\w\s]','',x)).str.strip()
 df['empstat'] = df['empstat'].astype('object') \
                            .str.replace(r'[^\w\s]', '', regex=True) \
                            .str.strip()
 
 # Replace "nan" strings with missing values
-# df.loc[df.empstat == "nan", 'empstat'] = ""
 df.loc[df['empstat'].str.lower() == 'nan', 'empstat'] = ""
 
 # Convert age variable to numeric
@@ -638,11 +474,6 @@ df['zipcode'] = pd.to_numeric(df.zipcode, errors = 'coerce')
 # Create a score for the attention check
 def attention_check(x, i):
     return x[f'attentionFirm{i}'] in [x['firm_1'], x['firm_2'], x['firm_3'], x['firm_4'], x['firm_5']]
-
-# Calculate attention check results for each of the first three firms
-df['attentionFirm1_check'] = df.apply(lambda x: attention_check(x, i = 1), axis = 1)
-df['attentionFirm2_check'] = df.apply(lambda x: attention_check(x, i = 2), axis = 1)
-df['attentionFirm3_check'] = df.apply(lambda x: attention_check(x, i = 3), axis = 1)
 
 # Define a function to calculate the overall attention score
 def count_attention(x):
@@ -695,9 +526,6 @@ dflong = dflong.loc[dflong.attention_score == 1]
 
 # Sort 
 dflong = dflong.sort_values(['ResponseId','option_number'])
-
-# Export cleaned long dataframe to Stata .dta file 
-dflong.to_stata(processed / 'long_survey.dta')
 
 # Export cleaned long dataframe to .csv file 
 dflong.to_csv(processed / 'long_survey.csv', index=False)

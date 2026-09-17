@@ -22,10 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import path globals
-from globals import dump, code, external, processed
-
-# Import tabulate_variable function to tabulate variable distributions in diagnostics
-from tools.define_tabulate_variable import tabulate_variable 
+from globals import dump, external, processed
  
 # ------------------------------------------------------------------------------
 # Import aer replication package and RefUSA firm-industry
@@ -336,9 +333,6 @@ for merge_match_method, merge_match_key_column in merge_match_methods_and_key_co
         if refusa_row_index not in refusa_row_indices_matched_in_current_pass
     ]
 
-# Assert merge status values are right_only or both i.e., that there are only unmatched rows from RefUSA and no unmatched rows from aer replication package
-assert industry_map["merge_status"].isin(["right_only", "both"]).all()
-
 # Assert all aer replication package firms with non-missing two-digit SIC are matched to our data
 aer_replication_package_row_indices_with_non_missing_two_digit_sic = set(
     firm_industry_crosswalk_aer_replication_package.index[
@@ -399,36 +393,10 @@ industry_map = industry_map[
     ]
 ]
 
-# ------------------------------------------------------------------------------
-# Export merged firm-industry crosswalk diagnostics
-# ------------------------------------------------------------------------------
-# Output non-matched rows or those that were matched but still do not have a sic_code_two_digit_aer_replication_package to csv to scratch folder for inspection
-industry_map[(industry_map["merge_status"] != "both") | (industry_map["sic_code_two_digit_aer_replication_package"].isna())].to_csv(code / "scratch_nico" / "temp_industry_map_non_matches.csv", index=False)
-
-# Output rows that were matched but not with uppercase name to scratch folder for inspection
-industry_map[
-    (industry_map["merge_status"] == "both")
-    & (industry_map["merge_match_method"] != "uppercase_name")
-].to_csv(code / "scratch_nico" / "temp_industry_map_matches_non_uppercase.csv", index=False)
-
 # Assert output still has one row per RefUSA firm_clean value
 assert len(industry_map) == industry_map[
     "firm_clean"
 ].nunique()
-
-# ------------------------------------------------------------------------------
-# Export merged firm-industry crosswalk
-# ------------------------------------------------------------------------------
-# Write merged firm-industry crosswalk to dump folder
-industry_map.to_csv(dump / "firm_industry_crosswalk_industry_map.csv", index=False)
-
-# Report output write path and merge status counts
-print(
-    "\n 🎃 Wrote merged firm-industry crosswalk to "
-    f"{dump / 'firm_industry_crosswalk_industry_map.csv'}" 
-    "\n Merge counts"
-    f"🧌 {industry_map['merge_status'].value_counts(dropna=False).to_dict()}."
-)
 
 # ------------------------------------------------------------------------------
 # Export final industry map crosswalk as excel file to processed 
@@ -481,9 +449,6 @@ industry_map = industry_map[
     ]
 ]
 
-# Write one version of industry map with just observations missing sic_code_aggregated_two_digit_harmonized_numeric_aer to my scratch folder as a csv for inspection
-industry_map[industry_map["sic_code_aggregated_two_digit_harmonized_numeric_aer"].isna()].to_csv(code / "scratch_nico" / "temp_industry_map_missing_harmonized_aggregated_sic_numeric_aer.csv", index=False)
-
 # Manually impute manufacturing sic codes (i.e., sic_code_aggregated_two_digit_harmonized_numeric_aer = 24)
 industry_map.loc[
     industry_map["firm_clean"].isin(["DowDuPont", "Jabil", "Whirlpool", "Lear", "Lockheed Martin", "Amphenol", "General Motors", "Boeing", "Carrier", "Otis", "General Electric", "General Dynamics", "Pratt & Whitney", "Ford Motor", "Northrop Grumman"]),
@@ -530,29 +495,5 @@ industry_map["aer_naics2"] = industry_map[
     "sic_code_aggregated_two_digit_harmonized_numeric_aer"
 ].copy()
 
-# Write one version of industry map to the dump folder as a csv 
-industry_map.to_csv(dump / "industry_map.csv", index=False)
-
 # Write one version of industry map to the processed folder as an excel file for use in analysis
 industry_map.to_excel(processed / "industry_map.xlsx", index=False)
-
-# ------------------------------------------------------------------------------
-# Restrict to just the 67 new firms not in the aer paper so Evan 
-# can inspect the industry classifications for these firms 
-# ------------------------------------------------------------------------------ 
-# Merge 
-industry_map_new_firms = industry_map[industry_map["new_firm"]]
-
-# Output to my scratch folder for inspection
-industry_map_new_firms.to_csv(code / "scratch_nico" / "temp_industry_map_new_firms.csv", index=False)
-
-# Confirm same set of firms as in temp_industry_map_non_matches.csv
-assert set(industry_map_new_firms["firm_clean"].astype("string").str.strip()) == set(
-    pd.read_csv(code / "scratch_nico" / "temp_industry_map_non_matches.csv")["firm_clean"].astype("string").str.strip()
-)
-
-# ------------------------------------------------------------------------------
-# Cursory diagnostics
-# ------------------------------------------------------------------------------
-# Number of firms per two-digit SIC code bin 
-tabulate_variable(industry_map, "sic_code_aggregated_two_digit_harmonized_names_aer")

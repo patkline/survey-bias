@@ -4,7 +4,9 @@
 # Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
 # -------------------------------------------------------------------
-# Build correlations from variance + covariance sheets
+# Build correlation rows in memory from stored variance + covariance sheets.
+# Section 3 calls this helper on demand; the pipeline does not persist a
+# separate correlation parquet sheet.
 # - one output row per row in `cov_df`
 # Expects:
 #   var_df has:  subset, model, outcome, variance, signal

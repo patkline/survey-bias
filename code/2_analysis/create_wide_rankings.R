@@ -53,17 +53,6 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
   data_ranked <- data_ranked %>% dplyr::filter(!resp_id %in% respondents_to_drop)
   data_rating <- data_rating %>% dplyr::filter(!resp_id %in% respondents_to_drop)
   
-  # --- NEW: Center + scale ratings (global) ---
-  mu <- mean(data_rating$rating, na.rm = TRUE)
-  sdv <- stats::sd(data_rating$rating, na.rm = TRUE)
-  
-  if (!is.finite(mu) || !is.finite(sdv) || sdv <= 0) {
-    stop("prepare_pltree_data(): rating standard deviation is 0/NA after filtering; cannot z-score.")
-  }
-  
-  data_rating_z <- data_rating %>%
-    dplyr::mutate(rating = (rating - mu) / sdv) 
-  
   # Step 8: Pivot to Wide and Clean
   data_wide_pltree <- data_ranked %>%
     tidyr::pivot_wider(names_from = firm_id, values_from = Rank, names_prefix = "firm")
@@ -71,15 +60,17 @@ prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
   # Replace NA values with 0
   data_wide_pltree[is.na(data_wide_pltree)] <- 0
   
-  # Reorder columns by firm ID (NOTE: this will warn if you have non-firm columns like resp_id)
-  data_wide_pltree <- data_wide_pltree[, order(as.numeric(sub("firm", "", names(data_wide_pltree))))]
+  # Reorder firm columns numerically while leaving identifier columns at the end.
+  firm_cols <- grep("^firm[0-9]+$", names(data_wide_pltree), value = TRUE)
+  firm_cols <- firm_cols[order(as.integer(sub("^firm", "", firm_cols)))]
+  data_wide_pltree <- data_wide_pltree[
+    , c(firm_cols, setdiff(names(data_wide_pltree), firm_cols)), drop = FALSE
+  ]
   
   # Step 10: Return
   return(list(
     data_wide_pltree    = data_wide_pltree,
     id_map              = id_map,
-    data_rating_long    = data_rating,      # raw rating
-    rating_center_mu    = mu,               # <- optional, handy for debugging/repro
-    rating_center_sd    = sdv               # <- optional
+    data_rating_long    = data_rating
   ))
 }

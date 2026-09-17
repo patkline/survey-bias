@@ -104,12 +104,6 @@ alternate_outcome_groups <- list(
   Age = c("conduct_favor_younger", "conduct_younger", "conduct_older")
 )
 
-# Outcomes that get the OLS-EB vs Borda-EB dual-axis plot
-ols_borda_dualaxis_outcomes <- c(
-  "pooled_favor_white", "pooled_favor_male",
-  "conduct_favor_younger", "FirmSelective", "discretion"
-)
-
 # -------------------------------------------------------------------
 # Display label helper used by every variance-table script
 # -------------------------------------------------------------------
@@ -129,53 +123,4 @@ fmt_dec <- function(x, k = 3) {
   ok <- is.finite(z)
   out[ok] <- formatC(z[ok], format = "f", digits = k, drop0trailing = FALSE)
   out
-}
-
-# -------------------------------------------------------------------
-# Convert the long Coefficients parquet sheet into the wide format
-# keyed on (firm, firm_id) used by the per-outcome scripts. The current
-# pipeline stores both the MLE point estimate and its empirical-Bayes
-# shrunk version on the same row, so `value_col` selects which one to
-# pivot ("estimate" for MLE, "eb" for EB). Returns NULL if the
-# requested model / value_col isn't usable.
-# -------------------------------------------------------------------
-to_wide_coef <- function(df, model_name, value_col = "estimate") {
-  if (is.null(df) || !"model" %in% names(df)) return(NULL)
-  if (!value_col %in% names(df)) return(NULL)
-  model_df <- df %>% dplyr::filter(.data$model == model_name)
-  if (nrow(model_df) == 0) return(NULL)
-
-  if ("outcome" %in% names(model_df)) {
-    if ("subset" %in% names(model_df)) {
-      model_df <- model_df %>% dplyr::filter(.data$subset == "all")
-    }
-    if ("entity_type" %in% names(model_df)) {
-      model_df <- model_df %>%
-        dplyr::filter(tolower(as.character(.data$entity_type)) == "firm")
-    }
-
-    id_col <- if ("firm_id" %in% names(model_df)) "firm_id"
-              else if ("entity_id" %in% names(model_df)) "entity_id"
-              else NULL
-    name_col <- if ("firm" %in% names(model_df)) "firm"
-                else if ("entity" %in% names(model_df)) "entity"
-                else NULL
-
-    if (!is.null(id_col) && !is.null(name_col)) {
-      return(
-        model_df %>%
-          dplyr::transmute(
-            firm    = as.character(.data[[name_col]]),
-            firm_id = suppressWarnings(as.integer(.data[[id_col]])),
-            outcome = as.character(.data$outcome),
-            value   = suppressWarnings(as.numeric(.data[[value_col]]))
-          ) %>%
-          dplyr::filter(!is.na(.data$firm_id), !is.na(.data$outcome)) %>%
-          dplyr::distinct(.data$firm_id, .data$outcome, .keep_all = TRUE) %>%
-          tidyr::pivot_wider(names_from = outcome, values_from = value)
-      )
-    }
-  }
-
-  model_df %>% dplyr::select(-model)
 }

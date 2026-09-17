@@ -13,7 +13,7 @@ source("code/globals.R")
 # ------------------------------------------------------------------------------
 
 # Source necessary functions
-source(file.path(helper_functions, "1_preprocessing_v3.R"))
+source(file.path(helper_functions, "sample_eligibility_helpers.R"))
 
 # ------------------------------------------------------------------------------
 # Prepare Sample
@@ -23,11 +23,7 @@ source(file.path(helper_functions, "1_preprocessing_v3.R"))
 file_path <- file.path(processed, "long_survey.csv")
 
 # Create Necessary Variables
-data <- read.csv(file_path, stringsAsFactors = FALSE) %>%
-  rename(dif_gender_se = dif_se_gender) %>%
-  rename(log_dif_gender_se = log_dif_se_gender) %>%
-  rename(log_dif_age_se = log_dif_se_age) %>%
-  rename(dif_age_se = dif_se_age) 
+data <- read.csv(file_path, stringsAsFactors = FALSE)
 
 # --- small earlier fix (keep this where you define columns) ---
 data <- data %>%
@@ -37,9 +33,6 @@ data <- data %>%
     race = ifelse(race_recode == "Black", 1, 0),
     educ_0_1 = ifelse(educ %in% c("Some college, no degree", "Bachelor degree", "Associate degree", "Master degree", "Professional or Doctorate degree"), 1, 0),
     age_gt40 = ifelse(age >= 40, 1, 0),
-    democrat = ifelse(party_affil == "Democrat", 1, 0),
-    republican = ifelse(party_affil == "Republican", 1, 0),
-    entry = ifelse(any_entry_lev_exp == "Yes", 1, 0), 
     fear = ifelse(feared_discrim == "Yes", 1, 0)
   ) %>%
   select(-firm) %>%
@@ -55,9 +48,8 @@ data <- data %>%
     FirmHire_male = FirmHireGend_mfirst1
   ) %>%
   mutate(
-  resp_id = as.integer(as.factor(ResponseId)),
-  cb_central_full_se = as.numeric(cb_central_full_se),
-  firm_id = as.integer(as.factor(firm))
+    resp_id = as.integer(as.factor(ResponseId)),
+    firm_id = as.integer(as.factor(firm))
 )
 
 data <- data %>%
@@ -93,14 +85,6 @@ stopifnot(
 # Assert all observations with non-missing firm values have non-missing aer_naics2 after merge
 stopifnot(sum(is.na(data_non_missing_firm$aer_naics2)) == 0)
 
-temp <- data %>% select(resp_id, response_duration) %>%
-unique()
-median_response_duration <- temp %>%
-  summarise(median_duration = median(response_duration, na.rm = TRUE)) %>%
-  pull(median_duration)
-
-data <- data %>% mutate(long = ifelse(response_duration > median_response_duration, 1, 0))
-
 # Define the recoding mapping
 confidence_levels <- c(
   "Extremely confident" = 5,
@@ -110,22 +94,15 @@ confidence_levels <- c(
   "Not at all confident" = 1
 )
 
-# List of confidence variables
-confidence_vars <- c("confidence_race_names", "confidence_gend_names",
-                     "confidence_race_conduct", "confidence_gend_conduct",
-                     "confidence_age_conduct")
-
 data <- data %>%
   mutate(confidence_race_names_numeric = recode(confidence_race_names, !!!confidence_levels, .default = NA_real_),
          confidence_gend_names_numeric = recode(confidence_gend_names, !!!confidence_levels, .default = NA_real_),
          confidence_race_conduct_numeric = recode(confidence_race_conduct, !!!confidence_levels, .default = NA_real_),
-         confidence_gend_conduct_numeric = recode(confidence_gend_conduct, !!!confidence_levels, .default = NA_real_),
-         confidence_age_conduct_numeric = recode(confidence_age_conduct, !!!confidence_levels, .default = NA_real_)) %>%
+         confidence_gend_conduct_numeric = recode(confidence_gend_conduct, !!!confidence_levels, .default = NA_real_)) %>%
   mutate(confidence_race_names_gt_median = ifelse(confidence_race_names_numeric > 3,1,0),
          confidence_gend_names_gt_median = ifelse(confidence_gend_names_numeric > 3,1,0),
          confidence_race_conduct_gt_median = ifelse(confidence_race_conduct_numeric > 3,1,0),
-         confidence_gend_conduct_gt_median = ifelse(confidence_gend_conduct_numeric > 3,1,0),
-         confidence_age_conduct_gt_median = ifelse(confidence_age_conduct_numeric > 3,1,0)) %>%
+         confidence_gend_conduct_gt_median = ifelse(confidence_gend_conduct_numeric > 3,1,0)) %>%
   mutate(
     confidence_gend = coalesce(na_if(confidence_gend_conduct_gt_median, -1),
                                   na_if(confidence_gend_names_gt_median,  -1)),
@@ -184,13 +161,12 @@ message(
 resp_ids_union <- integer(0)
 
 for (outcome in survey_vars) {
-  print(outcome)
   # Replace -1 with NA in-place for the current outcome
   data_temp <- data
   data_temp[[outcome]] <- dplyr::na_if(data_temp[[outcome]], -1)
   
   # Run your prep using the original outcome column
-  prep <- prepare_pltree_data(
+  eligible_data <- prepare_sample_eligibility_data(
     data           = data_temp,
     rank_col       = outcome,       # keep the original column name
     subgroup_var   = NULL,
@@ -198,7 +174,7 @@ for (outcome in survey_vars) {
   )
   
   # Collect respondent IDs that appear in the prepared (kept) data
-  resp_ids_this <- prep$data_wide_pltree %>% dplyr::pull(resp_id)
+  resp_ids_this <- eligible_data %>% dplyr::pull(resp_id)
   resp_ids_union <- union(resp_ids_union, resp_ids_this)
 }
 
@@ -230,9 +206,7 @@ restricted_sample_analysis <- restricted_sample %>%
 
 restricted_sample_analysis <- restricted_sample_analysis %>%
   mutate(educ = educ_0_1,
-         age = age_gt40,
-         log_dif_gender_sq = log_dif_gender^2 - log_dif_gender_se^2,
-         log_dif_sq = log_dif^2 - log_dif_se^2)
+         age = age_gt40)
 
 # Flip Valences so they have same meaning
 # 1 = Very Likely to Discriminate against Black/Female/Older Candidates
@@ -246,16 +220,6 @@ restricted_sample_analysis <- restricted_sample_analysis %>%
          FirmCont_female = 6 - FirmCont_female,
          FirmHire_female = 6 - FirmHire_female
          ) 
-
-restricted_sample_analysis <- restricted_sample_analysis %>%
-  mutate(pooled_black       = coalesce(na_if(FirmCont_black, -1),
-                                           na_if(conduct_black,  -1)),
-         pooled_white       = coalesce(na_if(FirmCont_white, -1),
-                                           na_if(conduct_white,  -1)),
-         pooled_male        = coalesce(na_if(FirmCont_male, -1),
-                                       na_if(conduct_male,  -1)),
-         pooled_female      = coalesce(na_if(FirmCont_female, -1),
-                                       na_if(conduct_female,  -1)),)
 
 # --- export analysis-ready version (NO -1s) ---
 write.csv(restricted_sample_analysis,

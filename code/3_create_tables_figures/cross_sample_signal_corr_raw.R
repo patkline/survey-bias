@@ -17,8 +17,6 @@ get_firm_id_col <- function(df) {
   stop("Could not find firm identifier column (expected `firm_id` or `entity_id`).")
 }
 
-full_sample_subdir <- "Full_Sample"
-
 sample_filemap <- tibble::tibble(
   sample = c("Black",
              "White",
@@ -89,23 +87,11 @@ read_theta <- function(root, subdir, outcome,
   model <- match.arg(model)
   dir_path <- file.path(root, subdir)
 
-  model_map <- list(
-    pl    = list(filter = "PL",    old_sheet = "Coefficients"),
-    borda = list(filter = "Borda", old_sheet = "borda_score"),
-    ol    = list(filter = "OL",    old_sheet = "Coefficients"),
-    ols   = list(filter = "OLS",   old_sheet = "Coefficients"),
-    olsc  = list(filter = "OLSC",  old_sheet = "Coefficients")
-  )
+  model_map <- c(pl = "PL", borda = "Borda", ol = "OL", ols = "OLS", olsc = "OLSC")
 
-  coef_sheet <- "Coefficients"
-  df <- read_parquet_sheet(dir_path, coef_sheet)
-
-  if ("model" %in% names(df)) {
-    model_val <- model_map[[model]]$filter
-    df <- df %>% dplyr::filter(.data$model == model_val)
-  } else if (model == "borda") {
-    df <- read_parquet_sheet(dir_path, "borda_score")
-  }
+  df <- read_parquet_sheet(dir_path, "Coefficients")
+  stopifnot("model" %in% names(df))
+  df <- df %>% dplyr::filter(.data$model == unname(model_map[[model]]))
 
   id_col <- get_firm_id_col(df)
 
@@ -319,40 +305,10 @@ latex_lines_ols_borda <- c(
   "  \\end{tabular}"
 )
 
-write_latex_lines_checked <- function(latex_lines, out_tex) {
-  if (length(latex_lines) == 0L) {
-    stop("Refusing to write empty LaTeX output: ", out_tex)
-  }
-
-  tmp_tex <- tempfile(pattern = paste0(tools::file_path_sans_ext(basename(out_tex)), "_"),
-                      fileext = ".tex")
-  on.exit(unlink(tmp_tex), add = TRUE)
-
-  writeLines(latex_lines, tmp_tex, useBytes = TRUE)
-  tmp_size <- file.info(tmp_tex)$size
-  if (is.na(tmp_size) || tmp_size == 0L) {
-    stop("Temporary LaTeX output is empty before copy: ", tmp_tex)
-  }
-
-  if (file.exists(out_tex)) {
-    unlink_status <- unlink(out_tex)
-    if (unlink_status != 0L && file.exists(out_tex)) {
-      stop("Could not remove existing LaTeX output before overwrite: ", out_tex)
-    }
-  }
-
-  if (!file.copy(tmp_tex, out_tex, overwrite = TRUE)) {
-    stop("Could not copy LaTeX output into place: ", out_tex)
-  }
-
-  out_size <- file.info(out_tex)$size
-  if (is.na(out_size) || out_size == 0L) {
-    stop("LaTeX output is empty after write: ", out_tex)
-  }
-
-  invisible(out_tex)
-}
-
 out_tex <- file.path(tables, "cross_sample_corr_raw_ols_borda.tex")
-write_latex_lines_checked(latex_lines_ols_borda, out_tex)
+write_lines_checked(
+  latex_lines_ols_borda,
+  out_tex,
+  label = "raw cross-sample correlation LaTeX output"
+)
 message("Raw correlation OLS+Borda LaTeX table written to: ", out_tex)

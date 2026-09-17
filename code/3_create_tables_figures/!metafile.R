@@ -44,8 +44,9 @@ run_stata_fail_fast <- function(script_path) {
                  paste(stata_cli_candidates, collapse = ", ")), call. = FALSE)
   }
 
-  # Change R's cwd to code/logs so Stata's batch log lands there; restore on exit
-  stata_logs_directory <- file.path(code, "logs")
+  # Keep Stata's batch log in R's temporary directory; restore cwd on exit.
+  stata_logs_directory <- file.path(tempdir(), "survey_bias_stata_logs")
+  dir.create(stata_logs_directory, recursive = TRUE, showWarnings = FALSE)
   previous_working_directory <- setwd(stata_logs_directory)
   on.exit(setwd(previous_working_directory), add = TRUE)
 
