@@ -51,7 +51,7 @@ run_eeo1_naics3_eiv_for_subdir <- function(
   variance_df <- read_parquet_sheet(dir_path, "variance")
   covariance_df <- read_parquet_sheet(dir_path, "covariance")
 
-  coef_firm_wide <- eeo1_coef_to_wide(coef_long, "Firm") |>
+  coef_firm_wide <- eiv_coefficients_to_wide(coef_long, "Firm") |>
     add_eeo1_naics3_shares_to_firms(
       firm_name_col = "entity",
       crosswalk = crosswalk,
@@ -71,7 +71,7 @@ run_eeo1_naics3_eiv_for_subdir <- function(
       subset_value = "subset97",
       model_value = model
     ) |>
-      add_zero_error_controls_eeo1(eeo1_naics3_zero_error_controls)
+      add_zero_error_controls(eeo1_naics3_zero_error_controls)
   }
 
   eiv_df <- run_eiv_suite(

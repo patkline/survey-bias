@@ -4,9 +4,6 @@
 #
 # Created: Nico Rotundo 2026-01-06
 # ------------------------------------------------------------------------------
-# Import library to interact with the operating system
-import os
-
 # Import library to import modules dynamically
 import importlib
 
@@ -40,21 +37,6 @@ user = getpass.getuser().lower()
 dropbox_survey_bias_root = dropbox_roots_by_user.get(user)
 
 # ------------------------------------------------------------------------------
-# Define optional user-specific WRDS username
-# ------------------------------------------------------------------------------
-# Put only WRDS usernames here, never passwords. Leave as None to make WRDS prompt
-# or use the WRDS_USERNAME environment variable / --wrds-username CLI flag.
-wrds_usernames_by_user = {
-    "nicorotundo": None,
-    "monicahea": None,
-    "jordancammarota": None,
-    "anh-huynguyen": "anhhuynguyen",
-}
-
-# WRDS_USERNAME environment variable overrides the user-specific default above
-wrds_username = os.environ.get("WRDS_USERNAME") or wrds_usernames_by_user.get(user)
-
-# ------------------------------------------------------------------------------
 # Define required Python packages
 # ------------------------------------------------------------------------------
 # Package name -> import name. Keep this in sync with required_python_packages
@@ -63,7 +45,6 @@ required_python_packages = {
     "numpy": "numpy",
     "pandas": "pandas",
     "openpyxl": "openpyxl",
-    "wrds": "wrds",
 }
 
 

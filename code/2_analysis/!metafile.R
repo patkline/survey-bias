@@ -174,31 +174,20 @@ for (i in seq_len(nrow(runs))) {
   }
 }
 
-# message("Running Revelio EIV outputs")
-# revelio_eiv_by_subdir <- run_revelio_eiv_for_subdirs(default_revelio_eiv_filemap$subdir)
-#
-# message("Revelio EIV write check:")
-# for (subdir in default_revelio_eiv_filemap$subdir) {
-#   check_path <- parquet_sheet_path(file.path(intermediate, subdir), "EIV_revelio_firm")
-#   check_info <- file.info(check_path)
-#   message("  ", subdir, "/", basename(check_path),
-#           " | exists=", file.exists(check_path),
-#           " | size=", check_info$size,
-#           " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
-# }
+message("Running full-sample belief-selectivity EIV output")
+belief_selectivity_eiv <- run_belief_selectivity_eiv_for_subdir("Full_Sample")
 
-message("Running EEO-1 industry-share EIV outputs")
-eeo1_eiv_by_subdir <- run_eeo1_eiv_for_subdirs(default_eeo1_eiv_filemap$subdir)
-
-message("EEO-1 industry-share EIV write check:")
-for (subdir in default_eeo1_eiv_filemap$subdir) {
-  check_path <- parquet_sheet_path(file.path(intermediate, subdir), eeo1_eiv_sheet)
-  check_info <- file.info(check_path)
-  message("  ", subdir, "/", basename(check_path),
-          " | exists=", file.exists(check_path),
-          " | size=", check_info$size,
-          " | mtime=", format(check_info$mtime, "%Y-%m-%d %H:%M:%S"))
-}
+belief_selectivity_eiv_path <- parquet_sheet_path(
+  file.path(intermediate, "Full_Sample"),
+  belief_selectivity_eiv_sheet
+)
+belief_selectivity_eiv_info <- file.info(belief_selectivity_eiv_path)
+message(
+  "  ", basename(belief_selectivity_eiv_path),
+  " | exists=", file.exists(belief_selectivity_eiv_path),
+  " | size=", belief_selectivity_eiv_info$size,
+  " | mtime=", format(belief_selectivity_eiv_info$mtime, "%Y-%m-%d %H:%M:%S")
+)
 
 # ------------------------------------------------------------------------------
 # EEO-1 NAICS3 share controls and belief-share regressions

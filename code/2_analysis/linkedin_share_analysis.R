@@ -19,11 +19,10 @@ if (!exists("var_component_with_var", mode = "function", inherits = TRUE)) {
 if (!exists("eivreg", mode = "function", inherits = TRUE)) {
   source(file.path(analysis, "eivreg.R"))
 }
-if (!exists("run_eiv_suite", mode = "function", inherits = TRUE)) {
+if (!exists("run_eiv_suite", mode = "function", inherits = TRUE) ||
+    !exists("eiv_coefficients_to_wide", mode = "function", inherits = TRUE) ||
+    !exists("add_zero_error_controls", mode = "function", inherits = TRUE)) {
   source(file.path(analysis, "eiv_functions.R"))
-}
-if (!exists("eeo1_coef_to_wide", mode = "function", inherits = TRUE)) {
-  source(file.path(analysis, "eeo1_eiv.R"))
 }
 
 yimfor_linkedin_workbook <- file.path(
@@ -31,6 +30,12 @@ yimfor_linkedin_workbook <- file.path(
   "data",
   "external",
   "race_shares_fortune1000_kline97.xlsx"
+)
+yimfor_firm_crosswalk_file <- file.path(
+  git_survey_bias_root,
+  "data",
+  "external",
+  "yimfor_firm_crosswalk.csv"
 )
 
 linkedin_firm_shares_sheet <- "LinkedIn_firm_shares"
@@ -119,12 +124,15 @@ clean_yimfor_rcid <- function(x) {
 }
 
 load_yimfor_survey_firms <- function(
-    path = file.path(processed, "revelio_firm_measures.csv")
+    path = yimfor_firm_crosswalk_file
 ) {
+  if (!file.exists(path)) {
+    stop("Yimfor firm crosswalk not found: ", path)
+  }
+
   firms <- readr::read_csv(
     path,
     col_types = readr::cols(
-      .default = readr::col_skip(),
       firm_id = readr::col_integer(),
       firm = readr::col_character(),
       requested_rcid = readr::col_character(),
@@ -139,14 +147,33 @@ load_yimfor_survey_firms <- function(
       workforce_source_rcid = clean_yimfor_rcid(
         .data$workforce_source_rcid
       )
-    )
+    ) |>
+    dplyr::arrange(.data$firm_id)
 
-  if (nrow(firms) != 164L ||
+  expected_columns <- c(
+    "firm_id",
+    "firm",
+    "requested_rcid",
+    "workforce_source_rcid",
+    "parent_company",
+    "aer_naics2"
+  )
+
+  if (!identical(names(firms), expected_columns) ||
+      nrow(firms) != 164L ||
       dplyr::n_distinct(firms$firm) != 164L ||
       dplyr::n_distinct(firms$firm_id) != 164L ||
       dplyr::n_distinct(firms$aer_naics2) != 19L ||
+      sum(!is.na(firms$requested_rcid)) != 148L ||
+      sum(!is.na(firms$workforce_source_rcid)) != 159L ||
+      sum(!is.na(firms$parent_company)) != 11L ||
       any(is.na(firms$aer_naics2))) {
-    stop("Expected 164 unique survey firms in 19 AER industries.")
+    stop(
+      paste(
+        "Expected the curated Yimfor crosswalk to contain 164 unique",
+        "survey firms in 19 AER industries with the validated RCID mapping."
+      )
+    )
   }
 
   firms
@@ -391,7 +418,7 @@ run_yimfor_share_control_eiv <- function(
       share_is_naics3_fallback = .data$share_is_naics3_fallback
     )
 
-  coef_firm_wide <- eeo1_coef_to_wide(coefficients_long, "Firm") |>
+  coef_firm_wide <- eiv_coefficients_to_wide(coefficients_long, "Firm") |>
     dplyr::left_join(
       eiv_firm_shares,
       by = c("entity_id" = "firm_id")
@@ -419,7 +446,7 @@ run_yimfor_share_control_eiv <- function(
       subset_value = "subset97",
       model_value = model_value
     ) |>
-      add_zero_error_controls_eeo1(yimfor_eiv_zero_error_controls)
+      add_zero_error_controls(yimfor_eiv_zero_error_controls)
   }
 
   # Match the main firm-level EIV specification: employment weights, no fixed

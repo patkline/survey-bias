@@ -1,17 +1,15 @@
 # ------------------------------------------------------------------------------
 # Purpose: Table 7, pooled discrimination beliefs with selectivity controls
 #
-# The multivariate belief/selectivity specifications currently live in the
-# EIV_eeo1_industry_shares intermediate sheet, but these rows do not use EEO-1
-# variables. The EEO-1 control and outcome tables formerly written alongside
-# Table 7 are not used in the draft and have been removed from Section 3.
+# The multivariate specifications use survey beliefs and AER industry fixed
+# effects. They do not use EEO-1 data.
 # ------------------------------------------------------------------------------
 
 source("code/globals.R")
 
 tables_out <- Sys.getenv("EIV_TABLES_DIR", unset = tables)
 full_sample_dir <- file.path(intermediate, "Full_Sample")
-selectivity_eiv_sheet <- "EIV_eeo1_industry_shares"
+selectivity_eiv_sheet <- "EIV_belief_selectivity"
 table_n_cols <- 8L
 
 fmt3 <- function(x) {
@@ -234,9 +232,9 @@ message("Writing Table 7 to: ", tables_out)
 
 eiv_firm <- read_full_sample_sheet("EIV_firm")
 eiv_selectivity <- read_full_sample_sheet(selectivity_eiv_sheet)
-if ("eeo1_spec_group" %in% names(eiv_selectivity)) {
-  eiv_selectivity <- eiv_selectivity %>%
-    dplyr::filter(.data$eeo1_spec_group == "belief_selectivity")
+if (!"spec_group" %in% names(eiv_selectivity) ||
+    !identical(unique(eiv_selectivity$spec_group), "belief_selectivity")) {
+  stop("Unexpected rows in the belief-selectivity EIV sheet.", call. = FALSE)
 }
 
 write_table(eiv_firm, eiv_selectivity)

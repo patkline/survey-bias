@@ -1,8 +1,7 @@
 # ------------------------------------------------------------------------------
 # Purpose: EIV appendix table comparing contact and conduct belief specifications
 #
-# This table uses the standard EIV_firm sheets. It does not require Revelio or
-# EEO-1 share-control EIV outputs.
+# This table uses only the standard EIV_firm sheets.
 # ------------------------------------------------------------------------------
 
 source("code/globals.R")
