@@ -181,8 +181,6 @@ construct_firm_level_estimates <- function(
 
     # Store this model's estimates under its model name
     model_estimates[[output_set$model_name]] <- list(
-      # No fitted model object is returned
-      fit        = NULL,
       # Entity table of firm-level estimates and standard errors
       firm_table = entity_table,
       # Influence function and covariance matrices

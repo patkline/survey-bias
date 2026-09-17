@@ -256,8 +256,6 @@ compute_firm_mean_ratings <- function(
     firm_id          = firm_ids,
     # Number of respondent-firm score observations for this firm
     firm_number_of_respondents = collapsed_firm_ratings$firm_number_of_respondents,
-    # Sum of aggregation weights contributing to this firm's estimate
-    firm_sum_of_weights = collapsed_firm_ratings$firm_sum_of_weights,
     # Number of distinct respondents contributing to this outcome
     total_number_of_respondents = total_number_of_respondents_across_all_firms,
     # Recentered firm mean rating
@@ -276,8 +274,6 @@ compute_firm_mean_ratings <- function(
     firm_id          = firm_ids,
     # Number of respondent-firm score observations for this firm
     firm_number_of_respondents = collapsed_firm_ratings$firm_number_of_respondents,
-    # Sum of aggregation weights contributing to this firm's estimate
-    firm_sum_of_weights = collapsed_firm_ratings$firm_sum_of_weights,
     # Number of distinct respondents contributing to this outcome
     total_number_of_respondents = total_number_of_respondents_across_all_firms,
     # Non-recentered firm mean rating

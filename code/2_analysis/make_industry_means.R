@@ -28,8 +28,7 @@ add_industry_means_to_results <- function(
   stopifnot("firm_id" %in% names(industry_map))
   stopifnot(industry_col %in% names(industry_map))
   
-  # --- helpers from your entity-aware stack (must exist in scope) ---
-  if (!exists(".coerce_entity_table", mode = "function")) stop(".coerce_entity_table() not found in scope.")
+  # --- helpers from the entity-aware stack (must exist in scope) ---
   if (!exists(".resolve_entity_cols", mode = "function")) stop(".resolve_entity_cols() not found in scope.")
   if (!exists(".make_entity_cols", mode = "function")) stop(".make_entity_cols() not found in scope.")
   
@@ -58,17 +57,17 @@ add_industry_means_to_results <- function(
     A   <- solve(GtG, t(G))   # KxJ
     M   <- diag(J) - G %*% A  # JxJ
     
-    list(G = G, A = A, M = M, inds = inds)
+    list(A = A, M = M, inds = inds)
   }
   
-  # pull matrix columns from S given ids; S may use entity<id> or firm<id>
+  # Pull standardized entity columns from S given ids.
   pull_S_matrix <- function(S_df, ids) {
     stopifnot("resp_id" %in% names(S_df))
     s_cols <- .resolve_entity_cols(ids, names(S_df))
     as.matrix(S_df[, s_cols, drop = FALSE])
   }
   
-  # pull square matrix given ids; matrices may use entity<id> or firm<id>
+  # Pull a square matrix in standardized entity-column order.
   pull_square <- function(M, ids) {
     M <- as.matrix(M)
     if (is.null(dimnames(M)) || is.null(rownames(M)) || is.null(colnames(M))) {
@@ -159,8 +158,9 @@ add_industry_means_to_results <- function(
         res <- results[[set_name]][[model]][[outcome]]
         if (is.null(res) || is.null(res$firm_table) || is.null(res$mats)) next
         
-        # --- coerce and restrict to Firm entities ---
-        ft_all  <- .coerce_entity_table(res$firm_table)
+        # --- validate and restrict to Firm entities ---
+        ft_all <- res$firm_table
+        stopifnot(all(c("entity_type", "entity_id", "entity") %in% names(ft_all)))
         firm_ft <- ft_all[ft_all$entity_type == "Firm", , drop = FALSE]
         if (nrow(firm_ft) == 0) next
         

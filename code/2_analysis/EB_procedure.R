@@ -8,7 +8,7 @@
 #   theta_hat : numeric vector of estimates \hat{theta}_j
 #   s         : numeric vector of standard errors s_j (>0)
 # Returns:
-#   list with psi1, all hyperparameter estimates, and EB posterior means theta_eb
+#   list containing the EB posterior means theta_eb
 
 eb_two_step <- function(theta_hat, s) {
   stopifnot(length(theta_hat) == length(s))
@@ -62,11 +62,5 @@ eb_two_step <- function(theta_hat, s) {
   r_star  <- shrink * r_hat
   theta_eb <- psi0 + psi1 * df$log_s + (df$s^psi2) * r_star
   
-  list(
-    psi1       = psi1,
-    estimates  = list(psi0 = psi0, psi1 = psi1, psi2 = psi2, sigma2_r = sigma2_r),
-    theta_eb   = theta_eb,
-    shrink     = shrink,
-    lm_step1   = fit1
-  )
+  list(theta_eb = theta_eb)
 }

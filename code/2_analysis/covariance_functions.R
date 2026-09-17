@@ -115,13 +115,8 @@ assert_delta_method_vcov_matches_scalar <- function(signal_vcov,
   max(absolute_difference)
 }
 
-compute_clustered_signal_vcov <- function(res1 = NULL, res2 = NULL,
-                                          common_cols = NULL, weights,
-                                          include_cross_outcome = TRUE,
-                                          prepared_inputs = NULL) {
-  if (is.null(prepared_inputs)) {
-    prepared_inputs <- prepare_clustered_signal_inputs(res1, res2, common_cols)
-  }
+compute_clustered_signal_vcov <- function(prepared_inputs, weights,
+                                          include_cross_outcome = TRUE) {
   beta1 <- prepared_inputs$beta1
   beta2 <- prepared_inputs$beta2
   C <- prepared_inputs$C
@@ -184,21 +179,18 @@ compute_clustered_signal_vcov <- function(res1 = NULL, res2 = NULL,
 
   component_names <- c("var1", "cov12", "var2")
   dimnames(signal_vcov) <- list(component_names, component_names)
-  attr(signal_vcov, "scalar_vhat_acceptance_max_abs_diff") <-
-    assert_delta_method_vcov_matches_scalar(
-      signal_vcov = signal_vcov,
-      prepared_inputs = prepared_inputs,
-      weights = weights
-    )
+  assert_delta_method_vcov_matches_scalar(
+    signal_vcov = signal_vcov,
+    prepared_inputs = prepared_inputs,
+    weights = weights
+  )
   signal_vcov
 }
 
 empty_signal_vcov <- function() {
   component_names <- c("var1", "cov12", "var2")
-  out <- matrix(NA_real_, nrow = 3L, ncol = 3L,
-                dimnames = list(component_names, component_names))
-  attr(out, "scalar_vhat_acceptance_max_abs_diff") <- NA_real_
-  out
+  matrix(NA_real_, nrow = 3L, ncol = 3L,
+         dimnames = list(component_names, component_names))
 }
 
 compute_pairwise_cov_and_noise <- function(res1, res2) {
@@ -232,12 +224,9 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
       J = as.integer(length(common_cols)),
       covariance = NA_real_,
       noise = NA_real_,
-      covariance_njobs_weighted = NA_real_,
       noise_njobs_weighted = NA_real_,
       signal_vcov = empty_signal_vcov(),
       signal_vcov_njobs_weighted = empty_signal_vcov(),
-      scalar_vhat_acceptance_max_abs_diff = NA_real_,
-      scalar_vhat_njobs_weighted_acceptance_max_abs_diff = NA_real_,
       N1 = N1,
       N2 = N2,
       Ncommon = Ncommon
@@ -263,14 +252,10 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
   noise <- if (J > 0L) sum(Matrix::diag(Theta12)) / J else NA_real_
 
   signal_vcov <- compute_clustered_signal_vcov(
-    res1 = res1,
-    res2 = res2,
-    common_cols = common_cols,
-    weights = rep(1 / J, J),
-    prepared_inputs = clustered_inputs
+    prepared_inputs = clustered_inputs,
+    weights = rep(1 / J, J)
   )
 
-  covariance_njobs_weighted <- NA_real_
   noise_njobs_weighted <- NA_real_
   signal_vcov_njobs_weighted <- empty_signal_vcov()
   if ("njobs" %in% names(res1$firm_table) && "njobs" %in% names(res2$firm_table)) {
@@ -282,21 +267,12 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
         all(njobs1 > 0) && all(njobs2 > 0) &&
         max(abs(njobs1 - njobs2)) < 1e-8) {
       firm_weights <- njobs1 / sum(njobs1)
-      beta1_weighted <- as.numeric(res1$firm_table$estimate[match(firm_ids, res1$firm_table$entity_id)])
-      beta2_weighted <- as.numeric(res2$firm_table$estimate[match(firm_ids, res2$firm_table$entity_id)])
-      beta1_weighted <- beta1_weighted - sum(firm_weights * beta1_weighted)
-      beta2_weighted <- beta2_weighted - sum(firm_weights * beta2_weighted)
-
-      covariance_njobs_weighted <- sum(firm_weights * beta1_weighted * beta2_weighted)
       noise_njobs_weighted <-
         sum(firm_weights * Matrix::diag(Theta12)) -
         as.numeric(t(firm_weights) %*% Theta12 %*% firm_weights)
       signal_vcov_njobs_weighted <- compute_clustered_signal_vcov(
-        res1 = res1,
-        res2 = res2,
-        common_cols = common_cols,
-        weights = firm_weights,
-        prepared_inputs = clustered_inputs
+        prepared_inputs = clustered_inputs,
+        weights = firm_weights
       )
     }
   }
@@ -305,22 +281,9 @@ compute_pairwise_cov_and_noise <- function(res1, res2) {
     J = J,
     covariance = covariance,
     noise = noise,
-    covariance_njobs_weighted = covariance_njobs_weighted,
     noise_njobs_weighted = noise_njobs_weighted,
     signal_vcov = signal_vcov,
     signal_vcov_njobs_weighted = signal_vcov_njobs_weighted,
-    scalar_vhat_acceptance_max_abs_diff =
-      if (is.null(attr(signal_vcov, "scalar_vhat_acceptance_max_abs_diff"))) {
-        NA_real_
-      } else {
-        attr(signal_vcov, "scalar_vhat_acceptance_max_abs_diff")
-      },
-    scalar_vhat_njobs_weighted_acceptance_max_abs_diff =
-      if (is.null(attr(signal_vcov_njobs_weighted, "scalar_vhat_acceptance_max_abs_diff"))) {
-        NA_real_
-      } else {
-        attr(signal_vcov_njobs_weighted, "scalar_vhat_acceptance_max_abs_diff")
-      },
     N1 = N1,
     N2 = N2,
     Ncommon = Ncommon
@@ -339,7 +302,6 @@ pairwise_covariance_row <- function(lhs, rhs, subset, model, out) {
     Ncommon = out$Ncommon,
     covariance = out$covariance,
     noise = out$noise,
-    covariance_njobs_weighted = out$covariance_njobs_weighted,
     noise_njobs_weighted = out$noise_njobs_weighted,
     signal_vcov_11 = out$signal_vcov[1, 1],
     signal_vcov_12 = out$signal_vcov[1, 2],
@@ -353,9 +315,6 @@ pairwise_covariance_row <- function(lhs, rhs, subset, model, out) {
     signal_vcov_njobs_weighted_22 = out$signal_vcov_njobs_weighted[2, 2],
     signal_vcov_njobs_weighted_23 = out$signal_vcov_njobs_weighted[2, 3],
     signal_vcov_njobs_weighted_33 = out$signal_vcov_njobs_weighted[3, 3],
-    scalar_vhat_acceptance_max_abs_diff = out$scalar_vhat_acceptance_max_abs_diff,
-    scalar_vhat_njobs_weighted_acceptance_max_abs_diff =
-      out$scalar_vhat_njobs_weighted_acceptance_max_abs_diff,
     stringsAsFactors = FALSE
   )
 }

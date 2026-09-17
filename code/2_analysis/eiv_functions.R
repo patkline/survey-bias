@@ -555,28 +555,7 @@ compute_multivariate_katz_signal_correlation <- function(
   # this clamp, is what imposes the substantive correlation constraint.
   signal_correlation <- min(1, max(-1, signal_correlation))
 
-  diagnostic_attributes <- c(
-    "multivariate_katz_acceptance_rate",
-    "multivariate_katz_draws",
-    "multivariate_katz_accepts",
-    "multivariate_katz_pd_rejects",
-    "multivariate_katz_pd_rejection_rate"
-  )
-  diagnostics <- stats::setNames(
-    lapply(diagnostic_attributes, function(attribute_name) {
-      attr(katz_noise_matrix, attribute_name)
-    }),
-    diagnostic_attributes
-  )
-
-  c(
-    list(
-      signal_correlation = signal_correlation,
-      signal_matrix = katz_signal_matrix,
-      noise_matrix = katz_noise_matrix
-    ),
-    diagnostics
-  )
+  signal_correlation
 }
 
 # ----------------------------------------------------------------------------------------
@@ -593,8 +572,8 @@ build_noise_matrix <- function(
   # Covariance sheet dataframe; one row per subset x model x belief-measure pair with its noise covariance
   covariance_df,
 
-  # Belief measures to include as rows/columns; NULL = every measure present in either sheet
-  outcomes = NULL,
+  # Belief measures to include as rows/columns
+  outcomes,
 
   # Subset to build the matrix for (e.g., "all", "subset97")
   subset_value = "all",
@@ -619,27 +598,26 @@ build_noise_matrix <- function(
   # Check the variance and covariance sheet inputs are dataframes
   stopifnot(is.data.frame(variance_df), is.data.frame(covariance_df))
 
-  # Check the variance sheet has the subset, model, belief measure, and njobs-weighted Katz noise columns
-  stopifnot(all(c(subset_col, model_col, outcome_col, "noise_njobs_weighted_katz") %in% names(variance_df)))
+  # Require an explicit, valid set of belief measures.
+  stopifnot(
+    is.character(outcomes),
+    length(outcomes) > 0L,
+    !anyNA(outcomes),
+    all(nzchar(outcomes))
+  )
 
-  # Check the covariance sheet has the subset, model, belief-measure pair, and noise columns
-  stopifnot(all(c(subset_col, model_col, lhs_col, rhs_col, "noise") %in% names(covariance_df)))
-  
-  # If no belief measures are passed, use every measure present in either sheet, dropping NA and empty names
-  if (is.null(outcomes)) {
+  # Check the variance sheet has the subset, model, belief measure, and current
+  # njobs-weighted noise columns.
+  stopifnot(all(c(
+    subset_col, model_col, outcome_col,
+    "noise_njobs_weighted", "noise_njobs_weighted_katz"
+  ) %in% names(variance_df)))
 
-    # Define a character vector of the distinct belief measure names in the variance sheet
-    belief_measures_in_variance_df <- unique(variance_df[[outcome_col]])
-
-    # Define a character vector of the distinct belief measure names in the stacked pair columns of the covariance sheet
-    belief_measures_in_covariance_df <- unique(c(covariance_df[[lhs_col]], covariance_df[[rhs_col]]))
-
-    # Define the belief measure universe, i.e., the sorted union of the two vectors
-    outcomes <- sort(unique(c(belief_measures_in_variance_df, belief_measures_in_covariance_df)))
-
-    # Drop NA and empty-string names
-    outcomes <- outcomes[!is.na(outcomes) & nzchar(outcomes)]
-  }
+  # Check the covariance sheet has the subset, model, belief-measure pair, and
+  # current njobs-weighted noise column.
+  stopifnot(all(c(
+    subset_col, model_col, lhs_col, rhs_col, "noise_njobs_weighted"
+  ) %in% names(covariance_df)))
 
   # Define empty matrix (i.e., NA values) with one row and column per belief measure
   noise_variance_covariance_matrix <- matrix(NA_real_, nrow = length(outcomes), ncol = length(outcomes), dimnames = list(outcomes, outcomes))
@@ -649,39 +627,30 @@ build_noise_matrix <- function(
   # Restrict the variance sheet to the given subset x model
   noise_variance_per_belief_measure <- variance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
 
-  # Keep just the belief measure and scalar Katz/raw noise variance columns. Older
-  # output sheets do not have the raw njobs-weighted column, so fall back to the
-  # unweighted raw noise when needed.
-  if (!("noise_njobs_weighted" %in% names(noise_variance_per_belief_measure))) {
-    noise_variance_per_belief_measure$noise_njobs_weighted <- NA_real_
-  }
+  # Keep just the belief measure and njobs-weighted Katz/raw noise variance columns.
   noise_variance_per_belief_measure <- noise_variance_per_belief_measure |>
-    dplyr::select(dplyr::all_of(c(outcome_col, "noise", "noise_njobs_weighted", "noise_njobs_weighted_katz")))
+    dplyr::select(dplyr::all_of(c(
+      outcome_col, "noise_njobs_weighted", "noise_njobs_weighted_katz"
+    )))
 
   # Find each belief measure's row position in the filtered variance sheet; NA when the measure has no row
   belief_measure_row_positions <- match(outcomes, noise_variance_per_belief_measure[[outcome_col]])
 
   # Fill the diagonal with the njobs-weighted Katz noise variances, reordered to the matrix row order; absent measures stay NA
   diag(noise_variance_covariance_matrix) <- as.numeric(noise_variance_per_belief_measure$noise_njobs_weighted_katz[belief_measure_row_positions])
-  raw_diagonal_noise <- dplyr::if_else(
-    is.na(noise_variance_per_belief_measure$noise_njobs_weighted),
-    noise_variance_per_belief_measure$noise,
-    noise_variance_per_belief_measure$noise_njobs_weighted
+  diag(raw_noise_variance_covariance_matrix) <- as.numeric(
+    noise_variance_per_belief_measure$noise_njobs_weighted[belief_measure_row_positions]
   )
-  diag(raw_noise_variance_covariance_matrix) <- as.numeric(raw_diagonal_noise[belief_measure_row_positions])
 
   # Restrict the covariance sheet to the given subset x model
   noise_covariance_per_belief_measure_pair <- covariance_df |> dplyr::filter(.data[[subset_col]] == subset_value, .data[[model_col]] == model_value)
 
-  # Keep just the two belief-measure pair columns and the raw noise covariance
-  # columns. Older output sheets do not have the raw njobs-weighted column.
-  if (!("noise_njobs_weighted" %in% names(noise_covariance_per_belief_measure_pair))) {
-    noise_covariance_per_belief_measure_pair$noise_njobs_weighted <- NA_real_
-  }
+  # Keep just the two belief-measure pair columns, the njobs-weighted raw noise
+  # covariance column, and any signal-covariance sampling-variance columns.
   signal_vcov_columns <- paste0("signal_vcov_", signal_vcov_column_suffixes)
   signal_vcov_njobs_columns <- paste0("signal_vcov_njobs_weighted_", signal_vcov_column_suffixes)
   retained_covariance_columns <- c(
-    lhs_col, rhs_col, "noise", "noise_njobs_weighted",
+    lhs_col, rhs_col, "noise_njobs_weighted",
     intersect(signal_vcov_columns, names(noise_covariance_per_belief_measure_pair)),
     intersect(signal_vcov_njobs_columns, names(noise_covariance_per_belief_measure_pair))
   )
@@ -724,10 +693,9 @@ build_noise_matrix <- function(
       }
       
       # Extract the noise covariance value for the current pair 
-      raw_noise_covariance_value <- as.numeric(noise_covariance_per_belief_measure_pair$noise_njobs_weighted[pair_row])
-      if (is.na(raw_noise_covariance_value)) {
-        raw_noise_covariance_value <- as.numeric(noise_covariance_per_belief_measure_pair$noise[pair_row])
-      }
+      raw_noise_covariance_value <- as.numeric(
+        noise_covariance_per_belief_measure_pair$noise_njobs_weighted[pair_row]
+      )
       noise_covariance_value <- raw_noise_covariance_value
 
       # If both measures are rows/columns of the matrix, fill the pair's two symmetric cells
@@ -897,13 +865,6 @@ run_eiv_one <- function(
       any(abs(rhs_raw_noise_for_noisy_check[, rhs_var]) > 1e-12, na.rm = TRUE)
   }, logical(1))]
 
-  multivariate_katz_applied <- FALSE
-  multivariate_katz_acceptance_rate <- NA_real_
-  multivariate_katz_draws <- NA_integer_
-  multivariate_katz_accepts <- NA_integer_
-  multivariate_katz_pd_rejects <- NA_integer_
-  multivariate_katz_pd_rejection_rate <- NA_real_
-
   if (length(noisy_rhs_vars) == 2L) {
     signal_vcov <- get_pair_signal_vcov(
       noise_mat = noise_mat,
@@ -940,7 +901,6 @@ run_eiv_one <- function(
         !anyNA(multivariate_katz_noise_matrix) &&
         is_positive_semidefinite_matrix(multivariate_katz_noise_matrix, tol = 1e-8)) {
       rhs_vars_noise_variance_covariance_matrix[noisy_rhs_vars, noisy_rhs_vars] <- multivariate_katz_noise_matrix
-      multivariate_katz_applied <- TRUE
       multivariate_katz_acceptance_rate <- attr(multivariate_katz_noise_matrix, "multivariate_katz_acceptance_rate")
       multivariate_katz_draws <- attr(multivariate_katz_noise_matrix, "multivariate_katz_draws")
       multivariate_katz_accepts <- attr(multivariate_katz_noise_matrix, "multivariate_katz_accepts")
@@ -1108,15 +1068,6 @@ run_eiv_one <- function(
         # Number of observations in the estimation sample of the regression
         n          = nrow(estimation_sample),
 
-        # Multivariate Katz diagnostics; TRUE only when two or more noisy RHS
-        # variables were jointly corrected before calling eivreg().
-        multivariate_katz = multivariate_katz_applied,
-        multivariate_katz_acceptance_rate = multivariate_katz_acceptance_rate,
-        multivariate_katz_draws = multivariate_katz_draws,
-        multivariate_katz_accepts = multivariate_katz_accepts,
-        multivariate_katz_pd_rejects = multivariate_katz_pd_rejects,
-        multivariate_katz_pd_rejection_rate = multivariate_katz_pd_rejection_rate,
-        
         # Keep character columns as strings rather than converting to factors 
         stringsAsFactors = FALSE
       )

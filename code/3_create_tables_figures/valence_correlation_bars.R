@@ -49,8 +49,7 @@ stopifnot(nrow(covariance_input) == length(displayed_pair_keys) * 2)
 
 corr_df <- build_correlation_from_varcov(
   var_df = variance_input,
-  cov_df = covariance_input,
-  use_multivariate_katz = TRUE
+  cov_df = covariance_input
 )
 stopifnot(all(dplyr::between(corr_df$corr_c, -1, 1)))
 

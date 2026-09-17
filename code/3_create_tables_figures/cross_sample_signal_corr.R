@@ -289,9 +289,7 @@ prepare_bootstrap_score_input <- function(sample_data, outcome, aggregation_meth
 
   prep <- suppressWarnings(prepare_pltree_data(
     data = sample_data,
-    rank_col = outcome,
-    subgroup_var = NULL,
-    subgroup_filter = NULL
+    rank_col = outcome
   ))
 
   if (method_without_suffix == "OLS") {
@@ -774,9 +772,9 @@ for (sample_pair in sample_pair_list) {
               J = number_of_firms
             )
             signal_vcov <- compute_clustered_signal_vcov(
+              prepared_inputs = clustered_signal_inputs,
               weights = rep(1 / number_of_firms, number_of_firms),
-              include_cross_outcome = FALSE,
-              prepared_inputs = clustered_signal_inputs
+              include_cross_outcome = FALSE
             )
             observed_covariance_matrix <- matrix(
               c(
@@ -799,12 +797,12 @@ for (sample_pair in sample_pair_list) {
               byrow = TRUE,
               dimnames = dimnames(observed_covariance_matrix)
             )
-            multivariate_katz_result <- compute_multivariate_katz_signal_correlation(
+            signal_correlation <- compute_multivariate_katz_signal_correlation(
               observed_covariance_matrix = observed_covariance_matrix,
               raw_noise_matrix = raw_noise_matrix,
               signal_vcov = signal_vcov
             )
-            if (is.null(multivariate_katz_result)) {
+            if (is.null(signal_correlation)) {
               stop(
                 "Multivariate Katz correction failed for ",
                 sample_pair$row_label, " / ", aggregation_method_value,
@@ -812,7 +810,6 @@ for (sample_pair in sample_pair_list) {
                 call. = FALSE
               )
             }
-            signal_correlation <- multivariate_katz_result$signal_correlation
             stopifnot(dplyr::between(signal_correlation, -1, 1))
 
             #### Wald test of belief equality

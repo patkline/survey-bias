@@ -4,66 +4,21 @@
 # Updated: entity_type/entity_id/entity schema
 # ------------------------------------------------------------------------------
 
-should_run_model <- function(model, run_borda, run_ols) {
-  switch(model,
-         "Borda" = isTRUE(run_borda),
-         "OLS"   = isTRUE(run_ols),
-         FALSE)
-}
-
 # ------------------------------------------------------------------------------
-# Small utilities (entity-aware, backward compatible)
+# Small utilities for the current entity-aware result schema
 # ------------------------------------------------------------------------------
 
-# Convert legacy firm_table (firm_id/firm) to entity schema if needed
-.coerce_entity_table <- function(ft) {
-  if (is.null(ft)) return(ft)
-  
-  # already new schema
-  if (all(c("entity_type","entity_id","entity") %in% names(ft))) {
-    if (!("eb" %in% names(ft))) ft$eb <- NA_real_
-    if (!("njobs" %in% names(ft))) ft$njobs <- NA_real_
-    return(ft)
-  }
-  
-  # legacy schema: firm_id / firm
-  if (all(c("firm_id","firm") %in% names(ft))) {
-    if (!("eb" %in% names(ft))) ft$eb <- NA_real_
-    out <- ft
-    out$entity_type <- "Firm"
-    out$entity_id   <- as.integer(out$firm_id)
-    out$entity      <- as.character(out$firm)
-    out$firm_id <- NULL
-    out$firm    <- NULL
-    if (!("njobs" %in% names(out))) out$njobs <- NA_real_
-    return(out)
-  }
-  
-  stop(
-    "firm_table is missing required columns. Need either (entity_type, entity_id, entity) ",
-    "or legacy (firm_id, firm). Found: ", paste(names(ft), collapse = ", ")
-  )
-}
-
-# Given an id vector, find matching column names in matrices/S:
-# tries entity<id>, then firm<id>
+# Given an id vector, validate and return its entity<id> matrix columns.
 .resolve_entity_cols <- function(ids, available_names) {
-  ids_chr <- as.character(ids)
-  cand_entity <- paste0("entity", ids_chr)
-  cand_firm   <- paste0("firm", ids_chr)
-  
-  if (all(cand_entity %in% available_names)) return(cand_entity)
-  if (all(cand_firm   %in% available_names)) return(cand_firm)
-  
-  missing_entity <- setdiff(cand_entity, available_names)
-  missing_firm   <- setdiff(cand_firm,   available_names)
-  
-  stop(
-    "Could not resolve entity columns. Missing entity* cols: ",
-    paste(missing_entity, collapse = ", "),
-    " ; Missing firm* cols: ",
-    paste(missing_firm, collapse = ", ")
-  )
+  entity_cols <- paste0("entity", as.character(ids))
+  missing_cols <- setdiff(entity_cols, available_names)
+  if (length(missing_cols) > 0L) {
+    stop(
+      "Missing entity columns: ",
+      paste(missing_cols, collapse = ", ")
+    )
+  }
+  entity_cols
 }
 
 # Standardize output matrix column names to entity<id>
@@ -71,19 +26,15 @@ should_run_model <- function(model, run_borda, run_ols) {
 
 
 # ------------------------------------------------------------------------------
-# run_models(): base outcomes + subset97 (no writing)
+# run_models(): always run Borda and OLS for the base outcomes + subset97
 # ------------------------------------------------------------------------------
 run_models <- function(
     survey_vars,
     data_wide_list,
     data_long_list,
     id_map_list,
-    run_borda = TRUE,
-    run_ols = TRUE,
-
     firms97 = NULL,
-    seed = 123,
-    build_subset97 = TRUE
+    seed = 123
 ) {
   set.seed(seed)
   
@@ -101,8 +52,6 @@ run_models <- function(
     d_long <- data_long_list[[outcome]]
     
     for (model in models) {
-      if (!should_run_model(model, run_borda, run_ols)) next
-
       # Aggregate to firm level, returning the recentered and non-recentered model estimates
       model_estimates <- construct_firm_level_estimates(
         aggregation_method            = model,
@@ -119,21 +68,19 @@ run_models <- function(
   }
   
   # ---- Step 2: subset97 (no writing) ----
-  if (isTRUE(build_subset97) && !is.null(firms97) && length(firms97) > 0) {
-    results <- build_subset97_and_write(
-      results           = results,
-      survey_vars       = survey_vars,
-      firms97_vec       = firms97
-    )
-  }
+  results <- build_subset97(
+    results           = results,
+    survey_vars       = survey_vars,
+    firms97_vec       = firms97
+  )
   
   invisible(results)
 }
 
 # ------------------------------------------------------------------------------
-# build_subset97_and_write(): now entity-aware, and only subsets Firm entities
+# build_subset97(): recenter the Firm entities in the 97-firm sample
 # ------------------------------------------------------------------------------
-build_subset97_and_write <- function(
+build_subset97 <- function(
     results, survey_vars, firms97_vec
 ) {
   stopifnot(is.list(results), "all" %in% names(results), "subset97" %in% names(results))
@@ -171,7 +118,8 @@ recenter_model_result_to_firms97 <- function(res_all, firms97) {
   
   firms97 <- sort(unique(as.integer(firms97)))
   
-  ft <- .coerce_entity_table(res_all$firm_table)
+  ft <- res_all$firm_table
+  stopifnot(all(c("entity_type", "entity_id", "entity") %in% names(ft)))
   ft <- ft[ft$entity_type == "Firm", , drop = FALSE]
   
   # restrict to firms97
@@ -185,10 +133,10 @@ recenter_model_result_to_firms97 <- function(res_all, firms97) {
   # --- mats restricted ---
   S_df_all <- res_all$mats$S
   
-  # keep id cols if present
-  id_cols <- intersect(c("resp_id", "firm_id"), names(S_df_all))
-  
-  # resolve incoming column names (firm* vs entity*)
+  # Keep the respondent identifier alongside the entity columns.
+  id_cols <- "resp_id"
+
+  # Resolve the standardized entity columns.
   in_cols <- .resolve_entity_cols(entity_ids, names(S_df_all))
   
   S_full97 <- as.matrix(S_df_all[, in_cols, drop = FALSE])
@@ -325,7 +273,8 @@ write_coefficients_long_sheet <- function(
         res <- model_list[[outcome]]
         if (is.null(res) || is.null(res$firm_table)) next
         
-        ft <- .coerce_entity_table(res$firm_table)
+        ft <- res$firm_table
+        stopifnot(all(c("entity_type", "entity_id", "entity") %in% names(ft)))
         
         if (!("estimate" %in% names(ft))) next
         if (!("se" %in% names(ft)))    ft$se    <- NA_real_

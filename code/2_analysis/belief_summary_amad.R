@@ -256,8 +256,7 @@ compute_belief_likert_amad <- function(
         respondent_influences$influence, respondent_count
       ),
       probability_different = probability_different,
-      gap_given_different = amad / probability_different,
-      firm_count = nrow(firm_stats)
+      gap_given_different = amad / probability_different
     ),
     firms = firm_stats
   )
@@ -494,8 +493,7 @@ compute_belief_borda_amad <- function(
         tie_share_respondent_influences$influence, respondent_count
       ),
       firm_count = averaging_firm_count
-    ),
-    firms = firm_stats
+    )
   )
 }
 
@@ -509,9 +507,7 @@ run_belief_summary_amad_analysis <- function(
   for (position in seq_along(outcomes)) {
     outcome <- outcomes[position]
     message("Computing belief AMAD statistics: ", outcome)
-    prep <- prepare_pltree_data(
-      survey_data, outcome, subgroup_var = NULL, subgroup_filter = NULL
-    )
+    prep <- prepare_pltree_data(survey_data, outcome)
     prep <- add_belief_amad_pairing_cells(prep, survey_data, outcome)
 
     likert <- compute_belief_likert_amad(prep$data_rating_long)

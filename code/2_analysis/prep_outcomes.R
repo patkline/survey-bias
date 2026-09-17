@@ -5,10 +5,8 @@ prep_outcomes <- function(data, survey_vars) {
   
   for (outcome in survey_vars) {
     prep <- prepare_pltree_data(
-      data            = data,
-      rank_col        = outcome,
-      subgroup_var    = NULL,
-      subgroup_filter = NULL
+      data = data,
+      rank_col = outcome
     )
     njobs <- data %>% dplyr::select(firm_id, njobs) %>% dplyr::distinct()
     data_wide_list[[outcome]] <- prep$data_wide_pltree

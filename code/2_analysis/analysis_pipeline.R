@@ -8,7 +8,6 @@ run_analysis_pipeline <- function(
     data, survey_vars, experimental_vars = NULL,
     subset_var = NULL, subset_value = NULL,
     output_dir, firms97 = NULL,
-    run_borda = TRUE, run_ols = TRUE,
     industry_mean_outcomes = NULL,
     seed = 123
 ) {
@@ -53,18 +52,15 @@ run_analysis_pipeline <- function(
   id_map_list             <- prep$id_map
   
 ################################################################################
-## Step 1a: Run Models
+## Step 1a: Run Borda and OLS Models + Build the 97-Firm Subset
 ################################################################################ 
   results <- run_models(
     survey_vars = survey_vars,
     data_wide_list = data_wide_list,
     data_long_list = data_long_list,
     id_map_list    = id_map_list,
-    run_borda = run_borda,
-    run_ols = run_ols,
     firms97 = firms97,
-    seed = seed,
-    build_subset97 = TRUE
+    seed = seed
   )
 
   message("✅ Step 1 Complete. Output directory: ", output_dir)
@@ -80,7 +76,7 @@ run_analysis_pipeline <- function(
       stop("Every industry_mean_outcome must also appear in survey_vars.")
     }
     message("Adding industry means + demeaned outcomes")
-    models_to_transform <- c(if (isTRUE(run_borda)) "Borda", if (isTRUE(run_ols)) "OLS")
+    models_to_transform <- c("Borda", "OLS")
     
     results <- add_industry_means_to_results(
       results       = results,
@@ -147,7 +143,7 @@ run_analysis_pipeline <- function(
 ## Step 4: EIV
 ################################################################################
   message("Building Noise Matrices for EIV")
-  models_to_build <- c(if (isTRUE(run_borda)) "Borda", if (isTRUE(run_ols)) "OLS")
+  models_to_build <- c("Borda", "OLS")
   
   # build one noise matrix per model (subset97)
   noise_mats_97 <- setNames(vector("list", length(models_to_build)), models_to_build)

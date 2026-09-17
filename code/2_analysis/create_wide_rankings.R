@@ -3,17 +3,12 @@
 #
 # Created: Jordan Cammarota 03-06-2026
 # ------------------------------------------------------------------------------
-prepare_pltree_data <- function(data, rank_col, subgroup_var, subgroup_filter) {
+prepare_pltree_data <- function(data, rank_col) {
   
   # Step 1: Ensure input data has necessary columns
   required_cols <- c(rank_col)
   if (!all(required_cols %in% names(data))) {
     stop("The input data must contain the required columns.")
-  }
-  
-  # Step 2: Restrict to subgroup if specified
-  if (!is.null(subgroup_var) && !is.null(subgroup_filter)) {
-    data <- data %>% dplyr::filter(.data[[subgroup_var]] == subgroup_filter)
   }
   
   if (!is.numeric(data[[rank_col]])) {

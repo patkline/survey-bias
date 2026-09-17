@@ -55,11 +55,12 @@ subset_var <- NULL
 subset_value <- NULL
 output_dir <- file.path(intermediate, "Full_Sample")
 
+# The replication pipeline always estimates both Borda and OLS specifications
+# and constructs the 97-firm subset.
 run_analysis_pipeline(
   data, survey_vars, experimental_vars,
   subset_var = subset_var, subset_value = subset_value,
   output_dir = output_dir, firms97 = firms97,
-  run_borda = TRUE, run_ols = TRUE,
   industry_mean_outcomes = standard_survey_vars,
   seed = 123
 )
@@ -99,7 +100,7 @@ runs <- tibble::tribble(
 )
 
 
-# ---- 3) Run them all ----
+# ---- 3) Run every subgroup with the fixed Borda/OLS specification ----
 for (i in seq_len(nrow(runs))) {
   subset_var   <- runs$subset_var[i]
   subset_value <- runs$subset_value[i]
@@ -116,7 +117,6 @@ for (i in seq_len(nrow(runs))) {
     experimental_vars = NULL,
     subset_var = subset_var, subset_value = subset_value,
     output_dir = output_dir, firms97 = firms97,
-    run_borda = TRUE, run_ols = TRUE,
     industry_mean_outcomes = NULL,
     seed = 123
   )

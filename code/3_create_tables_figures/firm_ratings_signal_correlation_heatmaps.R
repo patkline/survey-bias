@@ -48,9 +48,8 @@ covariance_input <- read_parquet_sheet(file.path(intermediate, "Full_Sample"), "
     )
 stopifnot(nrow(covariance_input) == 10 * 9 + 10)
 sheet_correlations <- build_correlation_from_varcov(
-    var_df = variance_input,
-    cov_df = covariance_input,
-    use_multivariate_katz = TRUE
+  var_df = variance_input,
+  cov_df = covariance_input
 )
 stopifnot(all(dplyr::between(sheet_correlations$corr_c, -1, 1)))
 

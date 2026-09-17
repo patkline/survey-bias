@@ -519,9 +519,7 @@ calculate_yimfor_projected_signal <- function(theta_hat, Sigma, design) {
     signal_variance = katz_correct(
       variance_component$sigma2_hat,
       variance_component$Vhat
-    ),
-    sigma2_hat = variance_component$sigma2_hat,
-    Vhat = variance_component$Vhat
+    )
   )
 }
 

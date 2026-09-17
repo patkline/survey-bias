@@ -10,7 +10,7 @@
 # - id_var: respondent id column name
 # - higher_is_better: if FALSE (default), lower ranks are better (1 best)
 # - normalize: if TRUE, divides by (# alternatives ranked - 1) per respondent
-# Returns: tibble(resp_id, firm_id, firm, B, e) with one row per
+# Returns: tibble(resp_id, firm_id, B, e) with one row per
 # (respondent, ranked firm), where e is the number of eligible opponents used
 # to normalize B. Reference firms use all other observed firms; non-reference
 # firms use only other observed non-reference firms.
@@ -140,9 +140,5 @@ compute_borda_individual_wide <- function(data_wide,
     )
   }
   
-  out <- dplyr::bind_rows(out_list)
-  out <- out %>%
-    dplyr::left_join(id_map %>% dplyr::select(firm_id, firm), by = "firm_id")
-  
-  out
+  dplyr::bind_rows(out_list)
 }

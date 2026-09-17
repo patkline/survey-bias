@@ -32,7 +32,6 @@ var_component_with_var <- function(theta_hat, Sigma) {
   
   list(
     sigma2_hat = sigma2_hat,
-    Vhat       = Vhat,
-    se_sigma2  = sqrt(pmax(Vhat, 0))  # guard tiny negatives from rounding
+    Vhat       = Vhat
   )
 }
