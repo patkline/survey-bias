@@ -99,6 +99,15 @@ runs <- tibble::tribble(
   "educ",            0,         "Subset_No_College"
 )
 
+# Q78 is already retained as party_affil; compare explicit party identifiers.
+runs <- runs |>
+  dplyr::mutate(subset_value = as.character(subset_value)) |>
+  tibble::add_row(
+    subset_var = "party_affil",
+    subset_value = c("Republican", "Democrat"),
+    output_stub = c("Subset_Republican", "Subset_Democrat")
+  )
+
 
 # ---- 3) Run every subgroup with the fixed Borda/OLS specification ----
 for (i in seq_len(nrow(runs))) {

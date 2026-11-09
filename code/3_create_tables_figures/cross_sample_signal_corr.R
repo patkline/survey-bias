@@ -66,7 +66,8 @@ sample_pair_list <- list(
     list(sample_1 = "College",                 sample_2 = "No_College",              row_label = "At Least Some College vs HS Diploma or less"),
     list(sample_1 = "Convenience",             sample_2 = "Probability",             row_label = "Convenience vs Probability"),
     list(sample_1 = "Conf_Gender_Y",           sample_2 = "Conf_Gender_N",           row_label = "Confident vs Not (Gender)"),
-    list(sample_1 = "Conf_Race_Y",             sample_2 = "Conf_Race_N",             row_label = "Confident vs Not (Race)")
+    list(sample_1 = "Conf_Race_Y",             sample_2 = "Conf_Race_N",             row_label = "Confident vs Not (Race)"),
+    list(sample_1 = "Republican",              sample_2 = "Democrat",                row_label = "Republican vs Democrat")
 )
 
 # Define vector to store every sample name
@@ -89,7 +90,8 @@ sample_definition_table <- data.frame(
     "College", "No_College",
     "Convenience", "Probability",
     "Conf_Gender_Y", "Conf_Gender_N",
-    "Conf_Race_Y", "Conf_Race_N"
+    "Conf_Race_Y", "Conf_Race_N",
+    "Republican", "Democrat"
   ),
   subset_var = c(
     "race", "race",
@@ -100,7 +102,8 @@ sample_definition_table <- data.frame(
     "educ", "educ",
     "sample", "sample",
     "confidence_gend", "confidence_gend",
-    "confidence_race", "confidence_race"
+    "confidence_race", "confidence_race",
+    "party_affil", "party_affil"
   ),
   subset_value = c(
     1, 0,
@@ -111,7 +114,8 @@ sample_definition_table <- data.frame(
     1, 0,
     0, 1,
     1, 0,
-    1, 0
+    1, 0,
+    "Republican", "Democrat"
   ),
   stringsAsFactors = FALSE
 )
@@ -121,7 +125,7 @@ stopifnot(
   !anyDuplicated(sample_definition_table$sample)
 )
 
-# The two samples in every reported comparison are disjoint partitions. This
+# The two samples in every reported comparison are disjoint respondent groups. This
 # justifies a zero cross-sample measurement-error covariance block in the
 # multivariate delta-method calculation below.
 for (sample_pair in sample_pair_list) {
